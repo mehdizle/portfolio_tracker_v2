@@ -1,0 +1,22 @@
+{
+  "name": "portfolio-tracker-v2",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Casablanca (MAD) portfolio tracker - v2 (modular core, tested, encrypted backups).",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "concat": "node scripts/concat.mjs",
+    "dev": "npm run concat && vite",
+    "build": "npm run concat && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vite": "8.2.2",
+    "vitest": "4.1.11"
+  }
+}

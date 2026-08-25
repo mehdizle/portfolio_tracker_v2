@@ -1,0 +1,15902 @@
+// AUTO-GENERATED
+(function () {
+
+// ===== 01-core.js =====
+// ============================================================
+// 01-core.js
+// core: toast, safe storage, modals, escapeHtml, theme cache, SEED/config, fees & broker defs, formatters, divRate
+//
+// One of 9 ordered source files (01..09). scripts/concat.mjs concatenates
+// them in order into a single shared-scope bundle, which Vite bundles +
+// minifies. Order matters (definitions before boot). Logic unchanged from
+// the original single-file app.
+// ============================================================
+"use strict";
+// ---------- Toast notifications (accessible, non-blocking) ----------
+function toast(msg, type) {
+  try {
+    var host = document.getElementById("toastHost");
+    if (!host) return;
+    var ico =
+      {
+        err: "\u26D4",
+        warn: "\u26A0\uFE0F",
+        ok: "\u2705",
+        info: "\u2139\uFE0F",
+      }[type || "info"] || "\u2139\uFE0F";
+    var el = document.createElement("div");
+    el.className = "qtoast " + (type || "info");
+    el.setAttribute("role", type === "err" ? "alert" : "status");
+    var span = document.createElement("span");
+    span.className = "qt-ico";
+    span.textContent = ico;
+    var body = document.createElement("span");
+    body.textContent = String(msg);
+    el.appendChild(span);
+    el.appendChild(body);
+    host.appendChild(el);
+    requestAnimationFrame(function () {
+      el.classList.add("show");
+    });
+    var life = type === "err" ? 5200 : 3200;
+    setTimeout(function () {
+      el.classList.remove("show");
+      setTimeout(function () {
+        el.remove();
+      }, 240);
+    }, life);
+  } catch (_) {
+    /* toast must never throw */
+  }
+}
+// ---------- safe persistence helpers ----------
+// Single choke point for localStorage writes so a failure (private mode,
+// quota exceeded, disabled storage) is surfaced to the user instead of being
+// silently swallowed. Returns true on success, false on failure.
+let _storageWarned = false;
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    _storageWarned = false;
+    return true;
+  } catch (e) {
+    // Only nag once per failure streak so we don't spam a toast per keystroke.
+    if (!_storageWarned) {
+      _storageWarned = true;
+      const quota =
+        e &&
+        (e.name === "QuotaExceededError" ||
+          e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+          e.code === 22 ||
+          e.code === 1014);
+      toast(
+        quota
+          ? "Storage is full \u2014 your latest change was NOT saved. Export a backup and free up space."
+          : "Couldn't save to this browser \u2014 your latest change was NOT saved. " +
+              ((e && e.message) || ""),
+        "err",
+      );
+    }
+    return false;
+  }
+}
+// Parse a localStorage value that is expected to be JSON. On corruption, the
+// raw string is preserved under "<key>_corrupt_<timestamp>" (best effort) and
+// the caller-supplied fallback is returned, so bad data is never silently lost
+// and can be recovered from the backup dump. Returns { ok, value }.
+function safeParseLS(key, raw, fallback, label) {
+  if (raw == null) return { ok: true, value: fallback };
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (e) {
+    try {
+      localStorage.setItem(key + "_corrupt_" + Date.now(), raw);
+    } catch (_) {}
+    console.error("Corrupt data for " + (label || key) + ":", e);
+    toast(
+      (label || key) +
+        " data was unreadable and has been set aside (saved as a *_corrupt_* key). Restore from a backup to recover it.",
+      "err",
+    );
+    return { ok: false, value: fallback };
+  }
+}
+// ---------- in-app modal helpers ----------
+function _qwTodayISO() {
+  const d = new Date();
+  const o = d.getTimezoneOffset();
+  const l = new Date(d.getTime() - o * 60000);
+  return l.toISOString().slice(0, 10);
+}
+// Validate a YYYY-MM-DD string is a REAL calendar date (rejects 2024-13-40,
+// 2024-02-30, empty, or non-string). Used to guard transaction/import input.
+function validTxnDate(s) {
+  if (typeof s !== "string") return false;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  const y = +m[1],
+    mo = +m[2],
+    da = +m[3];
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return false;
+  const dt = new Date(y, mo - 1, da);
+  // round-trip check: JS Date normalizes overflow (Feb 30 -> Mar 2), so a valid
+  // date must read back the same Y/M/D.
+  return (
+    dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === da
+  );
+}
+function appConfirm(message, opts) {
+  opts = opts || {};
+  return new Promise((res) => {
+    const back = document.createElement("div");
+    back.className = "qwmodal-back";
+    back.innerHTML =
+      '<div class="qwmodal" role="dialog" aria-modal="true">' +
+      "<h3>" +
+      escapeHtml(opts.title || "Please confirm") +
+      "</h3>" +
+      '<p class="qw-msg"></p>' +
+      '<div class="qw-btns">' +
+      '<button class="qw-b qw-cancel">' +
+      escapeHtml(opts.cancelText || "Cancel") +
+      "</button>" +
+      '<button class="qw-b qw-ok' +
+      (opts.danger ? " qw-danger" : "") +
+      '">' +
+      escapeHtml(opts.okText || "Confirm") +
+      "</button>" +
+      "</div></div>";
+    back.querySelector(".qw-msg").textContent = message;
+    const done = (v) => {
+      back.remove();
+      document.removeEventListener("keydown", onKey);
+      res(v);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") done(false);
+      else if (e.key === "Enter") done(true);
+    };
+    back.querySelector(".qw-cancel").onclick = () => done(false);
+    back.querySelector(".qw-ok").onclick = () => done(true);
+    back.addEventListener("mousedown", (e) => {
+      if (e.target === back) done(false);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(back);
+    back.querySelector(".qw-ok").focus();
+  });
+}
+function appPrompt(label, value, opts) {
+  opts = opts || {};
+  return new Promise((res) => {
+    const back = document.createElement("div");
+    back.className = "qwmodal-back";
+    const showToday = !!opts.today;
+    back.innerHTML =
+      '<div class="qwmodal" role="dialog" aria-modal="true">' +
+      "<h3>" +
+      escapeHtml(opts.title || "Enter a value") +
+      "</h3>" +
+      '<label class="qw-field"><span class="qw-lbl"></span>' +
+      '<span class="qw-inrow"><input type="' +
+      (opts.inputType || "text") +
+      '">' +
+      (showToday
+        ? '<button type="button" class="qw-today">Today</button>'
+        : "") +
+      "</span></label>" +
+      '<div class="qw-btns">' +
+      '<button class="qw-b qw-cancel">Cancel</button>' +
+      '<button class="qw-b qw-ok">OK</button>' +
+      "</div></div>";
+    back.querySelector(".qw-lbl").textContent = label;
+    const inp = back.querySelector("input");
+    inp.value = value == null ? "" : value;
+    const done = (v) => {
+      back.remove();
+      document.removeEventListener("keydown", onKey);
+      res(v);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") done(null);
+      else if (e.key === "Enter") done(inp.value);
+    };
+    if (showToday) {
+      back.querySelector(".qw-today").onclick = () => {
+        inp.value = _qwTodayISO();
+        inp.focus();
+      };
+    }
+    back.querySelector(".qw-cancel").onclick = () => done(null);
+    back.querySelector(".qw-ok").onclick = () => done(inp.value);
+    back.addEventListener("mousedown", (e) => {
+      if (e.target === back) done(null);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(back);
+    inp.focus();
+    inp.select();
+  });
+}
+// combined fill dialog for validating a pending order (date+Today, price, qty, total)
+function appFillDialog(o, isDiv, moneyFn) {
+  return new Promise((res) => {
+    const back = document.createElement("div");
+    back.className = "qwmodal-back";
+    const qtyRow = isDiv
+      ? ""
+      : '<label class="qw-field">Quantity executed (order is ' +
+        moneyFn(o.qty, o.qty % 1 ? 3 : 0) +
+        " \u2014 less = partial fill)" +
+        '<span class="qw-inrow"><input id="qwf-qty" type="text"></span></label>';
+    const totRow =
+      !isDiv && o.total != null
+        ? '<label class="qw-field">Executed Total TTC (blank = qty\u00D7price)' +
+          '<span class="qw-inrow"><input id="qwf-tot" type="text"></span></label>'
+        : "";
+    back.innerHTML =
+      '<div class="qwmodal" role="dialog" aria-modal="true">' +
+      "<h3>" +
+      (isDiv ? "Record dividend" : "Validate order") +
+      " \u2014 " +
+      escapeHtml(o.ticker || "") +
+      "</h3>" +
+      '<label class="qw-field">' +
+      (isDiv ? "Date received (YYYY-MM-DD)" : "Execution date (YYYY-MM-DD)") +
+      '<span class="qw-inrow"><input id="qwf-date" type="text"><button type="button" class="qw-today">Today</button></span></label>' +
+      '<label class="qw-field">' +
+      (isDiv ? "Dividend amount per share" : "Executed unit price") +
+      '<span class="qw-inrow"><input id="qwf-price" type="text"></span></label>' +
+      qtyRow +
+      totRow +
+      '<div class="qw-btns"><button class="qw-b qw-cancel">Cancel</button><button class="qw-b qw-ok">Confirm</button></div></div>';
+    const g = (id) => back.querySelector("#" + id);
+    g("qwf-date").value = o.date || "";
+    g("qwf-price").value = o.price != null ? o.price : "";
+    if (!isDiv) g("qwf-qty").value = o.qty;
+    if (totRow) g("qwf-tot").value = +o.total.toFixed(2);
+    back.querySelector(".qw-today").onclick = () => {
+      g("qwf-date").value = _qwTodayISO();
+      g("qwf-date").focus();
+    };
+    const done = (v) => {
+      back.remove();
+      document.removeEventListener("keydown", onKey);
+      res(v);
+    };
+    const submit = () =>
+      done({
+        date: g("qwf-date").value,
+        price: g("qwf-price").value,
+        qty: isDiv ? null : g("qwf-qty").value,
+        total: totRow ? g("qwf-tot").value : null,
+      });
+    const onKey = (e) => {
+      if (e.key === "Escape") done(null);
+      else if (e.key === "Enter" && e.target.tagName !== "BUTTON") submit();
+    };
+    back.querySelector(".qw-cancel").onclick = () => done(null);
+    back.querySelector(".qw-ok").onclick = submit;
+    back.addEventListener("mousedown", (e) => {
+      if (e.target === back) done(null);
+    });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(back);
+    g("qwf-date").focus();
+    g("qwf-date").select();
+  });
+}
+// ---------- HTML escaping (XSS-safe interpolation of user text) ----------
+function escapeHtml(v) {
+  if (v == null) return "";
+  return String(v).replace(/[&<>"']/g, function (c) {
+    return {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[c];
+  });
+}
+
+// ---------- Highcharts load guard (graceful offline degradation) ----------
+(function () {
+  if (typeof Highcharts === "undefined") {
+    // Charts need the Highcharts CDN (internet). Show a friendly note instead of blank boxes,
+    // and stub the API so render() never throws.
+    window.Highcharts = {
+      chart: function (id) {
+        const el = document.getElementById(id);
+        if (el)
+          el.innerHTML =
+            '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;text-align:center;padding:20px">\uD83D\uDCC8 Charts need an internet connection to load.<br>All tables & numbers work offline.</div>';
+        return { reflow: function () {} };
+      },
+    };
+  }
+})();
+
+// ---------- Theme color accessor (single source of truth for charts) ----------
+// Reads a CSS design token (e.g. themeColor('primary')) so chart series colors
+// always follow the :root theme. If you retune --primary/--success/etc., every
+// chart updates on next render \u2014 no hardcoded hexes to hunt down. Fallbacks match
+// the current palette in case a token is ever missing.
+// Theme tokens are cached: reading a CSS custom property forces a style
+// recalc, and the chart/render paths ask for them many times per refresh.
+// We compute them once and refresh only when the theme actually changes
+// (see refreshThemeCache(), called from applyTheme + at boot).
+const _themeFallback = {
+  primary: "#7c5cdd",
+  primary2: "#9a7ef0",
+  success: "#2dd4a7",
+  error: "#f26d6d",
+  warn: "#f5b544",
+  info: "#8b9cf5",
+  text: "#e6edf3",
+  text2: "#9ca3af",
+  border: "#262a33",
+};
+let _themeCache = null;
+function refreshThemeCache() {
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    const c = {};
+    for (const name in _themeFallback) {
+      const v = cs.getPropertyValue("--" + name).trim();
+      c[name] = v || _themeFallback[name];
+    }
+    _themeCache = c;
+  } catch (e) {
+    _themeCache = { ..._themeFallback };
+  }
+  return _themeCache;
+}
+function themeColor(name) {
+  const c = _themeCache || refreshThemeCache();
+  return c[name] || _themeFallback[name] || "#7c5cdd";
+}
+
+const SEED = {
+  transactions: [],
+  master: {},
+  dividend_calendar: [],
+  fee_params: { commission: 0.0099, fixed_fee: 2.75, tpcvm: 0.15 },
+  div_tax_by_year: { 2025: 0.12, 2026: 0.1125, 2027: 0.1 },
+  prices_updated: "2026-07-29",
+};
+const LS_KEY = "casa_portfolio_txns_v1";
+const ISSUER_TO_TICKER = {
+  "MAGHREB OXYGENE": "MOX",
+  "AFRIQUIA GAZ": "GAZ",
+  "IMMORENTE INVEST": "IMO",
+  "AUTO NEJMA": "NEJ",
+  "AUTO HALL": "ATH",
+  SALAFIN: "SLF",
+  CDM: "CDM",
+  "CASH PLUS S.A": "CAP",
+  "SOCIETE DES BOISSONS DU MAROC": "SBM",
+  "CFG BANK": "CFG",
+  "HOLCIM MAROC S.A": "LHM",
+  "WAFA ASSURANCE": "WAA",
+  "TOTALENERGIES MARKETING MAROC": "TMA",
+  ATLANTASANAD: "ATL",
+  "ARADEI CAPITAL": "ARD",
+  "AFRIC INDUSTRIES SA": "AFI",
+  "SOCIETE LES EAUX MINERALES D'OULMES": "OUL",
+  VICENNE: "VCN",
+  RISMA: "RIS",
+  DISWAY: "DWY",
+  "DISTY TECHNOLOGIES": "DYT",
+  "LABEL VIE": "LBV",
+  "MUTANDIS SCA": "MUT",
+  "CREDIT IMMOBILIER ET HOTELIER": "CIH",
+  "SOCIETE DE THERAPEUTIQUE MAROCAINE": "SSOT",
+  "CIMENTS DU MAROC": "CMA",
+  "ENNAKL AUTOMOBILES": "NKL",
+  "ATTIJARIWAFA BANK": "ATW",
+  "BANQUE CENTRALE POPULAIRE": "BCP",
+  "DELTA HOLDING": "DHO",
+  "JET CONTRACTORS": "JET",
+  "ALUMINIUM DU MAROC": "ALM",
+  AGMA: "AGM",
+  "SOCIETE GENERALE DES TRAVAUX DU MAROC": "GTM",
+  MANAGEM: "MNG",
+  "SOCIETE METALLURGIQUE D'IMITER": "SMI",
+  "HIGHTECH PAYMENT SYSTEMS": "HPS",
+  "BANK OF AFRICA": "BOA",
+  "BANQUE MAROCAINE POUR LE COMMERCE ET L'INDUSTRIE": "BCI",
+  MICRODATA: "MIC",
+  "SOCIETE D'EXPLOITATION DES PORTS - MARSA MAROC": "MSA",
+  "SOCIETE NATIONALE DE SIDERURGIE SA": "SID",
+  "ALLIANCES DEVELOPPEMENT IMMOBILIER SA": "ADI",
+  COSUMAR: "CSR",
+  EQDOM: "EQD",
+  BALIMA: "BAL",
+  "DARI COUSPATE": "DRI",
+  "SANLAM MAROC": "SAH",
+  MAGHREBAIL: "MAB",
+  "ITISSALAT AL-MAGHRIB": "IAM",
+  "SOCIETE DE PROMOTION PHARMACEUTIQUE DU MAGHREB S.A.": "PRO",
+  "TAQA MOROCCO": "TQM",
+};
+const TODAY = new Date();
+TODAY.setHours(0, 0, 0, 0);
+// Granular, editable & persisted fee parameters (defaults mirror Excel BS:BX)
+const FP_DEFAULT = {
+  c_marche: 0.002,
+  c_interm: 0.006,
+  c_regl: 0.001,
+  vat: 0.1,
+  courier: 2.5,
+  tpcvm: 0.15,
+};
+let FP = (() => {
+  try {
+    const s = localStorage.getItem("casa_fees_v1");
+    if (s) return { ...FP_DEFAULT, ...JSON.parse(s) };
+  } catch (e) {
+    console.warn(
+      "Could not load saved fees (casa_fees_v1); using defaults.",
+      e,
+    );
+  }
+  return { ...FP_DEFAULT };
+})();
+function saveFees() {
+  if (safeSetItem("casa_fees_v1", JSON.stringify(FP))) markSaved();
+}
+// \u2500\u2500 GLOBAL VAT (single source of truth) \u2500\u2500
+// VAT is a national 10% rate applied to broker commissions everywhere. Stored once
+// on FP.vat (editable under Data \u25B8 Global tax). All fee helpers read vatRate() so
+// per-broker vat fields are NOT authoritative \u2014 change it here, it flows everywhere.
+// v2: fee/tax leaf helpers delegate to the tested core (src/core/fees.js,
+// tax.js) so the whole app shares ONE rounding-correct implementation. They
+// keep their v1 names/signatures, reading the live FP/FP_PEA/BROKERS/DIVTAX
+// globals and forwarding them to the pure core functions.
+function vatRate() {
+  return __core.fees.vatRate(FP);
+}
+function feeRate() {
+  return __core.fees.feeRate(FP, vatRate());
+}
+function fixedFee() {
+  return __core.fees.fixedFee(FP, vatRate());
+}
+// ---------- PEA account (ECO) fee model \u2014 independent, editable & persisted ----------
+// PEA stock trades use a single 'courtage' commission (min floor), a r\u00E8glement/livraison
+// commission, and the Bourse de Casa commission ("imp\u00F4t de bourse"); TVA applies to ALL three.
+//   fees = [ max(gross*courtage, min) + gross*regl + gross*bourse ] * (1+tva)
+// OPCVM (PEA): entry/exit free, flat order fee (MAD HT) + TVA per transaction.
+// Dividends (PEA): commission de distribution (% HT) + TVA; no TPCVM.
+const FP_PEA_DEFAULT = {
+  courtage: 0.01,
+  courtageMin: 10,
+  regl: 0.002,
+  bourse: 0.001,
+  vat: 0.1,
+  opcvmOrder: 10,
+  divComm: 0.02,
+};
+let FP_PEA = (() => {
+  try {
+    const s = localStorage.getItem("casa_fees_pea_v1");
+    if (s) return { ...FP_PEA_DEFAULT, ...JSON.parse(s) };
+  } catch (e) {
+    console.warn(
+      "Could not load saved PEA fees (casa_fees_pea_v1); using defaults.",
+      e,
+    );
+  }
+  return { ...FP_PEA_DEFAULT };
+})();
+function saveFeesPea() {
+  if (safeSetItem("casa_fees_pea_v1", JSON.stringify(FP_PEA))) markSaved();
+}
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550 BROKER-BASED FEE SYSTEM \u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// Each broker has: {name, feeType:'regular'|'pea', fees:{...}}
+// feeType determines WHICH formula to apply (rate-based vs courtage-based).
+// TPCVM is global (government tax), not per-broker.
+const BROKER_DEFAULTS = {
+  saham: {
+    name: "Saham",
+    feeType: "regular",
+    fees: {
+      c_marche: 0.002,
+      c_interm: 0.006,
+      c_regl: 0.001,
+      vat: 0.1,
+      courier: 2.5,
+    },
+  },
+  attijari: {
+    name: "Attijari",
+    feeType: "pea",
+    fees: {
+      courtage: 0.01,
+      courtageMin: 10,
+      regl: 0.002,
+      bourse: 0.001,
+      vat: 0.1,
+      opcvmOrder: 10,
+      divComm: 0.02,
+    },
+  },
+};
+let BROKERS =
+  (() => {
+    try {
+      const s = localStorage.getItem("casa_brokers_v1");
+      if (s) return JSON.parse(s);
+    } catch (e) {
+      console.warn(
+        "Could not load saved brokers (casa_brokers_v1); using defaults.",
+        e,
+      );
+    }
+    return null;
+  })() || JSON.parse(JSON.stringify(BROKER_DEFAULTS));
+function saveBrokers() {
+  if (safeSetItem("casa_brokers_v1", JSON.stringify(BROKERS))) markSaved();
+}
+
+// Resolve broker for a transaction. New/edited transactions carry an explicit
+// `broker`. For legacy/imported rows with no broker field, fall back by asset type
+// to match the real setup (OPCVM funds are held at Attijari; stocks at Saham).
+// Broker and PEA-status are independent \u2014 we do NOT infer broker from the pea flag.
+function txnBroker(t) {
+  if (t.broker) return t.broker;
+  const _isOpcvm =
+    t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
+  return _isOpcvm ? "attijari" : "saham";
+}
+
+// \u2500\u2500 SINGLE SOURCE OF TRUTH for OPCVM (fund) fees \u2500\u2500
+// An OPCVM order fee = the fund's own buy/sell % (imported from the Data tab)
+// PLUS, for brokers that charge a flat order fee (Attijari: opcvmOrder + VAT,
+// e.g. 10 \u00D7 1.10 = 11 MAD), that surcharge on top. Saham has no surcharge.
+// Dividends carry no fund fee.
+//   gross          : NAV amount (price \u00D7 qty)
+//   action         : BUY | SELL | DIV
+//   broker         : resolved broker object (BROKERS[...])
+//   meta           : master record M[ticker] (holds buyFee/sellFee)
+//   includeFundPct : true  \u2192 apply the fund % (computed paths: Net-if-Sold, qty\u00D7price entry)
+//                    false \u2192 fund % already baked into a manually-entered Total; add surcharge only
+function opcvmFee(gross, action, broker, meta, includeFundPct) {
+  // v2: delegate to core (broker arg unused there - surcharge is Attijari-based).
+  return __core.fees.opcvmFee(
+    gross,
+    action,
+    meta,
+    includeFundPct,
+    _brokersOrDefaults(),
+    vatRate(),
+  );
+}
+function opcvmSurcharge() {
+  return __core.fees.opcvmSurcharge(_brokersOrDefaults(), vatRate());
+}
+// Live brokers if present, else the core defaults (matches v1 fallback).
+function _brokersOrDefaults() {
+  return typeof BROKERS !== "undefined" && BROKERS
+    ? BROKERS
+    : __core.defaults.BROKER_DEFAULTS;
+}
+
+// Populate broker <select> elements with current broker list
+function populateBrokerSelects() {
+  document.querySelectorAll("#tBroker,#pBroker").forEach((sel) => {
+    const cur = sel.value;
+    sel.innerHTML = Object.keys(BROKERS)
+      .map(
+        (id) =>
+          '<option value="' +
+          escapeHtml(id) +
+          '">' +
+          escapeHtml(BROKERS[id].name) +
+          "</option>",
+      )
+      .join("");
+    sel.value = cur && BROKERS[cur] ? cur : "attijari";
+  });
+}
+// Broker and PEA-status are INDEPENDENT (you can hold a PEA at any broker).
+// We no longer force broker=Attijari when PEA is ticked \u2014 the user chooses each
+// freely. Defaults (Attijari + PEA) are set once for convenience via the selects'
+// initial values; toggling PEA does not override the broker.
+function wireBrokerAutoSelect() {
+  /* intentionally no auto-mapping \u2014 broker is chosen independently of PEA */
+}
+
+// Compute fees for a broker by its feeType
+// NOTE: all broker fee helpers use the GLOBAL vatRate() \u2014 per-broker vat is ignored.
+function brokerFeeRate(bk) {
+  return __core.fees.brokerFeeRate(bk, vatRate());
+}
+function brokerFixedFee(bk) {
+  return __core.fees.brokerFixedFee(bk, vatRate());
+}
+function brokerStockFees(gross, bk) {
+  return __core.fees.brokerStockFees(gross, bk, vatRate());
+}
+
+// Universal fee calculator: given gross, action, broker object -> fees (delegates to core).
+function calcBrokerFees(gross, action, bk, isOpcvm) {
+  return __core.fees.calcBrokerFees(gross, action, bk, isOpcvm, vatRate(), FP);
+}
+// Stock BUY/SELL fees for a PEA trade of value `gross` (MAD). Returns fees incl. VAT (global).
+function peaStockFees(gross, fp) {
+  return __core.fees.peaStockFees(gross, fp || FP_PEA, vatRate());
+}
+// PEA dividend commission (incl. VAT global) on gross dividend.
+function peaDivFees(gross, fp) {
+  return __core.fees.peaDivFees(gross, fp || FP_PEA, vatRate());
+}
+let DIVTAX = (() => {
+  try {
+    const s = localStorage.getItem("casa_divtax_v1");
+    if (s) return JSON.parse(s);
+  } catch (e) {
+    console.warn(
+      "Could not load saved dividend tax (casa_divtax_v1); using defaults.",
+      e,
+    );
+  }
+  return { ...SEED.div_tax_by_year };
+})();
+function saveDivTax() {
+  if (safeSetItem("casa_divtax_v1", JSON.stringify(DIVTAX))) markSaved();
+}
+const M = SEED.master; // ticker -> metrics
+
+// ---------- persistence ----------
+function loadTxns() {
+  const s = localStorage.getItem(LS_KEY);
+  const seed = () => SEED.transactions.map((t) => ({ ...t }));
+  if (s == null) return seed();
+  const parsed = safeParseLS(LS_KEY, s, null, "Transactions");
+  // On corrupt data safeParseLS has stashed the raw copy and warned; fall back to
+  // the (empty) seed without letting the next save silently overwrite the bad key.
+  return Array.isArray(parsed.value) ? parsed.value : seed();
+}
+function saveTxns(t) {
+  if (safeSetItem(LS_KEY, JSON.stringify(t))) markSaved();
+  else markSaveFailed();
+}
+// ---------- saved indicator + last-backup time ----------
+let _saveTimer = null;
+function markSaved() {
+  const el = document.getElementById("saveStatus");
+  if (!el) return;
+  el.textContent = "\u2713 Saved";
+  el.style.color = "var(--success)";
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    showBackupAge();
+  }, 1500);
+}
+// Persistent counterpart to markSaved(): when a localStorage write fails
+// (quota/private mode), leave a visible "NOT saved" marker instead of letting
+// the failure scroll away with the toast. Stays until the next successful save.
+function markSaveFailed() {
+  const el = document.getElementById("saveStatus");
+  if (!el) return;
+  clearTimeout(_saveTimer);
+  el.textContent = "\u2715 NOT saved \u2014 export a backup";
+  el.style.color = "var(--danger, #ef4444)";
+}
+function timeAgo(iso) {
+  if (!iso) return null;
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+function showBackupAge() {
+  const el = document.getElementById("saveStatus");
+  if (!el) return;
+  let t = null;
+  try {
+    t = localStorage.getItem("casa_last_backup_v1");
+  } catch (e) {}
+  el.style.color = "var(--muted)";
+  el.textContent = t ? "Backed up " + timeAgo(t) : "Not backed up yet";
+}
+
+let TXNS = loadTxns();
+
+// ---------- money helpers ----------
+const money = (v, d = 2) =>
+  v == null || isNaN(v)
+    ? "\u2014"
+    : v.toLocaleString("en-US", {
+        minimumFractionDigits: d,
+        maximumFractionDigits: d,
+      });
+// Percentage formatter. Default 1 decimal; pass d for other precisions (e.g. pct(x,0), pct(x,2)).
+const pct = (v, d = 1) =>
+  v == null || isNaN(v) ? "\u2014" : (v * 100).toFixed(d) + "%";
+const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+function divRate(year) {
+  // v2: delegate to core (same forward/backward-fill logic).
+  return __core.tax.divRate(year, DIVTAX, FP.tpcvm);
+}
+
+
+// ===== 02-compute.js =====
+// ============================================================
+// 02-compute.js  (v2)
+// compute: delegates the fee/tax/FIFO MATH to the tested core in
+// src/core/ (money.js, fees.js, tax.js, fifo.js) via globalThis.__core.
+//
+// Why a bridge: the core is pure, integer-cents-precise, and unit-tested in
+// CI. The UI still calls computeRow(t, avg) and runFIFO() by the same names
+// and signatures as before, so none of the ~350 UI call sites change - they
+// now transparently use the tested core. Memoization stays here (render calls
+// runFIFO ~8-10x per pass).
+// ============================================================
+
+// Build the core "context" from the live app globals each call. These globals
+// (M, BROKERS, FP, FP_PEA, DIVTAX) are defined in 01-core.js and mutated by the
+// UI; reading them fresh keeps behaviour identical to v1.
+function _coreCtx() {
+  return {
+    master: M,
+    brokers:
+      typeof BROKERS !== "undefined" && BROKERS
+        ? BROKERS
+        : __core.defaults.BROKER_DEFAULTS,
+    fp: FP,
+    fpPea: FP_PEA,
+    divtax: DIVTAX,
+  };
+}
+
+// Per-transaction fee/tax/net. Same signature as v1.
+function computeRow(t, avgCostForSell) {
+  return __core.fifo.computeRow(t, avgCostForSell, _coreCtx());
+}
+
+// ---------- FIFO engine (memoized wrapper over the core) ----------
+let _fifoSig = null,
+  _fifoCache = null;
+function _fifoSignature() {
+  let s = "";
+  try {
+    s +=
+      "cfg" +
+      JSON.stringify(FP) +
+      JSON.stringify(FP_PEA) +
+      JSON.stringify(DIVTAX) +
+      JSON.stringify(typeof BROKERS !== "undefined" ? BROKERS : null) +
+      "#";
+  } catch (err) {
+    console.warn("FIFO signature: config serialize failed.", err);
+    s += "cfgERR#";
+  }
+  s += TXNS.length + "#";
+  for (let i = 0; i < TXNS.length; i++) {
+    const t = TXNS[i];
+    s +=
+      t.date +
+      "|" +
+      t.ticker +
+      "|" +
+      t.action +
+      "|" +
+      t.qty +
+      "|" +
+      t.price +
+      "|" +
+      (t.pea ? 1 : 0) +
+      "|" +
+      (t.opcvm ? 1 : 0) +
+      "|" +
+      (t.total == null ? "" : t.total) +
+      "|" +
+      (t.broker || "") +
+      ";";
+  }
+  s += "~M";
+  for (const tk in M) {
+    const m = M[tk];
+    if (!m) continue;
+    if (
+      m.price != null ||
+      m.cat != null ||
+      m.buyFee != null ||
+      m.sellFee != null
+    )
+      s +=
+        tk +
+        ":" +
+        (m.price == null ? "" : m.price) +
+        ":" +
+        (m.cat || "") +
+        ":" +
+        (m.buyFee == null ? "" : m.buyFee) +
+        ":" +
+        (m.sellFee == null ? "" : m.sellFee) +
+        ",";
+  }
+  return s;
+}
+function runFIFO() {
+  const sig = _fifoSignature();
+  if (_fifoCache && _fifoSig === sig) return _fifoCache;
+  _fifoSig = sig;
+  _fifoCache = __core.fifo.runFIFO(TXNS, _coreCtx());
+  return _fifoCache;
+}
+
+
+// ===== 03-signals.js =====
+// ============================================================
+// 03-signals.js
+// signals: scoring (num/lin/soft), sector stats, factorScores, fairValue, targets, signal, daysUntil
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+      // ---------- valuation & signal engine (robust rebuild) ----------
+      // Design goals (fixing the Excel model's flaws):
+      //  1. Missing-data resilient: score = weighted avg of AVAILABLE factors only,
+      //     normalized by the weights actually used -> always a fair 0..1, never null.
+      //  2. Every factor is normalized to 0..1 then weighted (no silent 0.85 cap).
+      //  3. Targets guarantee sell > buy.
+      const num = (v) => typeof v === "number" && isFinite(v);
+      // linear score helper: value maps to 1 at 'best', 0 at 'worst' (either direction)
+      function lin(v, best, worst) {
+        if (!num(v)) return null;
+        if (best === worst) return 0.5;
+        let s = (v - worst) / (best - worst);
+        return Math.max(0, Math.min(1, s));
+      }
+      // Soft scorer: like lin() but rewards exceptional values beyond 'best' and
+      // penalises beyond 'worst' with a gentle asymptote instead of a hard clamp.
+      // Maps 'worst'->~0.12, midpoint->0.5, 'best'->~0.88, and keeps rising/falling
+      // past the bounds toward 0/1 (never fully saturating). Preserves direction.
+      function soft(v, best, worst) {
+        if (!num(v)) return null;
+        if (!isFinite(v)) return null; // reject NaN/Infinity outright
+        if (best === worst) return 0.5;
+        let t = (v - worst) / (best - worst); // 0 at worst, 1 at best, can exceed
+        // Clamp extreme outliers: allow a little beyond best/worst (rewards/penalties
+        // past the bounds) but cap the excursion so a garbage input (e.g. PEG=40,
+        // ROE=-500%) can't keep dominating the blended score. t in [-0.5, 1.5]
+        // => soft in ~[0.018, 0.982]. Preserves direction; kills runaway leverage.
+        if (t < -0.5) t = -0.5;
+        else if (t > 1.5) t = 1.5;
+        // logistic centred at t=0.5, slope tuned so t=0->~0.12, t=1->~0.88
+        return 1 / (1 + Math.exp(-4 * (t - 0.5)));
+      }
+
+      // Sector weighting profiles \u2014 SAME factors, re-weighted per sector.
+      // Financials (banks/insurers/REITs) judged on P/B, ROE, Yield \u2014 NOT EV/EBITDA.
+      // Each profile also carries an earnings-yield target (ey) & dividend growth (g)
+      // used by the price-INDEPENDENT fair-value anchors.
+      // peFair/grahamK/dyFair calibrated to the Casablanca market medians
+      // (median P/E\u224818, median P/E\u00B7P/B\u224854, median div yield\u22483.4%), tilted per sector.
+      const SECTOR_PROFILES = {
+        financial: {
+          key: "financial",
+          label: "Financial",
+          valuation: 0.04,
+          safety: 0.04,
+          quality: 0.22,
+          growth: 0.05,
+          yield: 0.13,
+          book: 0.24,
+          timing: 0.05,
+          momentum: 0.11,
+          peerrel: 0.12,
+          peFair: 14,
+          grahamK: 40,
+          dyFair: 0.045,
+          g: 0.03,
+        },
+        reit: {
+          key: "reit",
+          label: "REIT",
+          valuation: 0.04,
+          safety: 0.04,
+          quality: 0.13,
+          growth: 0.05,
+          yield: 0.26,
+          book: 0.21,
+          timing: 0.05,
+          momentum: 0.1,
+          peerrel: 0.12,
+          peFair: 16,
+          grahamK: 38,
+          dyFair: 0.05,
+          g: 0.02,
+        },
+        industrial: {
+          key: "industrial",
+          label: "Industrial",
+          valuation: 0.17,
+          safety: 0.15,
+          quality: 0.16,
+          growth: 0.08,
+          yield: 0.06,
+          book: 0.1,
+          timing: 0.05,
+          momentum: 0.11,
+          peerrel: 0.12,
+          peFair: 17,
+          grahamK: 48,
+          dyFair: 0.032,
+          g: 0.03,
+        },
+        defensive: {
+          key: "defensive",
+          label: "Defensive",
+          valuation: 0.14,
+          safety: 0.12,
+          quality: 0.16,
+          growth: 0.06,
+          yield: 0.14,
+          book: 0.1,
+          timing: 0.05,
+          momentum: 0.11,
+          peerrel: 0.12,
+          peFair: 20,
+          grahamK: 55,
+          dyFair: 0.034,
+          g: 0.03,
+        },
+        growth: {
+          key: "growth",
+          label: "Growth",
+          valuation: 0.14,
+          safety: 0.1,
+          quality: 0.19,
+          growth: 0.17,
+          yield: 0.03,
+          book: 0.07,
+          timing: 0.05,
+          momentum: 0.13,
+          peerrel: 0.12,
+          peFair: 24,
+          grahamK: 70,
+          dyFair: 0.02,
+          g: 0.06,
+        },
+        default: {
+          key: "default",
+          label: "Balanced",
+          valuation: 0.16,
+          safety: 0.12,
+          quality: 0.18,
+          growth: 0.08,
+          yield: 0.08,
+          book: 0.12,
+          timing: 0.05,
+          momentum: 0.09,
+          peerrel: 0.12,
+          peFair: 18,
+          grahamK: 50,
+          dyFair: 0.034,
+          g: 0.03,
+        },
+      };
+      function sectorProfile(cat) {
+        const c = (cat || "").toLowerCase();
+        if (/bank|financial|insurance|holding|financ/.test(c))
+          return SECTOR_PROFILES.financial;
+        if (/reit|real estate/.test(c)) return SECTOR_PROFILES.reit;
+        if (/tech|health|beverage|tourism|retail/.test(c))
+          return SECTOR_PROFILES.growth;
+        if (/food|consumer|utilit|telecom|transport|energy/.test(c))
+          return SECTOR_PROFILES.defensive;
+        if (
+          /industr|building|construction|material|mining|automotive|chemical|forestry|agri/.test(
+            c,
+          )
+        )
+          return SECTOR_PROFILES.industrial;
+        return SECTOR_PROFILES.default;
+      }
+
+      // Position-in-range (0 at 52wk low, 1 at high) \u2014 used for timing/range-position only.
+      function posInRange(m) {
+        return num(m.price) && num(m.low) && num(m.high) && m.high > m.low
+          ? (m.price - m.low) / (m.high - m.low)
+          : null;
+      }
+      // RANGE-POSITION score (NOT true momentum \u2014 we have no price time-series, so real
+      // momentum like trailing returns / moving averages cannot be computed). This uses only
+      // where the price sits within its 52-week band. We reward the MODERATE zone (~0.35-0.65):
+      // near the low may be a falling knife, near the high may be overheated. Peak reward ~0.55.
+      function momentumRaw(m) {
+        const pir = posInRange(m);
+        if (pir == null) return null;
+        return pir; // raw 0..1 position; scored below with a hump curve
+      }
+      function momentumScore(m) {
+        const r = momentumRaw(m);
+        if (r == null) return null;
+        // Hump: reward the "recovering but not overheated" zone (~0.35-0.65),
+        // penalise both falling-knife (near low, could keep falling) and overheated (near high).
+        // Gaussian centred at 0.55, width 0.28.
+        const c = 0.55,
+          w = 0.28;
+        return Math.exp(-((r - c) * (r - c)) / (2 * w * w));
+      }
+
+      // ---------- (B) Sector-relative valuation stats ----------
+      // Peer medians (P/E, P/B, Div-Y) per sector key, computed once from the whole master list M.
+      // Lets us score a stock on how cheap it is RELATIVE TO ITS PEERS \u2014 robust to whole-sector
+      // re-ratings that fixed absolute anchors miss. Cache is invalidated when M changes size.
+      let _SECTOR_STATS = null,
+        _SECTOR_STATS_SIG = null;
+      function _median(arr) {
+        if (!arr.length) return null;
+        const a = arr.slice().sort((x, y) => x - y);
+        const n = a.length;
+        return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+      }
+      function _statsFor(list) {
+        const pe = [],
+          pb = [],
+          divy = [];
+        list.forEach((m) => {
+          if (num(m.pe) && m.pe > 0) pe.push(m.pe);
+          if (num(m.pb) && m.pb > 0) pb.push(m.pb);
+          if (num(m.divy) && m.divy > 0) divy.push(m.divy);
+        });
+        return {
+          pe: _median(pe),
+          pb: _median(pb),
+          divy: _median(divy),
+          n: Math.max(pe.length, pb.length, divy.length),
+        };
+      }
+      function sectorStats() {
+        const sig =
+          Object.keys(M).length + "|" + Object.keys(M).join(",").length;
+        if (_SECTOR_STATS && _SECTOR_STATS_SIG === sig) return _SECTOR_STATS;
+        const byProf = {},
+          byCat = {};
+        for (const tk in M) {
+          const m = M[tk];
+          if (!m || m.cat === "OPCVM") continue;
+          const key = sectorProfile(m.cat).key;
+          const cat = m.cat || "Uncategorized";
+          (byProf[key] = byProf[key] || []).push(m);
+          (byCat[cat] = byCat[cat] || []).push(m);
+        }
+        const prof = {},
+          cat = {};
+        for (const k in byProf) prof[k] = _statsFor(byProf[k]);
+        for (const c in byCat) cat[c] = _statsFor(byCat[c]);
+        _SECTOR_STATS = { prof, cat };
+        _SECTOR_STATS_SIG = sig;
+        return _SECTOR_STATS;
+      }
+      // Peer-relative valuation score 0..1: cheaper-than-peers on P/E and P/B => higher.
+      // Uses ratio-to-median (0.5x median = very cheap ~1; 2x median = expensive ~0). Div-Y:
+      // higher-than-peer yield is a mild positive. Needs >=3 peers with data to be meaningful.
+      // Peer-relative valuation. Compares a stock to its peers on P/E, P/B and Div-Y.
+      // PEER SET SELECTION (fixes the thin/singleton-sector concern):
+      //   - Prefer the RAW category (e.g. "Banking") when it has >=4 comparables \u2014 most apples-to-apples.
+      //   - Otherwise fall back to the BROAD profile bucket (e.g. "financial") for a coarser comparison.
+      //   - If even the profile bucket has <3, return null (no meaningful peer signal).
+      // Returns {score, n, basis} where n = effective peer count and basis = 'category'|'sector'.
+      // The caller (factorScores) DOWN-WEIGHTS the factor when n is small, so a comparison built
+      // on only 3-4 names counts less than one built on 15+.
+      function peerRelScore(m) {
+        const st = sectorStats();
+        const cat = m.cat || "Uncategorized";
+        const key = sectorProfile(m.cat).key;
+        const cStat = st.cat[cat],
+          pStat = st.prof[key];
+        let s = null,
+          basis = null;
+        if (cStat && cStat.n >= 4) {
+          s = cStat;
+          basis = "category";
+        } else if (pStat && pStat.n >= 3) {
+          s = pStat;
+          basis = "sector";
+        } else return null; // too few comparables anywhere
+        const parts = [];
+        if (num(m.pe) && m.pe > 0 && s.pe) {
+          parts.push(soft(s.pe / m.pe, 1.6, 0.6));
+        } // peerPE/myPE: >1 => cheaper than peers
+        if (num(m.pb) && m.pb > 0 && s.pb) {
+          parts.push(soft(s.pb / m.pb, 1.6, 0.6));
+        }
+        if (num(m.divy) && m.divy > 0 && s.divy) {
+          parts.push(soft(m.divy / s.divy, 1.5, 0.7));
+        } // higher yield vs peers = mild +
+        if (!parts.length) return null;
+        return {
+          score: parts.reduce((a, b) => a + b, 0) / parts.length,
+          n: s.n,
+          basis,
+        };
+      }
+      function factorScores(m) {
+        if (!m) return null;
+        const pir = posInRange(m);
+        const prof = sectorProfile(m.cat);
+        const F = {
+          valuation: { w: prof.valuation, s: soft(m.ev, 6, 16) },
+          safety: { w: prof.safety, s: soft(m.netdebt, 0, 5) },
+          quality: { w: prof.quality, s: soft(m.roe, 0.22, 0.05) },
+          growth: {
+            w: prof.growth,
+            s:
+              m.epsGrowth != null && m.epsGrowth <= 0
+                ? 0.15
+                : soft(m.peg, 0.7, 2.0),
+          }, // negative growth \u2192 PEG misleading, force low score
+          yield: { w: prof.yield, s: soft(m.divy, 0.06, 0.0) },
+          book: { w: prof.book, s: soft(m.pb, 0.8, 3.0) },
+          timing: {
+            w: prof.timing,
+            s: pir == null ? null : soft(pir, 0.15, 0.95),
+          }, // prefer lower-in-range for entry
+          momentum: { w: prof.momentum, s: momentumScore(m) },
+        };
+        // (B) Peer-relative valuation \u2014 DOWN-WEIGHTED by how many comparables exist.
+        // Thin peer sets (few/only stock in its category) get less influence, not full weight.
+        // Confidence ramp: n<=3 -> ~0.4x weight, n>=10 -> full weight (linear between).
+        const _pr = peerRelScore(m);
+        if (_pr) {
+          const _conf = Math.max(0.35, Math.min(1, (_pr.n - 2) / 8)); // 3 peers -> 0.35..0.4, 10+ -> 1.0
+          F.peerrel = {
+            w: (prof.peerrel || 0) * _conf,
+            s: _pr.score,
+            _n: _pr.n,
+            _basis: _pr.basis,
+          };
+        } else {
+          F.peerrel = { w: prof.peerrel || 0, s: null }; // no comparables -> factor skipped
+        }
+        // Normalize by available weights so missing factors don't zero the score
+        let wsum = 0,
+          acc = 0,
+          used = 0,
+          total = 0,
+          availW = 0,
+          totW = 0;
+        for (const k in F) {
+          const f = F[k];
+          total++;
+          totW += f.w;
+          if (f.s != null) {
+            acc += f.s * f.w;
+            wsum += f.w;
+            used++;
+            availW += f.w;
+          }
+        }
+        // \u2500\u2500 FACTOR CORRELATION DISCOUNT \u2500\u2500
+        // The "cheapness cluster" (valuation, book, peerrel) measures overlapping signals.
+        // Cap their combined weighted contribution to 1.5\u00D7 the single largest weight in the
+        // cluster, so triple-cheap doesn't overwhelm quality/safety/growth.
+        if (wsum > 0) {
+          const _cheapKeys = ["valuation", "book", "peerrel"];
+          let _cSum = 0,
+            _cMaxW = 0;
+          for (const ck of _cheapKeys) {
+            const f = F[ck];
+            if (f && f.s != null) {
+              _cSum += f.s * f.w;
+              _cMaxW = Math.max(_cMaxW, f.w);
+            }
+          }
+          const _cCap = _cMaxW * 1.5;
+          if (_cSum > _cCap && _cCap > 0) {
+            const _cScale = _cCap / _cSum;
+            for (const ck of _cheapKeys) {
+              const f = F[ck];
+              if (f && f.s != null) {
+                acc -= f.s * f.w * (1 - _cScale);
+              }
+            }
+          }
+        }
+        const score = wsum > 0 ? acc / wsum : null; // 0..1
+        const wcov = totW > 0 ? availW / totW : 0;
+        // ---- Conviction = how much we can TRUST this score ----
+        // wcov alone was misleading: missing factors often carry tiny sector weights, so a stock
+        // with EV, net-debt AND PEG all absent could still read ~0.87 wcov => 'High'. We now also
+        // require enough CORE fundamentals to actually be present. dataDepth counts the key raw
+        // inputs: earnings (eps|pe), book (pb|bvps), profitability (roe), income (divy|dps),
+        // and balance-sheet/growth (ev|netdebt|peg). 0..1.
+        const _has = (v) => num(v) && isFinite(v);
+        const _depthDefs = [
+          ["Earnings (EPS or P/E)", _has(m.eps) || _has(m.pe)],
+          ["Book value (P/B or BVPS)", _has(m.pb) || _has(m.bvps)],
+          ["Profitability (ROE)", _has(m.roe)],
+          ["Income (Div yield or DPS)", _has(m.divy) || _has(m.dps)],
+          [
+            "Balance sheet / growth (EV, net-debt or PEG)",
+            _has(m.ev) || _has(m.netdebt) || _has(m.peg),
+          ],
+          ["52-week price range", _has(m.low) && _has(m.high)],
+        ];
+        const _depthChecks = _depthDefs.map((d) => d[1]);
+        const dataDepth =
+          _depthChecks.filter(Boolean).length / _depthChecks.length; // 0..1
+        // Blend: geometric-style min-lean so BOTH must be decent for High. Take the weaker signal
+        // and nudge by the average, so a great wcov can't paper over thin fundamentals.
+        const convScore =
+          Math.min(wcov, dataDepth) * 0.6 + ((wcov + dataDepth) / 2) * 0.4;
+        const conviction =
+          convScore >= 0.8 ? "High" : convScore >= 0.55 ? "Medium" : "Low";
+        // Quality-only sub-score (ROE + safety + growth) \u2014 used to separate a genuine
+        // value buy from a falling knife independent of price/valuation.
+        const qParts = [
+          ["quality", F.quality],
+          ["safety", F.safety],
+          ["growth", F.growth],
+        ];
+        let qA = 0,
+          qW = 0;
+        qParts.forEach(([k, f]) => {
+          if (f.s != null) {
+            qA += f.s * f.w;
+            qW += f.w;
+          }
+        });
+        // Blend in earnings-quality flag (penalises red-flag stocks)
+        const _eq = earningsQuality(m);
+        if (qW > 0 && !_eq.ok) {
+          qA *= _eq.score;
+        }
+        const quality = qW > 0 ? qA / qW : null;
+        return {
+          score,
+          pir,
+          parts: F,
+          coverage: used / total,
+          wcov,
+          dataDepth,
+          convScore,
+          depthDefs: _depthDefs,
+          conviction,
+          profile: prof.label,
+          quality,
+          prof,
+          eqFlags: _eq.flags,
+        };
+      }
+
+      // ---------- Price-INDEPENDENT fair value ----------
+      // Blends anchors that don't simply scale with the current price:
+      //  1) Absolute Graham:    sqrt(K * EPS * BVPS)   (EPS/BVPS = reported when available, else price/PE, price/PB)
+      //  2) Earnings-power:      EPS / sector earnings-yield target
+      //  3) Dividend-discount:   DPS / (requiredReturn - g)   (Gordon growth)
+      //  4) 52-week midpoint     (already price-independent)
+      // Outlier anchors (>1.8x from the median anchor) are trimmed before averaging.
+      // Per-sector RELIABILITY weight of each valuation anchor (how much to trust it for
+      // that sector). Banks/REITs -> book & dividend; growth -> earnings power; etc.
+      // mid52 is a light technical sanity anchor everywhere. Weights are relative (auto-normalised).
+      const ANCHOR_W = {
+        financial: { graham: 1.1, earnpower: 0.7, ddm: 1.0, mid52: 0.5 },
+        reit: { graham: 0.9, earnpower: 0.5, ddm: 1.4, mid52: 0.5 },
+        industrial: { graham: 1.0, earnpower: 1.2, ddm: 0.6, mid52: 0.5 },
+        defensive: { graham: 1.0, earnpower: 1.0, ddm: 1.0, mid52: 0.5 },
+        growth: { graham: 0.7, earnpower: 1.4, ddm: 0.4, mid52: 0.6 },
+        default: { graham: 1.0, earnpower: 1.0, ddm: 0.8, mid52: 0.5 },
+      };
+      function anchorWeights(prof) {
+        return ANCHOR_W[(prof && prof.key) || "default"] || ANCHOR_W.default;
+      }
+      // Gordon-growth dividend value: next-year dividend discounted at the sector-implied
+      // required return r = dyFair + g  =>  DPS\u00B7(1+g)/(r\u2212g) = DPS\u00B7(1+g)/dyFair.
+      function ddmValue(dps, prof) {
+        const g = num(prof.g) ? prof.g : 0;
+        return (dps * (1 + g)) / prof.dyFair;
+      }
+
+      function fairValue(m) {
+        if (!m || !num(m.price)) return null;
+        // OPCVM funds carry only price + fees \u2014 no earnings/book/dividend metrics \u2014
+        // so there is NO intrinsic anchor to compute. Return null rather than
+        // falling back to price (which would masquerade as a fair value and drive
+        // bogus buy/sell targets). Funds are traded at NAV, not valued.
+        if (m.cat === "OPCVM") return null;
+        const prof = sectorProfile(m.cat);
+        // Prefer ABSOLUTE per-share fundamentals (price-independent); fall back to ratio-derived when absent.
+        const eps =
+          num(m.eps) && m.eps > 0
+            ? m.eps
+            : num(m.pe) && m.pe > 0
+              ? m.price / m.pe
+              : null;
+        const bvps =
+          num(m.bvps) && m.bvps > 0
+            ? m.bvps
+            : num(m.pb) && m.pb > 0
+              ? m.price / m.pb
+              : null;
+        const dps =
+          num(m.dps) && m.dps > 0
+            ? m.dps
+            : num(m.divy) && m.divy > 0
+              ? m.price * m.divy
+              : null;
+        const aw = anchorWeights(prof);
+        // \u2500\u2500 CYCLICAL EARNINGS NORMALIZATION (peak-earnings guard) \u2500\u2500
+        // Cyclical/Sensitive companies earn the most at the top of their cycle. Capitalising
+        // those PEAK earnings at a full multiple makes them look artificially "cheap" right
+        // before earnings mean-revert. We have no earnings time-series, so we use the two signals
+        // we DO have: the sector cycle tag, and where price sits in its 52w range (a proxy for
+        // "late in the cycle"). High-in-range cyclicals get their EARNINGS-based anchors (Graham,
+        // earnings-power) haircut; book/dividend/mid52 anchors are left untouched. Defensives
+        // and non-cyclicals are unaffected (factor = 1).
+        const _cyc = (m.cycle || "").toLowerCase();
+        const _isCyclical = /cyclical|sensitive/.test(_cyc);
+        let _earnFactor = 1;
+        if (_isCyclical) {
+          const _pir = posInRange(m); // 0 (low) .. 1 (high), null if no range
+          if (_pir != null) {
+            // No haircut at/below mid-range; ramp to a max 25% haircut as price nears the 52w high.
+            const _over = Math.max(0, _pir - 0.5) / 0.5; // 0 at midpoint, 1 at the high
+            _earnFactor = 1 - 0.25 * _over; // 1.0 .. 0.75
+          }
+        }
+        const anchors = [];
+        // 1) Graham number, market-calibrated constant: sqrt(K \u00B7 EPS \u00B7 BVPS)
+        if (eps != null && bvps != null && eps > 0 && bvps > 0)
+          anchors.push({
+            v: Math.sqrt(prof.grahamK * eps * bvps) * _earnFactor,
+            k: "graham",
+            w: aw.graham,
+          });
+        // 2) Earnings power: EPS \u00D7 sector-fair P/E (haircut for peak-cycle cyclicals)
+        if (eps != null && eps > 0)
+          anchors.push({
+            v: eps * prof.peFair * _earnFactor,
+            k: "earnpower",
+            w: aw.earnpower,
+          });
+        // 3) Dividend value: Gordon growth DDM (uses sector growth g)
+        if (dps != null && dps > 0)
+          anchors.push({ v: ddmValue(dps, prof), k: "ddm", w: aw.ddm });
+        // 4) 52-week midpoint (technical, price-anchored reference)
+        if (num(m.low) && num(m.high))
+          anchors.push({ v: (m.low + m.high) / 2, k: "mid52", w: aw.mid52 });
+        if (!anchors.length) return m.price;
+        // trim outliers vs median (keep 0.5x..2.0x of median anchor)
+        const vals = anchors
+          .map((a) => a.v)
+          .slice()
+          .sort((a, b) => a - b);
+        const med = vals[Math.floor((vals.length - 1) / 2)];
+        const kept = anchors.filter((a) =>
+          med > 0 ? a.v / med >= 0.5 && a.v / med <= 2.0 : true,
+        );
+        const use = kept.length ? kept : anchors;
+        // sector-weighted average of surviving anchors
+        let wsum = 0,
+          acc = 0;
+        use.forEach((a) => {
+          const w = num(a.w) ? a.w : 1;
+          acc += a.v * w;
+          wsum += w;
+        });
+        return wsum > 0
+          ? acc / wsum
+          : use.reduce((x, a) => x + a.v, 0) / use.length;
+      }
+      // expose the anchor breakdown for the tooltip
+      function fairValueParts(m) {
+        if (!m || !num(m.price)) return [];
+        const prof = sectorProfile(m.cat);
+        // Prefer ABSOLUTE per-share fundamentals (mirror fairValue so tooltip matches the engine).
+        const eps =
+          num(m.eps) && m.eps > 0
+            ? m.eps
+            : num(m.pe) && m.pe > 0
+              ? m.price / m.pe
+              : null;
+        const bvps =
+          num(m.bvps) && m.bvps > 0
+            ? m.bvps
+            : num(m.pb) && m.pb > 0
+              ? m.price / m.pb
+              : null;
+        const dps =
+          num(m.dps) && m.dps > 0
+            ? m.dps
+            : num(m.divy) && m.divy > 0
+              ? m.price * m.divy
+              : null;
+        // Mirror the cyclical peak-earnings haircut applied in fairValue().
+        const _cyc = (m.cycle || "").toLowerCase();
+        const _isCyclical = /cyclical|sensitive/.test(_cyc);
+        let _earnFactor = 1;
+        if (_isCyclical) {
+          const _pir = posInRange(m);
+          if (_pir != null) {
+            const _over = Math.max(0, _pir - 0.5) / 0.5;
+            _earnFactor = 1 - 0.25 * _over;
+          }
+        }
+        const _haircutNote =
+          _earnFactor < 0.999
+            ? " \u00D7" + _earnFactor.toFixed(2) + " cyc. haircut"
+            : "";
+        const out = [];
+        if (eps != null && bvps != null && eps > 0 && bvps > 0)
+          out.push([
+            "Graham \u221A(" + prof.grahamK + "\u00B7EPS\u00B7BVPS)" + _haircutNote,
+            Math.sqrt(prof.grahamK * eps * bvps) * _earnFactor,
+          ]);
+        if (eps != null && eps > 0)
+          out.push([
+            "Earnings power (EPS\u00D7" + prof.peFair + ")" + _haircutNote,
+            eps * prof.peFair * _earnFactor,
+          ]);
+        if (dps != null && dps > 0)
+          out.push([
+            "Dividend value (Gordon g=" +
+              ((prof.g || 0) * 100).toFixed(0) +
+              "%, DDM)",
+            ddmValue(dps, prof),
+          ]);
+        if (num(m.low) && num(m.high))
+          out.push(["52-wk midpoint", (m.low + m.high) / 2]);
+        return out;
+      }
+
+      function targetBuy(m, sc) {
+        const fv = fairValue(m);
+        if (fv == null) return null;
+        const s = sc && sc.score != null ? sc.score : 0.5;
+        // Margin of safety: higher score -> pay closer to fair; lower score -> demand more.
+        let disc = 0.1 + (1 - s) * 0.2; // 10%..30% below fair value (score-driven)
+        // (C) CONFIDENCE-SCALED: thin data (Low conviction) => demand an EXTRA margin of safety
+        // before calling it a buy. High conviction => no extra. Medium => small extra.
+        const conv = sc && sc.conviction;
+        const convExtra = conv === "Low" ? 0.1 : conv === "Medium" ? 0.04 : 0;
+        disc = Math.min(0.45, disc + convExtra); // cap total discount at 45%
+        return fv * (1 - disc);
+      }
+      function targetSell(m, sc) {
+        const fv = fairValue(m);
+        if (fv == null) return null;
+        const s = sc && sc.score != null ? sc.score : 0.5;
+        const prem = 0.12 + s * 0.28; // 12%..40% premium to fair value
+        let sell = fv * (1 + prem);
+        const buy = targetBuy(m, sc);
+        // 52-week-high cap: keep the sell target from being unrealistically far above the
+        // recent trading range. BUT it must never pull the target below what the stock is
+        // worth \u2014 otherwise we'd tell you to exit below fair value (and even below target buy)
+        // for high-quality names trading near their highs. So cap FIRST, then enforce the
+        // fair-value and buy-spread FLOORS afterwards (floors always win over the cap).
+        if (num(m.high)) sell = Math.min(sell, m.high * 1.1); // cap a bit above 52wk high (breakout room)
+        const floor = Math.max(fv, buy != null ? buy * 1.18 : 0); // never sell below fair value or <18% over buy
+        if (sell < floor) sell = floor;
+        return sell;
+      }
+
+      // ---------- (A) Quality gate & (E) dividend-safety helpers ----------
+      // Dividend safety: implied payout ratio from DPS/EPS (using reported values, else derived
+      // from price\u00D7divy and price/PE). Returns {ratio, level, note} or null when no dividend.
+      function divSafety(m) {
+        if (!m || !num(m.price)) return null;
+        const eps =
+          num(m.eps) && m.eps > 0
+            ? m.eps
+            : num(m.pe) && m.pe > 0
+              ? m.price / m.pe
+              : null;
+        const dps =
+          num(m.dps) && m.dps > 0
+            ? m.dps
+            : num(m.divy) && m.divy > 0
+              ? m.price * m.divy
+              : null;
+        if (dps == null || dps <= 0) return null; // no dividend to assess
+        if (eps == null || eps <= 0)
+          return {
+            ratio: null,
+            level: "unknown",
+            note: "Pays a dividend but earnings unknown/negative \u2014 payout sustainability unclear.",
+          };
+        const ratio = dps / eps; // payout ratio
+        // REITs/utilities legitimately run high payouts; be a bit more lenient for income sectors.
+        const pr = sectorProfile(m.cat);
+        const incomeSector = pr.key === "reit" || pr.key === "defensive";
+        const hi = incomeSector ? 1.1 : 0.9; // >100-110% (REIT) or >90% = stretched
+        const danger = incomeSector ? 1.3 : 1.05; // clearly funding div beyond earnings
+        let level = "ok",
+          note = "";
+        if (ratio > danger) {
+          level = "danger";
+          note =
+            "Payout " +
+            (ratio * 100).toFixed(0) +
+            "% of earnings \u2014 dividend likely unsustainable / at risk of a cut.";
+        } else if (ratio > hi) {
+          level = "stretched";
+          note =
+            "Payout " +
+            (ratio * 100).toFixed(0) +
+            "% of earnings \u2014 dividend is stretched; limited cushion.";
+        } else {
+          level = "ok";
+          note =
+            "Payout " + (ratio * 100).toFixed(0) + "% of earnings \u2014 covered.";
+        }
+        return { ratio, level, note };
+      }
+      // Quality gate: a hard floor that blocks a "value" BUY when fundamentals are unsafe,
+      // independent of how cheap the stock looks. Returns {block:bool, reason:str}.
+      // Signals: very weak quality sub-score, OR dangerously high net debt (>4x, soft() ~0),
+      // OR a dividend clearly at risk of a cut. Cheapness never overrides a broken balance sheet.
+      // \u2500\u2500 EARNINGS QUALITY flag \u2500\u2500
+      // Checks for accounting / fundamental red flags using available data.
+      // Returns {ok:bool, score:0-1, flags:[string]}. Score 1=clean, 0=multiple red flags.
+      function earningsQuality(m) {
+        if (!m) return { ok: true, score: 1, flags: [] };
+        const flags = [];
+        const _n = (v) => v != null && isFinite(v);
+        // 1) Payout > earnings (DPS/EPS > 1.0) \u2014 unsustainable dividend
+        if (_n(m.dps) && _n(m.eps) && m.eps > 0) {
+          const payout = m.dps / m.eps;
+          if (payout > 1.2)
+            flags.push(
+              "Payout " +
+                Math.round(payout * 100) +
+                "% of earnings (unsustainable)",
+            );
+          else if (payout > 1.0)
+            flags.push(
+              "Payout slightly exceeds earnings (" +
+                Math.round(payout * 100) +
+                "%)",
+            );
+        }
+        // 2) ROE vs P/B mismatch: low quality priced for growth
+        if (_n(m.roe) && _n(m.pb)) {
+          if (m.roe < 0.08 && m.pb > 2.0)
+            flags.push(
+              "Low ROE (" +
+                Math.round(m.roe * 100) +
+                "%) at high P/B (" +
+                m.pb.toFixed(1) +
+                ")",
+            );
+          if (m.roe < 0.05 && m.pb > 1.5)
+            flags.push(
+              "Very weak ROE (" +
+                Math.round(m.roe * 100) +
+                "%) yet P/B " +
+                m.pb.toFixed(1),
+            );
+        }
+        // 3) Leveraged + expensive (high EV/EBITDA with heavy debt)
+        if (_n(m.ev) && _n(m.netdebt)) {
+          if (m.netdebt > 4.0 && m.ev > 15)
+            flags.push(
+              "Leveraged & expensive (net-debt " +
+                m.netdebt.toFixed(1) +
+                "x, EV/EBITDA " +
+                m.ev.toFixed(1) +
+                "x)",
+            );
+          else if (m.netdebt > 5.0)
+            flags.push(
+              "High leverage (net-debt/EBITDA " + m.netdebt.toFixed(1) + "x)",
+            );
+        }
+        // 4) PEG extremely high with low growth (value trap)
+        if (_n(m.peg) && _n(m.pe)) {
+          if (m.peg > 3.0 && m.pe > 20)
+            flags.push(
+              "PEG " +
+                m.peg.toFixed(1) +
+                " at P/E " +
+                m.pe.toFixed(0) +
+                " \u2014 expensive for growth delivered",
+            );
+        }
+        // 5) FCF vs EPS divergence \u2014 earnings without cash backing (accruals red flag)
+        if (_n(m.fcf) && _n(m.eps) && m.eps > 0) {
+          const fcfRatio = m.fcf / m.eps;
+          if (fcfRatio < 0)
+            flags.push(
+              "Negative FCF (" +
+                m.fcf.toFixed(1) +
+                ") despite positive EPS (" +
+                m.eps.toFixed(1) +
+                ") \u2014 earnings not backed by cash",
+            );
+          else if (fcfRatio < 0.4)
+            flags.push(
+              "FCF/EPS only " +
+                (fcfRatio * 100).toFixed(0) +
+                "% \u2014 weak cash conversion, possible accruals issue",
+            );
+        }
+        // 6) EPS growth vs PEG sanity: if epsGrowth is negative but PEG is positive and low, something's off
+        if (_n(m.epsGrowth) && _n(m.peg)) {
+          if (m.epsGrowth < 0 && m.peg > 0 && m.peg < 1.5)
+            flags.push(
+              "PEG looks cheap (" +
+                m.peg.toFixed(1) +
+                ") but EPS growth is negative (" +
+                (m.epsGrowth * 100).toFixed(0) +
+                "%) \u2014 misleading value signal",
+            );
+        }
+        const score = Math.max(0, 1 - flags.length * 0.3); // 1.0=clean, 0.4=1 flag, 0.1=3 flags
+        return { ok: flags.length === 0, score, flags };
+      }
+      function qualityGate(m, sc) {
+        const Q = sc && sc.quality;
+        const nd = m && m.netdebt; // net debt / EBITDA (lower better)
+        const ds = divSafety(m);
+        const reasons = [];
+        if (Q != null && Q < 0.28)
+          reasons.push(
+            "quality sub-score very weak (" + (Q * 100).toFixed(0) + "%)",
+          );
+        if (num(nd) && nd > 4.5)
+          reasons.push(
+            "high leverage (net-debt/EBITDA " + nd.toFixed(1) + "x)",
+          );
+        if (ds && ds.level === "danger")
+          reasons.push(
+            "dividend at risk (" +
+              (ds.ratio != null
+                ? (ds.ratio * 100).toFixed(0) + "% payout"
+                : "uncovered") +
+              ")",
+          );
+        return {
+          block: reasons.length > 0,
+          reason: reasons.join("; "),
+          divSafety: ds,
+        };
+      }
+      // ---------- Signal: quality \u00D7 valuation \u00D7 momentum, with reasons ----------
+      function signal(m, sc, held) {
+        if (!m || !num(m.price) || !sc || sc.score == null)
+          return {
+            t: "\uD83D\uDCDD DATA NEEDED",
+            c: "b-hold",
+            reasons: ["Not enough fundamentals to score."],
+          };
+        const _held = held === true; // TRIM/SELL only make sense for positions you actually hold
+        const S = sc.score,
+          price = m.price;
+        const pir = sc.pir == null ? 0.5 : sc.pir;
+        const Q = sc.quality == null ? S : sc.quality; // quality sub-score
+        const mom =
+          sc.parts && sc.parts.momentum && sc.parts.momentum.s != null
+            ? sc.parts.momentum.s
+            : null;
+        const tb = targetBuy(m, sc),
+          ts = targetSell(m, sc),
+          fv = fairValue(m);
+        const R = [];
+        const _gate = qualityGate(m, sc); // (A) hard quality/leverage/div-risk floor
+        const _ds = _gate.divSafety; // (E) dividend-safety detail (may be null)
+        const disc = fv ? (fv - price) / fv : null; // +ve = trading below fair
+        const pct = (x) => (x * 100).toFixed(0) + "%";
+        if (fv != null)
+          R.push(
+            "Price " +
+              (disc >= 0
+                ? "\u2212" + pct(disc) + " below"
+                : "+" + pct(-disc) + " above") +
+              " fair value (" +
+              money(fv) +
+              ").",
+          );
+        R.push(
+          "Score " +
+            (S * 100).toFixed(0) +
+            "% \u00B7 quality " +
+            (Q != null ? (Q * 100).toFixed(0) + "%" : "\u2014") +
+            " \u00B7 position-in-range " +
+            pct(pir) +
+            ".",
+        );
+        // (B) peer-relative context: note the comparison basis + how many comparables backed it.
+        {
+          const _pf = sc.parts && sc.parts.peerrel;
+          if (_pf && _pf.s != null && _pf._n) {
+            const _pcls =
+              _pf.s >= 0.6 ? "cheaper" : _pf.s <= 0.4 ? "pricier" : "in line";
+            R.push(
+              "Valuation " +
+                _pcls +
+                " than " +
+                (_pf._basis === "category" ? "category" : "sector") +
+                " peers (" +
+                _pf._n +
+                " compared" +
+                (_pf._n < 4 ? " \u2014 thin, low weight" : "") +
+                ").",
+            );
+          }
+        }
+
+        // ---- RICH / OVERVALUED side (valuation-driven, not pure quality) ----
+        // TRIM/SELL are HELD-only actions. For names you do NOT hold, the same "price above
+        // target" conditions are an AVOID/WATCH (a not-buy) \u2014 you cannot trim what you don't own.
+        if (ts != null && price > ts * 1.2) {
+          if (_held) {
+            R.push("Well above target sell (" + money(ts) + ") \u2014 take profit.");
+            return {
+              t: "\uD83D\uDCB5 TRIM (Well Above Target)",
+              c: "b-trim",
+              reasons: R,
+            };
+          }
+          R.push(
+            "Well above target sell (" +
+              money(ts) +
+              ") \u2014 richly valued; not an entry.",
+          );
+          return { t: "\uD83D\uDD12 AVOID (Overvalued)", c: "b-wait", reasons: R };
+        }
+        if (ts != null && price > ts) {
+          if (_held) {
+            if (S > 0.6) {
+              R.push(
+                "At/above target sell but quality still good \u2014 trim, don\u2019t exit.",
+              );
+              return { t: "\uD83D\uDCB5 TRIM (At Target)", c: "b-trim", reasons: R };
+            }
+            R.push("At/above target sell and quality weak \u2014 reduce.");
+            return { t: "\u26D4 SELL (Rich + Weak)", c: "b-sell", reasons: R };
+          }
+          R.push("At/above target sell \u2014 fully valued; wait for a pullback.");
+          return { t: "\uD83D\uDD12 AVOID (Fully Valued)", c: "b-wait", reasons: R };
+        }
+        // Deteriorating quality while expensive. Held -> exit; not held -> avoid. (Cheap + weak = NOT an automatic sell.)
+        if (Q != null && Q < 0.3 && disc != null && disc < 0.05) {
+          if (_held) {
+            R.push("Weak quality and not cheap \u2014 reduce / exit.");
+            return { t: "\u26D4 SELL (Weak Quality)", c: "b-sell", reasons: R };
+          }
+          R.push("Weak quality and not cheap \u2014 avoid.");
+          return { t: "\uD83D\uDEAB AVOID (Weak Quality)", c: "b-wait", reasons: R };
+        }
+
+        // ---- BUY side (needs BOTH value and acceptable quality) ----
+        // (A) QUALITY GATE: a broken balance sheet / at-risk dividend blocks a "value" BUY no
+        // matter how cheap it looks \u2014 cheapness never overrides safety. Downgrade to Speculative.
+        if (tb != null && price <= tb * 1.1 && _gate.block) {
+          R.push(
+            "Cheap, but blocked by quality gate: " +
+              _gate.reason +
+              ". Treat as speculative \u2014 size small.",
+          );
+          if (_ds && _ds.note) R.push(_ds.note);
+          return {
+            t: "\uD83E\uDE78 SPECULATIVE (Quality Gate)",
+            c: "b-wait",
+            reasons: R,
+          };
+        }
+        if (tb != null && price <= tb) {
+          if (
+            _ds &&
+            (_ds.level === "stretched" ||
+              _ds.level === "danger" ||
+              _ds.level === "unknown")
+          )
+            R.push(_ds.note);
+          if (S >= 0.7 && Q >= 0.55) {
+            R.push("Deep discount + strong quality \u2014 high-conviction entry.");
+            return { t: "\uD83D\uDE80 STRONG BUY", c: "b-buy", reasons: R };
+          }
+          if (S >= 0.58) {
+            R.push("Below target buy with solid quality.");
+            return { t: "\uD83D\uDCB0 BUY (Deep Value)", c: "b-buy", reasons: R };
+          }
+          if (Q != null && Q < 0.35) {
+            R.push(
+              "Cheap but quality is weak \u2014 possible falling knife, size small.",
+            );
+            return {
+              t: "\uD83E\uDE78 SPECULATIVE (Falling Knife?)",
+              c: "b-wait",
+              reasons: R,
+            };
+          }
+          R.push("Below target buy; middling quality.");
+          return { t: "\uD83D\uDCB8 BUY (Value)", c: "b-buy", reasons: R };
+        }
+        if (tb != null && price <= tb * 1.05 && S >= 0.52) {
+          if (_ds && _ds.level !== "ok" && _ds.note) R.push(_ds.note);
+          R.push(
+            "Just above target buy with good quality \u2014 accumulate on dips.",
+          );
+          return { t: "\uD83D\uDCB8 BUY (Good Value)", c: "b-buy", reasons: R };
+        }
+        if (
+          tb != null &&
+          price <= tb * 1.1 &&
+          S >= 0.48 &&
+          (mom == null || mom >= 0.4)
+        ) {
+          if (_ds && _ds.level !== "ok" && _ds.note) R.push(_ds.note);
+          R.push("Near target buy, decent quality & steady trend.");
+          return { t: "\u2753 BUY (Speculative)", c: "b-buy", reasons: R };
+        }
+
+        // ---- No-action zones ----
+        if (tb != null && price > tb * 1.35) {
+          R.push("Materially above target buy \u2014 wait for a better entry.");
+          return { t: "\u23F3 WAIT (Expensive)", c: "b-wait", reasons: R };
+        }
+        R.push("Fairly valued \u2014 hold; add only on weakness.");
+        return { t: "\u27A1\uFE0F HOLD", c: "b-hold", reasons: R };
+      }
+
+      // Back-compat alias used by renderSignals
+      function scoreParts(m) {
+        const r = factorScores(m);
+        return r ? { total: r.score, pir: r.pir, coverage: r.coverage } : null;
+      }
+      function daysUntil(d) {
+        return Math.round((new Date(d) - TODAY) / 86400000);
+      }
+
+
+// ===== 04-render.js =====
+// ============================================================
+// 04-render.js
+// render: tax/concentration, render(), KPIs, hero, charts, positions, tooltips, Top Buys/Sector/Headroom, draft-selected
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+      // ---------- tax summary by year + concentration ----------
+      function renderTaxSummary() {
+        // Recompute per-transaction tax by walking TXNS (fees/tax come from computeRow with running FIFO avg).
+        const byYear = {};
+        const yr = (d) => String(new Date(d).getFullYear());
+        const { enriched } = runFIFO(); // enriched rows carry fees/tax/net per txn
+        for (const e of enriched) {
+          const y = yr(e.date);
+          byYear[y] = byYear[y] || {
+            realized: 0,
+            cgTax: 0,
+            divNet: 0,
+            divTax: 0,
+          };
+          if (e.action === "SELL") {
+            byYear[y].cgTax += e.tax || 0;
+          } else if (e.action === "DIV") {
+            byYear[y].divNet += e.net || 0;
+            byYear[y].divTax += e.tax || 0;
+          }
+        }
+        // realized gains per year from FIFO detail (needs date) \u2014 recompute simply: sum gains of sells by year
+        // Use compute: for each SELL enriched, realized gain = proceeds - matched cost. We stored realizedDetail per position with date.
+        const { pos } = runFIFO();
+        for (const k in pos) {
+          (pos[k].realizedDetail || []).forEach((d) => {
+            const y = yr(d.date);
+            byYear[y] = byYear[y] || {
+              realized: 0,
+              cgTax: 0,
+              divNet: 0,
+              divTax: 0,
+            };
+            byYear[y].realized += d.gain;
+          });
+        }
+        const years = Object.keys(byYear).sort();
+        const tb = document.querySelector("#taxTable tbody");
+        if (!years.length) {
+          tb.innerHTML =
+            '<tr><td colspan="6" class="l" style="color:var(--muted)">No transactions yet.</td></tr>';
+          return;
+        }
+        let tot = { realized: 0, cgTax: 0, divNet: 0, divTax: 0 };
+        tb.innerHTML =
+          years
+            .map((y) => {
+              const r = byYear[y];
+              tot.realized += r.realized;
+              tot.cgTax += r.cgTax;
+              tot.divNet += r.divNet;
+              tot.divTax += r.divTax;
+              return `<tr><td class="l">${y}</td><td class="${cls(r.realized)}">${money(r.realized)}</td><td>${money(r.cgTax)}</td><td class="pos">${money(r.divNet)}</td><td>${money(r.divTax)}</td><td><b>${money(r.cgTax + r.divTax)}</b></td></tr>`;
+            })
+            .join("") +
+          `<tr style="border-top:2px solid var(--border)"><td class="l"><b>Total</b></td><td class="${cls(tot.realized)}"><b>${money(tot.realized)}</b></td><td><b>${money(tot.cgTax)}</b></td><td class="pos"><b>${money(tot.divNet)}</b></td><td><b>${money(tot.divTax)}</b></td><td><b>${money(tot.cgTax + tot.divTax)}</b></td></tr>`;
+      }
+      function renderConcentration() {
+        const { pos } = runFIFO();
+        const held = Object.values(pos).filter(
+          (p) => p.held > 0 && p.value > 0,
+        );
+        const total = held.reduce((s, p) => s + p.value, 0);
+        const box = document.getElementById("concentrationBox");
+        if (total <= 0) {
+          box.innerHTML = "";
+          return;
+        }
+        const warns = [];
+        // Single position > 20%
+        held.forEach((p) => {
+          const w = p.value / total;
+          if (w > 0.2)
+            warns.push(
+              `\u26A0 <b>${p.ticker}</b> (${escapeHtml((M[p.ticker] && M[p.ticker].name) || p.ticker)}) is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 consider trimming for diversification.`,
+            );
+        });
+        // Sector > 40%
+        const bySec = {};
+        held.forEach((p) => {
+          const c = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
+          bySec[c] = (bySec[c] || 0) + p.value;
+        });
+        Object.keys(bySec).forEach((c) => {
+          const w = bySec[c] / total;
+          if (w > 0.4)
+            warns.push(
+              `\u26A0 Sector <b>${c}</b> is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 high sector concentration.`,
+            );
+        });
+        if (!warns.length) {
+          box.innerHTML = `<div class="sec" style="border-color:var(--success)"><h2>\uD83D\uDEE1\uFE0F Diversification</h2><div class="mini" style="color:var(--success)">\u2705 No single position &gt;20% and no sector &gt;40%. Portfolio looks reasonably diversified.</div></div>`;
+          return;
+        }
+        box.innerHTML = `<div class="sec" style="border-color:var(--warn)"><h2>\u26A0\uFE0F Concentration Warnings</h2>${warns.map((w) => `<div style="margin-bottom:6px;font-size:13px">${w}</div>`).join("")}</div>`;
+      }
+
+      // ---------- rendering ----------
+      let CH_break = null,
+        sortState = {};
+      /* robustness: global error boundary */
+      window.addEventListener("error", function (e) {
+        try {
+          if (typeof toast === "function")
+            toast(
+              "Unexpected error: " + (e.message || "see console"),
+              "err",
+              6000,
+            );
+        } catch (_) {}
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        try {
+          var r = e && e.reason;
+          if (typeof toast === "function")
+            toast(
+              "Background task failed: " +
+                ((r && r.message) || r || "see console"),
+              "warn",
+              5000,
+            );
+        } catch (_) {}
+      });
+
+      function render() {
+        try {
+          const { pos, enriched } = runFIFO();
+          const arr = Object.values(pos);
+          const totals = arr.reduce(
+            (a, p) => ({
+              inv: a.inv + (p.held > 0 ? p.invested : 0),
+              val: a.val + p.value,
+              net: a.net + (p.netIfSold || 0),
+              unreal: a.unreal + p.unreal,
+              real: a.real + p.realized,
+              div: a.div + p.divs,
+              life: a.life + p.lifetime,
+              cost: a.cost + (p.costBasis || 0),
+            }),
+            {
+              inv: 0,
+              val: 0,
+              net: 0,
+              unreal: 0,
+              real: 0,
+              div: 0,
+              life: 0,
+              cost: 0,
+            },
+          );
+          renderKPIs(totals);
+          renderCharts(arr, totals);
+          renderPositions(arr, totals);
+          renderSignals();
+          renderDividends(pos);
+          renderDashDivs(pos);
+          renderTxns(enriched);
+          renderTickerList();
+          renderRecentlySold();
+          renderRecentlyBought();
+          renderTaxSummary();
+          renderConcentration();
+          renderHistory();
+          renderPendingBanner();
+          renderMissingMaster();
+        } catch (err) {
+          console.error("render() failed:", err);
+          if (typeof toast === "function")
+            toast(
+              "Something went wrong while updating the view: " +
+                ((err && err.message) || err),
+              "err",
+              6000,
+            );
+        }
+      }
+      function kpi(label, val, cls2, tip, nav) {
+        const clickable = nav
+          ? ` data-act="gotoTab" data-args="${nav}" style="cursor:pointer"`
+          : tip
+            ? ' style="cursor:help"'
+            : "";
+        return `<div class="card nis-cell"${clickable} data-tip="${tip ? encodeURIComponent(tip) : ""}"><div class="label">${label}${nav ? ' <span style="opacity:.5">\u2197</span>' : ""}</div><div class="value ${cls2 || ""}">${val}</div></div>`;
+      }
+      function gotoTab(v) {
+        const b = document.querySelector('.tab[data-view="' + v + '"]');
+        if (b) b.click();
+      }
+      // Fee-inclusive cost of pending BUY orders (all accounts). Mirrors the cash
+      // tab's calculation: uses computeRow for accurate brokerage-inclusive cost,
+      // falling back to gross qty\u00D7price if computeRow throws.
+      function pendingBuyCost() {
+        let cost = 0;
+        const list = Array.isArray(PENDING) ? PENDING : [];
+        list.forEach((o) => {
+          if (o.action !== "BUY") return;
+          try {
+            const rr = computeRow({
+              action: "BUY",
+              ticker: o.ticker,
+              qty: o.qty,
+              price: o.price,
+              pea: o.pea,
+              opcvm: o.opcvm,
+              total: o.total,
+            });
+            cost += Math.abs(rr.net) || 0;
+          } catch (_e) {
+            cost += (o.qty || 0) * (o.price || 0);
+          }
+        });
+        return cost;
+      }
+      function renderKPIs(t) {
+        const T = (title, lines) =>
+          `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
+          lines.map((l) => `<div>${l}</div>`).join("");
+        const _pendCost = pendingBuyCost();
+        document.getElementById("kpiRow").innerHTML =
+          kpi(
+            "Pending Orders",
+            money(_pendCost, 0) + " MAD",
+            _pendCost > 0 ? "neg" : "",
+            T("Pending Orders (committed)", [
+              "Fee-inclusive cost of your pending BUY orders",
+              "= \u03A3 (gross + brokerage fees) across all accounts",
+              "Not yet executed \u2014 this cash is committed.",
+            ]),
+            "pending",
+          ) +
+          kpi(
+            "Total (Held + Pending)",
+            money(t.val + _pendCost, 0) + " MAD",
+            "",
+            T("Total (Held + Pending)", [
+              "Current market value of held positions",
+              "plus the fee-inclusive cost of pending buys.",
+              "= Current Value + Pending Orders.",
+            ]),
+            "pending",
+          ) +
+          kpi(
+            "Unrealized P&L",
+            money(t.unreal, 0) + " MAD",
+            cls(t.unreal),
+            T("Unrealized P&L", [
+              "= Current Value \u2212 Invested",
+              "Paper gain/loss on open positions",
+              "(before exit fees & tax).",
+            ]),
+            "positions",
+          ) +
+          kpi(
+            "Realized P&L",
+            money(t.real, 0) + " MAD",
+            cls(t.real),
+            T("Realized P&L", [
+              "Locked-in gain/loss from sells (FIFO)",
+              "= \u03A3 (sale proceeds \u2212 matched buy cost)",
+              "Net of fees & TPCVM tax (0 for PEA).",
+            ]),
+            "positions",
+          ) +
+          kpi(
+            "Dividends",
+            money(t.div, 0) + " MAD",
+            t.div > 0 ? "pos" : "",
+            T("Dividends Received", [
+              "Total cash dividends collected",
+              "Net of dividend withholding tax.",
+              "Persists even after you sell out.",
+            ]),
+            "dividends",
+          ) +
+          kpi(
+            "Lifetime Return",
+            money(t.life, 0) + " MAD",
+            cls(t.life),
+            T("Lifetime Return", [
+              "= Unrealized + Realized + Dividends",
+              "Your total gain/loss across everything,",
+              "held or sold.",
+            ]),
+            "positions",
+          );
+      }
+      // ---- Dashboard hero strip (portfolio value + lifetime return verdict) ----
+      function renderHero(t) {
+        const el = document.getElementById("dashHero");
+        if (!el) return;
+        const roi = t.cost > 1e-9 ? t.life / t.cost : 0;
+        const verdict =
+          t.life > 0
+            ? '<span class="pos">\u25B2 in profit</span>'
+            : t.life < 0
+              ? '<span class="neg">\u25BC in loss</span>'
+              : "flat";
+        el.innerHTML =
+          '<div class="hero-main">' +
+          '<div class="hero-label">Portfolio value</div>' +
+          '<div class="hero-value">' +
+          money(t.val, 0) +
+          ' <span style="font-size:16px;color:var(--text2)">MAD</span></div>' +
+          '<div class="hero-sub">Lifetime return <b class="' +
+          cls(t.life) +
+          '">' +
+          (t.life >= 0 ? "+" : "") +
+          money(t.life, 0) +
+          " MAD</b> (" +
+          pct(roi) +
+          ") \u00B7 " +
+          verdict +
+          "</div></div>" +
+          '<div class="hero-card"><div class="k">Invested (held)</div><div class="v">' +
+          money(t.inv, 0) +
+          '</div><div class="mini">unrealized <span class="' +
+          cls(t.unreal) +
+          '">' +
+          (t.unreal >= 0 ? "+" : "") +
+          money(t.unreal, 0) +
+          "</span></div></div>" +
+          '<div class="hero-card"><div class="k">Realized + Dividends</div><div class="v">' +
+          money(t.real + t.div, 0) +
+          '</div><div class="mini">realized ' +
+          money(t.real, 0) +
+          " \u00B7 div " +
+          money(t.div, 0) +
+          "</div></div>";
+      }
+
+      // ---- Allocation by sector as weight bars ----
+      function renderDashAllocBars(arr) {
+        const el = document.getElementById("dashAllocBars");
+        if (!el) return;
+        const held = arr.filter((p) => p.held > 0 && p.value > 0);
+        const byCat = {};
+        held.forEach((p) => {
+          const cat = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
+          byCat[cat] = (byCat[cat] || 0) + p.value;
+        });
+        const total = Object.values(byCat).reduce((a, b) => a + b, 0);
+        const data = Object.keys(byCat)
+          .map((k) => ({ name: k, y: byCat[k] }))
+          .sort((a, b) => b.y - a.y);
+        if (!data.length) {
+          el.innerHTML = '<div class="mini">No holdings yet.</div>';
+          return;
+        }
+        el.innerHTML = data
+          .map((d) => {
+            const w = total ? (d.y / total) * 100 : 0;
+            return `<div class="wbar"><div class="wbar-top"><span>${escapeHtml(d.name)}</span><span style="font-family:var(--mono)">${w.toFixed(1)}% \u00B7 ${money(d.y, 0)}</span></div><div class="wbar-track"><div class="wbar-fill" style="width:${w.toFixed(1)}%"></div></div></div>`;
+          })
+          .join("");
+      }
+
+      // ---- Income outlook (forward dividends 90d / 12mo + received YTD) ----
+      function renderDashIncomeOutlook() {
+        const el = document.getElementById("dashIncomeOutlook");
+        if (!el) return;
+        let inc90 = 0,
+          inc12 = 0,
+          received = 0;
+        const yrNow = TODAY.getFullYear();
+        for (const d of DIVCAL) {
+          if (!d.pay_date) continue;
+          const sh = eligibleSharesAtEx(d);
+          if (sh <= 0) continue;
+          const du = daysUntil(d.pay_date);
+          if (du < 0 && (du < -30 || divRecorded(d))) continue;
+          const net = divNetFor(d, sh);
+          if (du <= 90) inc90 += net;
+          if (du <= 365) inc12 += net;
+        }
+        for (const t of TXNS) {
+          if (t.action === "DIV" && new Date(t.date).getFullYear() === yrNow)
+            received += computeRow(t, 0).net;
+        }
+        el.innerHTML =
+          `<div class="io-item"><span>Next 90 days</span><span class="io-v pos">${money(inc90, 0)}</span></div>` +
+          `<div class="io-item"><span>Next 12 months</span><span class="io-v pos">${money(inc12, 0)}</span></div>` +
+          `<div class="io-item"><span>Received in ${yrNow}</span><span class="io-v">${money(received, 0)}</span></div>` +
+          `<div class="mini" style="margin-top:8px">Net of fees &amp; dividend tax (PEA exempt), on shares eligible at ex-date.</div>`;
+      }
+
+      // ---- Top contributors / detractors (OPCVM toggled per section) ----
+      function _moverRowsHTML(rows) {
+        return rows.length
+          ? rows
+              .map(
+                (x, i) =>
+                  `<div class="mover"><span class="rank">${i + 1}</span><span class="nm"><b>${escapeHtml(x.ticker)}</b> <span class="mini">${escapeHtml(x.name || "")}</span></span><span class="amt ${cls(x.life)}">${x.life >= 0 ? "+" : ""}${money(x.life, 0)}</span></div>`,
+              )
+              .join("")
+          : '<div class="mini">Nothing here yet.</div>';
+      }
+      function renderDashMovers(arr) {
+        const incC = !!(document.getElementById("contribOpcvm") || {}).checked;
+        const incD = !!(document.getElementById("detractOpcvm") || {}).checked;
+        const byTk = {};
+        arr.forEach((p) => {
+          if (Math.abs(p.lifetime) <= 1e-6) return;
+          const isFund = !!(M[p.ticker] && M[p.ticker].cat === "OPCVM");
+          byTk[p.ticker] = byTk[p.ticker] || {
+            ticker: p.ticker,
+            name: p.name,
+            life: 0,
+            isFund,
+          };
+          byTk[p.ticker].life += p.lifetime;
+        });
+        const all = Object.values(byTk);
+        const contrib = all
+          .filter((x) => x.life > 0 && (incC || !x.isFund))
+          .sort((a, b) => b.life - a.life)
+          .slice(0, 6);
+        const detract = all
+          .filter((x) => x.life < 0 && (incD || !x.isFund))
+          .sort((a, b) => a.life - b.life)
+          .slice(0, 6);
+        const c = document.getElementById("dashTopContrib"),
+          d = document.getElementById("dashTopDetract");
+        if (c) c.innerHTML = _moverRowsHTML(contrib);
+        if (d) d.innerHTML = _moverRowsHTML(detract);
+      }
+
+      function renderCharts(arr, t) {
+        renderHero(t);
+        renderDashAllocBars(arr);
+        renderDashMovers(arr);
+        renderDashIncomeOutlook();
+        const tx = themeColor("text");
+        const tx2 = themeColor("text2");
+        CH_break = Highcharts.chart("breakChart", {
+          chart: { type: "waterfall", backgroundColor: "transparent" },
+          title: { text: null },
+          credits: { enabled: false },
+          legend: { enabled: false },
+          xAxis: {
+            categories: ["Unrealized", "Realized", "Dividends", "Lifetime"],
+            labels: { style: { color: tx2 } },
+          },
+          yAxis: {
+            title: { text: null },
+            gridLineColor: "#2c3742",
+            labels: { style: { color: tx2 }, format: "{value:,.0f}" },
+          },
+          tooltip: { pointFormat: "<b>{point.y:,.0f} MAD</b>" },
+          plotOptions: {
+            waterfall: {
+              dataLabels: {
+                enabled: true,
+                style: { color: tx, textOutline: "none", fontWeight: "600" },
+                format: "{point.y:,.0f}",
+              },
+            },
+          },
+          series: [
+            {
+              upColor: themeColor("success"),
+              color: themeColor("error"),
+              lineWidth: 1,
+              dashStyle: "ShortDot",
+              data: [
+                { name: "Unrealized", y: Math.round(t.unreal) },
+                { name: "Realized", y: Math.round(t.real) },
+                { name: "Dividends", y: Math.round(t.div) },
+                { name: "Lifetime", isSum: true, color: themeColor("primary") },
+              ],
+            },
+          ],
+        });
+      }
+      function sortArr(arr, key) {
+        const s = (sortState[key] = sortState[key] === 1 ? -1 : 1);
+        arr.sort((a, b) => {
+          let x = a[key],
+            y = b[key];
+          if (typeof x === "string") return s * x.localeCompare(y);
+          return s * ((x || 0) - (y || 0));
+        });
+        return arr;
+      }
+      function dispName(tk) {
+        const m = M[tk];
+        return m && m.cat === "OPCVM" && m.name ? m.name : tk;
+      }
+
+      function unrealTipHTML(p) {
+        const row = (l, v, cl) =>
+          `<div style="display:flex;justify-content:space-between;gap:20px"><span>${l}</span><span class="${cl || ""}" style="font-family:var(--mono)">${v}</span></div>`;
+        let h = `<div style="font-weight:700;margin-bottom:6px">Unrealized P&L \u00B7 ${p.ticker}</div>`;
+        h += row(
+          "Current value (" +
+            money(p.held, p.held % 1 ? 3 : 0) +
+            " \u00D7 " +
+            money(p.price) +
+            ")",
+          money(p.value) + " MAD",
+        );
+        h += row(
+          "\u2212 Invested (" +
+            money(p.held, p.held % 1 ? 3 : 0) +
+            " \u00D7 avg " +
+            money(p.avg) +
+            ")",
+          money(p.invested),
+        );
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>= Unrealized P&L</b>",
+          "<b>" + money(p.unreal) + " MAD</b>",
+          cls(p.unreal),
+        );
+        h += `<div class="mini" style="margin-top:6px">Paper gain/loss on shares still held (before exit fees/tax). Avg cost is FIFO, incl. buy fees.</div>`;
+        return h;
+      }
+      function lifetimeTipHTML(p) {
+        const row = (l, v, cl) =>
+          `<div style="display:flex;justify-content:space-between;gap:20px"><span>${l}</span><span class="${cl || ""}" style="font-family:var(--mono)">${v}</span></div>`;
+        let h = `<div style="font-weight:700;margin-bottom:6px">Lifetime Return \u00B7 ${p.ticker} (${p.account})</div>`;
+        h += row("Unrealized (open shares)", money(p.unreal), cls(p.unreal));
+        h += row(
+          "+ Realized (from sells, FIFO)",
+          money(p.realized),
+          cls(p.realized),
+        );
+        h += row(
+          "+ Dividends received",
+          money(p.divs),
+          p.divs > 0 ? "pos" : "",
+        );
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>= Lifetime Return</b>",
+          "<b>" + money(p.lifetime) + " MAD</b>",
+          cls(p.lifetime),
+        );
+        h += row(
+          "vs. capital deployed (" + money(p.costBasis) + ")",
+          pct(p.lifepct),
+          cls(p.lifepct),
+        );
+        return h;
+      }
+
+      function realizedTipHTML(p) {
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:6px">Realized P&L \u00B7 ${p.ticker} (${p.account})</div>`;
+        if (!p.realizedDetail || !p.realizedDetail.length) {
+          h += '<div class="mini">No sells yet.</div>';
+          return h;
+        }
+        h += `<div style="color:var(--text2);font-size:11px;margin-bottom:2px">Each sell: proceeds \u2212 FIFO matched cost:</div>`;
+        p.realizedDetail.forEach((d) => {
+          h += row(
+            d.date +
+              " \u00B7 sold " +
+              money(d.qty, d.qty % 1 ? 3 : 0) +
+              " @ " +
+              money(d.price),
+            (d.gain >= 0 ? "+" : "") + money(d.gain),
+            cls(d.gain),
+          );
+        });
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>Total Realized</b>",
+          "<b>" + money(p.realized) + " MAD</b>",
+          cls(p.realized),
+        );
+        h += `<div class="mini" style="margin-top:6px">Net of fees & TPCVM tax${p.isPea ? " (PEA exempt)" : ""}. Cost is FIFO (oldest lots first).</div>`;
+        return h;
+      }
+      function divTipHTML(p) {
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:6px">Dividends \u00B7 ${p.ticker} (${p.account})</div>`;
+        if (!p.divDetail || !p.divDetail.length) {
+          h += '<div class="mini">No dividends received.</div>';
+          return h;
+        }
+        p.divDetail.forEach((d) => {
+          h += `<div style="margin-bottom:4px"><b>${d.date}</b> \u00B7 ${money(d.qty, d.qty % 1 ? 3 : 0)} sh @ ${money(d.perShare)}/sh</div>`;
+          h += row(
+            "&nbsp;&nbsp;Gross",
+            money(d.gross != null ? d.gross : d.qty * d.perShare),
+          );
+          if (d.fees != null && d.fees > 0)
+            h += row("&nbsp;&nbsp;\u2212 Fees", "\u2212" + money(d.fees));
+          if (d.pea)
+            h += row("&nbsp;&nbsp;Dividend tax", "0 (PEA exempt)", "pos");
+          else if (d.tax != null)
+            h += row("&nbsp;&nbsp;\u2212 Dividend tax", "\u2212" + money(d.tax));
+          h += row(
+            "&nbsp;&nbsp;<b>Net received</b>",
+            "<b>+" + money(d.net) + "</b>",
+            "pos",
+          );
+        });
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>Total Dividends</b>",
+          "<b>" + money(p.divs) + " MAD</b>",
+          "pos",
+        );
+        h += `<div class="mini" style="margin-top:6px">Net of dividend withholding tax.</div>`;
+        return h;
+      }
+
+      function netIfSoldTipHTML(p) {
+        // Itemized breakdown: gross -> each fee component -> tax -> net
+        const gross = p.value;
+        const tax = p.sellTax || 0;
+        const row = (l, v, cl) =>
+          `<div style="display:flex;justify-content:space-between;gap:20px"><span>${l}</span><span class="${cl || ""}" style="font-family:var(--mono)">${v}</span></div>`;
+        const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
+        const meta = M[p.ticker];
+        const isOpcvm = !!(meta && meta.cat === "OPCVM");
+        let h = `<div style="font-weight:700;margin-bottom:6px">If sold today \u00B7 ${p.account} account</div>`;
+        h += row("Gross (market value)", money(gross) + " MAD");
+        if (isOpcvm) {
+          const sf = meta.sellFee != null ? meta.sellFee : null;
+          // Split the stored total sell fee (from computeRow \u2192 opcvmFee) into its parts:
+          // fund redemption % on gross, plus the flat Attijari order surcharge (\u224811 MAD).
+          const surcharge = opcvmSurcharge();
+          const fundFee = Math.max(0, (p.sellFees || 0) - surcharge);
+          h += `<div style="color:var(--text2);margin:4px 0 2px;font-size:11px">Redemption fee:</div>`;
+          h += row(
+            '&nbsp;&nbsp;Commission de rachat <span class="mini">(' +
+              (sf != null ? pctOf(sf) : "not imported") +
+              ")</span>",
+            "\u2212" + money(fundFee),
+          );
+          if (surcharge > 0)
+            h += row(
+              '&nbsp;&nbsp;Frais d\'ordre <span class="mini">(Attijari, 10 + VAT)</span>',
+              "\u2212" + money(surcharge),
+            );
+        } else {
+          // Broker-aware stock fee breakdown (Attijari courtage/r\u00E8gl/bourse vs Saham
+          // market/interm\u00E9d/r\u00E8gl + fixed courrier). Same broker resolution as computeRow.
+          const _bk =
+            BROKERS[p.broker] ||
+            BROKERS[p.isFund ? "attijari" : "saham"] ||
+            null;
+          const _f = _bk && _bk.fees ? _bk.fees : null;
+          const _vat = vatRate();
+          h += `<div style="color:var(--text2);margin:4px 0 2px;font-size:11px">Trading fees (incl. ${(_vat * 100).toFixed(0)}% VAT):</div>`;
+          if (_bk && _bk.feeType === "pea" && _f) {
+            const court = Math.max(
+              gross * (_f.courtage || 0),
+              _f.courtageMin || 0,
+            );
+            const regl = gross * (_f.regl || 0);
+            const bourse = gross * (_f.bourse || 0);
+            h += row(
+              '&nbsp;&nbsp;Courtage <span class="mini">(' +
+                pctOf(_f.courtage || 0) +
+                (court <= (_f.courtageMin || 0)
+                  ? ", min " + money(_f.courtageMin || 0)
+                  : "") +
+                ")</span>",
+              "\u2212" + money(court * (1 + _vat)),
+            );
+            h += row(
+              '&nbsp;&nbsp;R\u00E8glement/livraison <span class="mini">(' +
+                pctOf(_f.regl || 0) +
+                ")</span>",
+              "\u2212" + money(regl * (1 + _vat)),
+            );
+            h += row(
+              '&nbsp;&nbsp;Commission bourse <span class="mini">(' +
+                pctOf(_f.bourse || 0) +
+                ")</span>",
+              "\u2212" + money(bourse * (1 + _vat)),
+            );
+          } else {
+            const _cm = _f && _f.c_marche != null ? _f.c_marche : FP.c_marche;
+            const _ci = _f && _f.c_interm != null ? _f.c_interm : FP.c_interm;
+            const _cr = _f && _f.c_regl != null ? _f.c_regl : FP.c_regl;
+            const _courier = _f && _f.courier != null ? _f.courier : FP.courier;
+            h += row(
+              '&nbsp;&nbsp;Commission de march\u00E9 <span class="mini">(' +
+                pctOf(_cm) +
+                ")</span>",
+              "\u2212" + money(gross * _cm * (1 + _vat)),
+            );
+            h += row(
+              '&nbsp;&nbsp;Commission d\'interm\u00E9diation <span class="mini">(' +
+                pctOf(_ci) +
+                ")</span>",
+              "\u2212" + money(gross * _ci * (1 + _vat)),
+            );
+            h += row(
+              '&nbsp;&nbsp;Commission r\u00E8gl./livraison <span class="mini">(' +
+                pctOf(_cr) +
+                ")</span>",
+              "\u2212" + money(gross * _cr * (1 + _vat)),
+            );
+            h += row(
+              '&nbsp;&nbsp;Frais de courrier <span class="mini">(fixed)</span>',
+              "\u2212" + money(_courier * (1 + _vat)),
+            );
+          }
+          h += row(
+            "&nbsp;&nbsp;<b>Total fees</b>",
+            "<b>\u2212" + money(p.sellFees || 0) + "</b>",
+          );
+        }
+        h += p.isPea
+          ? row(
+              'Cap-gains tax <span class="mini">(PEA exempt)</span>',
+              "0",
+              "pos",
+            )
+          : row(
+              'TPCVM cap-gains tax <span class="mini">(' +
+                pctOf(FP.tpcvm) +
+                " on gain)</span>",
+              "\u2212" + money(tax),
+            );
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>Net proceeds</b>",
+          "<b>" + money(p.netIfSold) + " MAD</b>",
+        );
+        h += row("Per share", money(p.netIfSoldPS));
+        return h;
+      }
+
+      function posChips(p) {
+        return `${p.acctList ? (p.acctList.length > 1 ? ' <span class="chip" data-tip="Combined: PEA + Regular" style="background:rgba(139,92,246,.16);color:#a78bfa;cursor:help">PEA+Reg</span>' : p.acctList[0] === "PEA" ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : '<span class="chip" style="background:var(--panel2);color:var(--muted)">REG</span>') : p.isPea ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : '<span class="chip" style="background:var(--panel2);color:var(--muted)">REG</span>'}${(function () {
+          const pd = PENDING.filter((o) => o.ticker === p.ticker);
+          if (!pd.length) return "";
+          const nb = pd.filter((o) => o.action === "BUY").length,
+            ns = pd.filter((o) => o.action === "SELL").length;
+          const lbl =
+            "\u23f3 " +
+            (nb ? nb + "B" : "") +
+            (nb && ns ? "/" : "") +
+            (ns ? ns + "S" : "");
+          return (
+            ' <span class="chip" style="background:rgba(245,166,35,.15);color:var(--warn)" data-tip="Pending orders for this ticker">' +
+            lbl +
+            "</span>"
+          );
+        })()}`;
+      }
+      // Cells AFTER the ticker cell (name \u2192 status). Shared by parent and per-account child rows.
+      function posCells(p, showDivY) {
+        const divCls = p.divs > 0 ? "pos" : "";
+        const priceCell =
+          p.held > 0
+            ? `<td class="right" data-tip="Click to edit price" style="cursor:pointer;color:var(--info)" data-act="editPrice" data-args="${p.ticker}">${p.price != null ? money(p.price) : "set"} \u270e</td>`
+            : `<td>${p.price != null ? money(p.price) : "\u2014"}</td>`;
+        return `<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-tip="Click for return waterfall" data-act="showPosWaterfall" data-args="${p.key}">${escapeHtml((M[p.ticker] && M[p.ticker].name) || "")} <span style="color:var(--muted)">\ud83d\udcca</span></td><td>${money(p.held, p.held % 1 ? 3 : 0)}</td><td>${money(p.avg)}</td>
+    <td>${p.held > 0 ? money(p.invested) : "\u2014"}</td>${priceCell}
+    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? encodeURIComponent(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? encodeURIComponent(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
+    <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? encodeURIComponent(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? encodeURIComponent(divTipHTML(p)) : ""}">${money(p.divs)}</td>
+    <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${encodeURIComponent(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
+    ${
+      showDivY
+        ? (function () {
+            const _m = M[p.ticker];
+            const _dy = _m && _m.divy != null ? _m.divy : null;
+            if (_dy == null)
+              return '<td style="color:var(--muted)">\u2014</td>';
+            const _r = {
+              ticker: p.ticker,
+              m: _m,
+              price: _m && _m.price != null ? _m.price : p.price,
+              divy: _dy,
+            };
+            return (
+              '<td class="nis-cell ' +
+              (_dy > 0 ? "pos" : "") +
+              '" style="cursor:help" data-tip="' +
+              encodeURIComponent(divyTipHTML(_r)) +
+              '">' +
+              pct(_dy) +
+              "</td>"
+            );
+          })()
+        : ""
+    }
+    <td class="center"><span class="st-${p.status === "Closed" ? "closed" : "open"}">${p.status}</span></td>`;
+      }
+      function posRow(p, showDivY) {
+        const expandable = COMBINE_ACCT && p.children && p.children.length > 1;
+        const rowId = expandable
+          ? "cmb_" + String(p.ticker).replace(/[^A-Za-z0-9]/g, "")
+          : "";
+        const caret = expandable
+          ? `<span class="pos-caret" data-tip="Show PEA / Regular breakdown" style="cursor:pointer;color:var(--muted);display:inline-block;width:12px" data-act="togglePosChildren" data-args="${rowId},$el">\u25b8</span> `
+          : COMBINE_ACCT
+            ? '<span style="display:inline-block;width:12px"></span> '
+            : "";
+        const parent = `<tr${expandable ? ' data-cmb="' + rowId + '"' : ""}>
+    <td class="l">${caret}<b>${p.ticker}</b>${posChips(p)}</td>${posCells(p, showDivY)}</tr>`;
+        if (!expandable) return parent;
+        // Per-account child rows (hidden by default). Reuse posCells; give them a REG/PEA chip and indented ticker.
+        const kids = p.children
+          .map((c) => {
+            const cc = { ...c, acctList: [c.isPea ? "PEA" : "Regular"] };
+            return `<tr class="pos-child ${rowId}" style="display:none;background:rgba(139,92,246,.04)">
+      <td class="l" style="padding-left:26px;color:var(--text2)"><span style="opacity:.6">\u21b3</span> <b style="font-weight:600">${c.ticker}</b>${posChips(cc)}</td>${posCells(c, showDivY)}</tr>`;
+          })
+          .join("");
+        return parent + kids;
+      }
+      function sectionHeader(label) {
+        return `<tr><td class="l" colspan="14" style="background:var(--panel2);color:var(--text2);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px">${label}</td></tr>`;
+      }
+      // Sort: Open/Partial before Closed, then by current sort key (default lifetime desc)
+      function posSort(a, b) {
+        const oa = a.status === "Closed" ? 1 : 0,
+          ob = b.status === "Closed" ? 1 : 0;
+        if (oa !== ob) return oa - ob;
+        if (POS_SORT.k) {
+          let x = a[POS_SORT.k],
+            y = b[POS_SORT.k];
+          if (typeof x === "string")
+            return POS_SORT.d * String(x).localeCompare(String(y));
+          return POS_SORT.d * ((x || 0) - (y || 0));
+        }
+        return b.lifetime - a.lifetime;
+      }
+      let POS_SORT = { k: null, d: -1 };
+      function subtotalRow(label, rows) {
+        const s = rows.reduce(
+          (a, p) => ({
+            inv: a.inv + (p.held > 0 ? p.invested : 0),
+            val: a.val + p.value,
+            net: a.net + (p.netIfSold || 0),
+            unreal: a.unreal + p.unreal,
+            real: a.real + p.realized,
+            div: a.div + p.divs,
+            life: a.life + p.lifetime,
+            cost: a.cost + (p.costBasis || 0),
+          }),
+          {
+            inv: 0,
+            val: 0,
+            net: 0,
+            unreal: 0,
+            real: 0,
+            div: 0,
+            life: 0,
+            cost: 0,
+          },
+        );
+        return `<tr style="border-top:1px solid var(--border)"><td class="l" style="color:var(--text2)"><i>${label} subtotal</i></td>
+    <td></td><td></td><td></td><td>${money(s.inv)}</td><td></td><td>${money(s.val)}</td><td>${money(s.net)}</td>
+    <td class="${cls(s.unreal)}">${money(s.unreal)}</td><td class="${cls(s.real)}">${money(s.real)}</td>
+    <td class="${s.div > 0 ? "pos" : ""}">${money(s.div)}</td><td class="${cls(s.life)}">${money(s.life)}</td><td></td><td></td></tr>`;
+      }
+      let HIDE_CLOSED = true;
+      function totalsOf(list) {
+        return list.reduce(
+          (a, p) => ({
+            inv: a.inv + (p.held > 0 ? p.invested : 0),
+            val: a.val + p.value,
+            net: a.net + (p.netIfSold || 0),
+            unreal: a.unreal + p.unreal,
+            real: a.real + p.realized,
+            div: a.div + p.divs,
+            life: a.life + p.lifetime,
+            cost: a.cost + (p.costBasis || 0),
+          }),
+          {
+            inv: 0,
+            val: 0,
+            net: 0,
+            unreal: 0,
+            real: 0,
+            div: 0,
+            life: 0,
+            cost: 0,
+          },
+        );
+      }
+      function totalRowHTML(label, s, extraCell) {
+        return `<tr style="border-top:2px solid var(--border)">
+    <td class="l"><b>${label}</b></td><td></td><td></td><td></td><td><b>${money(s.inv)}</b></td><td></td>
+    <td><b>${money(s.val)}</b></td><td><b>${money(s.net || 0)}</b></td><td class="${cls(s.unreal)}"><b>${money(s.unreal)}</b></td>
+    <td class="${cls(s.real)}"><b>${money(s.real)}</b></td><td class="${s.div > 0 ? "pos" : ""}"><b>${money(s.div)}</b></td>
+    <td class="${cls(s.life)}"><b>${money(s.life)}</b></td><td class="${cls(s.life)}"><b>${s.cost && s.cost > 1e-9 ? pct(s.life / s.cost) : "\u2014"}</b></td>${extraCell ? "<td></td>" : ""}<td></td></tr>`;
+      }
+      let COMBINE_ACCT = true; // always combined (per-ticker rollup with drill-down)
+      // Merge per-(ticker,account) positions into one row per ticker (accounts still
+      // computed independently by FIFO; this is a display-only rollup). Sums are
+      // additive so grand totals are identical whether combined or split.
+      function mergePositions(arr) {
+        const byTk = {};
+        for (const p of arr) {
+          const g =
+            byTk[p.ticker] ||
+            (byTk[p.ticker] = {
+              key: p.ticker + "||COMB",
+              ticker: p.ticker,
+              name: p.name,
+              isFund: p.isFund,
+              account: "Combined",
+              isPea: false,
+              _accts: new Set(),
+              held: 0,
+              invested: 0,
+              value: 0,
+              unreal: 0,
+              realized: 0,
+              divs: 0,
+              netIfSold: 0,
+              netVsValue: 0,
+              sellFees: 0,
+              sellTax: 0,
+              costBasis: 0,
+              price: p.price,
+              realizedDetail: [],
+              divDetail: [],
+              _hasNet: false,
+            });
+          g._accts.add(p.account);
+          if (p.held > 1e-9)
+            (g._heldAccts || (g._heldAccts = new Set())).add(p.account);
+          (g._children || (g._children = [])).push(p);
+          g.held += p.held;
+          g.invested += p.invested;
+          g.value += p.value;
+          g.unreal += p.unreal;
+          g.realized += p.realized;
+          g.divs += p.divs;
+          g.costBasis += p.costBasis || 0;
+          if (p.netIfSold != null) {
+            g.netIfSold += p.netIfSold;
+            g._hasNet = true;
+          }
+          if (p.netVsValue != null) g.netVsValue += p.netVsValue;
+          if (p.sellFees != null) g.sellFees += p.sellFees;
+          if (p.sellTax != null) g.sellTax += p.sellTax;
+          if (p.realizedDetail && p.realizedDetail.length)
+            g.realizedDetail = g.realizedDetail.concat(
+              p.realizedDetail.map((d) => ({ ...d, account: p.account })),
+            );
+          if (p.divDetail && p.divDetail.length)
+            g.divDetail = g.divDetail.concat(
+              p.divDetail.map((d) => ({ ...d, account: p.account })),
+            );
+          if (g.price == null && p.price != null) g.price = p.price;
+        }
+        return Object.values(byTk).map((g) => {
+          g.avg = g.held > 1e-9 ? g.invested / g.held : 0;
+          g.lifetime = g.unreal + g.realized + g.divs;
+          g.lifepct = g.costBasis > 1e-9 ? g.lifetime / g.costBasis : 0;
+          if (!g._hasNet) g.netIfSold = null;
+          g.netIfSoldPS =
+            g.netIfSold != null && g.held > 0 ? g.netIfSold / g.held : null;
+          g.status =
+            g.held > 0 ? (g.realized !== 0 ? "Partial" : "Open") : "Closed";
+          // Account chip reflects CURRENTLY-HELD accounts (not historical).
+          // If Regular is fully sold and only PEA is held, chip shows PEA \u2014 but the
+          // per-account breakdown still keeps both sub-rows so sold history stays visible.
+          const held = g._heldAccts ? Array.from(g._heldAccts) : [];
+          g.acctList = (held.length ? held : Array.from(g._accts)).sort(); // e.g. ['PEA','Regular'] or ['PEA']
+          g.children = (g._children || [])
+            .slice()
+            .sort((a, b) => (a.isPea ? 0 : 1) - (b.isPea ? 0 : 1));
+          delete g._accts;
+          delete g._heldAccts;
+          delete g._hasNet;
+          delete g._children;
+          return g;
+        });
+      }
+      // Warn when transactions reference a ticker with no master record (no price/category/fees).
+      // Since the embedded seed master was removed, master data comes from your backup or the
+      // Data-tab import \u2014 this flags anything you hold/traded that isn't populated yet.
+      function renderMissingMaster() {
+        const box = document.getElementById("missingMasterBox");
+        if (!box) return;
+        const seen = {};
+        (TXNS || []).forEach((t) => {
+          const tk = t.ticker;
+          if (!tk) return;
+          const m = M[tk];
+          // "missing" = no master record at all, or no price (can't value/compute)
+          if (!m || m.price == null || !isFinite(m.price)) {
+            seen[tk] = seen[tk] || { hasRec: !!m, held: 0 };
+          }
+        });
+        // annotate whether still held (via FIFO positions)
+        try {
+          const { pos } = runFIFO();
+          Object.values(pos).forEach((p) => {
+            if (seen[p.ticker]) seen[p.ticker].held += p.held || 0;
+          });
+        } catch (e) {}
+        const tks = Object.keys(seen).sort();
+        if (!tks.length) {
+          box.innerHTML = "";
+          return;
+        }
+        const items = tks
+          .map((tk) => {
+            const s = seen[tk];
+            const why = !s.hasRec ? "no master record" : "no live price";
+            const heldNote =
+              s.held > 1e-9 ? " \u00B7 still held" : " \u00B7 closed/traded";
+            return `<b>${escapeHtml(tk)}</b> <span class="mini" style="color:var(--text2)">(${why}${heldNote})</span>`;
+          })
+          .join(" \u00B7 ");
+        box.innerHTML = `<div class="sec" style="border-color:var(--warn)">
+      <h2>\u26A0\uFE0F Missing market data</h2>
+      <div class="mini" style="margin-bottom:6px">These tickers appear in your transactions but have no ${""}master price/data, so their value, fees and signals can't be computed. Import them via the <b>Data</b> tab (prices + OPCVM fees), or restore a backup that includes them.</div>
+      <div style="font-size:13px;line-height:1.9">${items}</div>
+    </div>`;
+      }
+      function renderPositions(arr, t) {
+        if (COMBINE_ACCT) arr = mergePositions(arr);
+        let vis = HIDE_CLOSED ? arr.filter((p) => p.status !== "Closed") : arr;
+        const stocks = vis.filter((p) => !p.isFund).sort(posSort);
+        const funds = vis.filter((p) => p.isFund).sort(posSort);
+        // Totals ALWAYS span every position (incl. closed) so realized P&L stays correct when closed rows are hidden.
+        const stocksAll = arr.filter((p) => !p.isFund),
+          fundsAll = arr.filter((p) => p.isFund);
+        // Summary KPI boxes (based on ALL positions, not just visible, so hiding closed doesn't change totals)
+        const stkT = totalsOf(arr.filter((p) => !p.isFund)),
+          fndT = totalsOf(arr.filter((p) => p.isFund)),
+          allT = totalsOf(arr);
+        const T2 = (title, lines) =>
+          `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
+          lines.map((l) => `<div>${l}</div>`).join("");
+        const kr = document.getElementById("posKpiRow");
+        if (kr)
+          kr.innerHTML =
+            kpi(
+              "\uD83D\uDCC8 Stocks Value",
+              money(stkT.val, 0) + " MAD",
+              "",
+              T2("Stocks \u2014 current market value", [
+                "Sum of held stock positions",
+                "at live prices.",
+              ]),
+            ) +
+            kpi(
+              "\uD83C\uDFE6 OPCVM Value",
+              money(fndT.val, 0) + " MAD",
+              "",
+              T2("OPCVM funds \u2014 current value", [
+                "Sum of held fund positions",
+                "at their latest NAV.",
+              ]),
+            ) +
+            kpi(
+              "\uD83D\uDCCA Total Holdings",
+              money(allT.val, 0) + " MAD",
+              "",
+              T2("Total holdings value", [
+                "Stocks + OPCVM funds",
+                "at current prices.",
+              ]),
+            ) +
+            kpi(
+              "\uD83D\uDCB5 Total if Sold",
+              money(allT.net, 0) + " MAD",
+              "pos",
+              T2("Net proceeds if sold today", [
+                "If you sold everything now:",
+                "value \u2212 fees \u2212 tax (0 for PEA).",
+              ]),
+            );
+        // Per-section KPI rows (always over ALL positions incl. closed)
+        const sT = totalsOf(stocksAll),
+          fT = totalsOf(fundsAll);
+        const secKpis = (kind, x) => {
+          const c = kind === "Stocks" ? "stocks" : "OPCVM funds";
+          return (
+            kpi(
+              kind + " Value",
+              money(x.val, 0) + " MAD",
+              "",
+              "Current market value of your " +
+                c +
+                " \u2014 sum of every held position at its latest price/NAV. Closed positions (0 held) add nothing here. Value = \u03a3(held qty \u00d7 current price).",
+            ) +
+            kpi(
+              "Net if Sold",
+              money(x.net, 0) + " MAD",
+              "pos",
+              "What you would actually pocket if you sold all " +
+                c +
+                " right now: value \u2212 trading fees \u2212 dividend/capital-gains tax. PEA is tax-exempt (fees only); regular accounts also subtract tax. Net = \u03a3 netIfSold per position.",
+            ) +
+            kpi(
+              "Unrealized",
+              money(x.unreal, 0) + " MAD",
+              cls(x.unreal),
+              "Paper gain/loss on positions you STILL hold \u2014 not yet banked. Unrealized = current value \u2212 cost basis of remaining shares. Moves with price; becomes realized only when you sell.",
+            ) +
+            kpi(
+              "Realized",
+              money(x.real, 0) + " MAD",
+              cls(x.real),
+              "Profit/loss already LOCKED IN by selling, using FIFO cost matching. Comes mostly from closed positions. Realized = \u03a3(sell proceeds \u2212 FIFO cost of shares sold) across all " +
+                c +
+                ", including closed ones. Independent of current price.",
+            ) +
+            kpi(
+              "Lifetime",
+              money(x.life, 0) + " MAD",
+              cls(x.life),
+              "Total this book of " +
+                c +
+                " has made end-to-end: realized + unrealized + dividends. Lifetime = realized (" +
+                money(x.real, 0) +
+                ") + unrealized (" +
+                money(x.unreal, 0) +
+                ") + dividends (" +
+                money(x.div, 0) +
+                ").",
+            )
+          );
+        };
+        const skr = document.getElementById("stocksKpiRow");
+        if (skr) skr.innerHTML = secKpis("Stocks", sT);
+        const fkr = document.getElementById("fundsKpiRow");
+        if (fkr) fkr.innerHTML = secKpis("OPCVM", fT);
+        // Stocks box
+        const totLbl = HIDE_CLOSED
+          ? ' <span style="font-weight:400;opacity:.7">(incl. closed)</span>'
+          : "";
+        const emptyRow = (txt) =>
+          `<tr><td colspan="14" class="l" style="color:var(--muted)">${txt}</td></tr>`;
+        const emptyRowS = (txt) =>
+          `<tr><td colspan="15" class="l" style="color:var(--muted)">${txt}</td></tr>`;
+        document.querySelector("#stocksTable tbody").innerHTML =
+          (stocks.length
+            ? stocks.map((p) => posRow(p, true)).join("")
+            : stocksAll.length
+              ? emptyRowS("All stock positions are closed (hidden).")
+              : emptyRowS("No stock positions.")) +
+          (stocksAll.length
+            ? totalRowHTML("Stocks Total" + totLbl, totalsOf(stocksAll), true)
+            : "");
+        // Funds box
+        document.querySelector("#fundsTable tbody").innerHTML =
+          (funds.length
+            ? funds.map((p) => posRow(p, false)).join("")
+            : fundsAll.length
+              ? emptyRow("All OPCVM positions are closed (hidden).")
+              : emptyRow("No OPCVM fund positions.")) +
+          (fundsAll.length
+            ? totalRowHTML("Funds Total" + totLbl, totalsOf(fundsAll))
+            : "");
+        // Total box \u2014 combined (uses the grand totals t passed in)
+        document.querySelector("#totalTable tbody").innerHTML = totalRowHTML(
+          "TOTAL PORTFOLIO",
+          t,
+        );
+      }
+      function computeSignalsRows() {
+        const { pos } = runFIFO();
+        return Object.keys(M).map((tk) => {
+          const m = M[tk];
+          const sc = factorScores(m); // {score, pir, coverage, parts} or null
+          const sig = signal(m, sc, heldSharesOf(pos, tk) > 0);
+          return {
+            ticker: tk,
+            name: m.name,
+            m,
+            sc,
+            sig,
+            price: m.price,
+            tbuy: targetBuy(m, sc),
+            tsell: targetSell(m, sc),
+            score: sc ? sc.score : null,
+            pir: sc ? sc.pir : null,
+            pe: m.pe,
+            divy: m.divy,
+            fv: fairValue(m),
+            conviction: sc ? sc.conviction : null,
+            profile: sc ? sc.profile : null,
+            held: heldSharesOf(pos, tk) > 0,
+          };
+        });
+      }
+
+      // ---------- signal calculation breakdown ----------
+
+      function tgtBuyTipHTML(r) {
+        const fv = fairValue(r.m);
+        const s = r.sc && r.sc.score != null ? r.sc.score : 0.5;
+        const conv = r.sc && r.sc.conviction;
+        // Derive the ACTUAL discount from the canonical targetBuy() result so the tooltip
+        // always matches the displayed target (incl. the conviction margin-of-safety).
+        const tbuy = r.tbuy != null ? r.tbuy : targetBuy(r.m, r.sc);
+        const disc =
+          fv != null && fv > 0 && tbuy != null ? 1 - tbuy / fv : null;
+        const convExtra = conv === "Low" ? 10 : conv === "Medium" ? 4 : 0;
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:6px">Target Buy \u00B7 ${escapeHtml(r.ticker)}</div>`;
+        h += row("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
+        h += row("Score", (s * 100).toFixed(0) + "%");
+        h += row(
+          'Margin of safety <span class="mini">(10% + (1\u2212score)\u00D720%' +
+            (convExtra ? " + " + convExtra + "% " + conv + " conviction" : "") +
+            ")</span>",
+          (disc != null ? (disc * 100).toFixed(1) : "\u2014") + "%",
+        );
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          '<b>Target Buy</b> <span class="mini">(fair \u00D7 (1\u2212disc))</span>',
+          "<b>" + (r.tbuy != null ? money(r.tbuy) : "\u2014") + "</b>",
+        );
+        h += `<div class="mini" style="margin-top:6px">Higher score \u2192 smaller required discount \u2192 buy closer to fair value.</div>`;
+        return h;
+      }
+      function tgtSellTipHTML(r) {
+        const fv = fairValue(r.m);
+        const s = r.sc && r.sc.score != null ? r.sc.score : 0.5;
+        // Derive the ACTUAL premium from the canonical targetSell() result (after the
+        // 52-wk-high cap and fair-value/buy floors), so the tooltip matches the target shown.
+        const tsell = r.tsell != null ? r.tsell : targetSell(r.m, r.sc);
+        const prem =
+          fv != null && fv > 0 && tsell != null ? tsell / fv - 1 : null;
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:6px">Target Sell \u00B7 ${escapeHtml(r.ticker)}</div>`;
+        h += row("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
+        h += row("Score", (s * 100).toFixed(0) + "%");
+        h += row(
+          'Premium over fair <span class="mini">(base 12% + score\u00D728%, then capped/floored)</span>',
+          (prem != null ? (prem * 100).toFixed(1) : "\u2014") + "%",
+        );
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          "<b>Target Sell</b>",
+          "<b>" + (r.tsell != null ? money(r.tsell) : "\u2014") + "</b>",
+        );
+        h += `<div class="mini" style="margin-top:6px">Floored at Buy\u00D71.18, capped ~10% above 52-wk high. Higher score \u2192 higher premium.</div>`;
+        return h;
+      }
+      function fvTipHTML(r) {
+        const m = r.m,
+          fv = r.fv,
+          pr = r.price;
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h =
+          '<div style="font-weight:700;margin-bottom:4px">' +
+          r.ticker +
+          " \u2014 Fair Value</div>";
+        h +=
+          '<div style="color:var(--text2);font-size:11px;margin-bottom:6px">Blended intrinsic value from price-independent anchors (median-trimmed).</div>';
+        const aps = fairValueParts(m);
+        if (aps.length) {
+          aps.forEach((a) => {
+            h += row(a[0], money(a[1]) + " MAD");
+          });
+          h +=
+            '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+        }
+        h += row(
+          "<b>Fair value</b>",
+          "<b>" + (fv != null ? money(fv) + " MAD" : "\u2014") + "</b>",
+        );
+        h += row("Current price", pr != null ? money(pr) + " MAD" : "\u2014");
+        if (fv != null && pr != null && fv > 0) {
+          const gap = (fv - pr) / pr;
+          const up = gap >= 0;
+          const label = up
+            ? "Undervalued \u2014 upside to fair"
+            : "Overvalued \u2014 above fair";
+          h += row(
+            label,
+            "<b>" + (up ? "+" : "") + (gap * 100).toFixed(1) + "%</b>",
+            up ? "pos" : "neg",
+          );
+        }
+        return h;
+      }
+      function scoreTipHTML(r) {
+        // reuse the factor breakdown from signalTipHTML
+        return signalTipHTML(r);
+      }
+      function convTipHTML(r) {
+        const sc = r.sc;
+        const _row = (l, v, cl) =>
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
+          l +
+          '</span><span class="' +
+          (cl || "") +
+          '" style="font-family:var(--mono)">' +
+          v +
+          "</span></div>";
+        let h =
+          '<div style="font-weight:700;margin-bottom:6px">Conviction \u00B7 ' +
+          escapeHtml(r.ticker) +
+          "</div>";
+        if (!sc) {
+          return (
+            h +
+            '<div class="mini" style="color:var(--muted)">Not enough data to score.</div>'
+          );
+        }
+        const lvl = sc.conviction || "\u2014";
+        const lvlCl = lvl === "High" ? "pos" : lvl === "Low" ? "neg" : "";
+        h += _row("<b>Level</b>", "<b>" + lvl + "</b>", lvlCl);
+        h +=
+          '<div class="mini" style="margin:4px 0 6px;color:var(--muted)">How much to trust this score \u2014 needs BOTH broad factor coverage AND enough core fundamentals present.</div>';
+        h += _row(
+          'Factor coverage <span class="mini">(by weight)</span>',
+          sc.wcov != null ? (sc.wcov * 100).toFixed(0) + "%" : "\u2014",
+        );
+        const nHave = (sc.depthDefs || []).filter((d) => d[1]).length,
+          nTot = (sc.depthDefs || []).length;
+        h += _row(
+          "Core data depth",
+          nHave +
+            " / " +
+            nTot +
+            (sc.dataDepth != null
+              ? " (" + (sc.dataDepth * 100).toFixed(0) + "%)"
+              : ""),
+        );
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+        (sc.depthDefs || []).forEach((d) => {
+          h +=
+            '<div style="display:flex;justify-content:space-between;gap:14px"><span class="mini">' +
+            d[0] +
+            '</span><span style="font-family:var(--mono);color:' +
+            (d[1] ? "var(--success)" : "var(--error)") +
+            '">' +
+            (d[1] ? "\u2713" : "\u2717") +
+            "</span></div>";
+        });
+        if (sc.convScore != null) {
+          h +=
+            '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+          h += _row(
+            "<b>Conviction score</b>",
+            "<b>" + (sc.convScore * 100).toFixed(0) + "%</b>",
+          );
+          h +=
+            '<div class="mini" style="margin-top:4px;color:var(--muted)">Thresholds: High \u2265 80% \u00B7 Medium \u2265 55% \u00B7 else Low. Missing core inputs cap conviction even when weighted coverage looks high.</div>';
+        }
+        // \u2500\u2500 Earnings quality flags \u2500\u2500
+        if (sc && sc.eqFlags && sc.eqFlags.length) {
+          h +=
+            '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:4px;color:var(--warn);font-weight:600">\u26a0 Quality red flags</div>';
+          sc.eqFlags.forEach((f) => {
+            h += _row(f, "", "neg");
+          });
+          h +=
+            '<div class="mini" style="color:var(--muted)">These penalize the quality sub-score and may block BUY signals.</div>';
+        }
+        return h;
+      }
+
+      // ---- rebalance "why" tooltips ----
+      // Live price vs target buy: flag entries trading materially above their ideal entry.
+      const ABOVE_TGT_THRESH = 0.1; // >10% above target buy = not an ideal entry yet
+      function aboveTgtPct(px, tbuy) {
+        return tbuy != null && isFinite(tbuy) && tbuy > 0 && px != null
+          ? (px - tbuy) / tbuy
+          : null;
+      }
+      function aboveTgtBadge(px, tbuy) {
+        const a = aboveTgtPct(px, tbuy);
+        if (a == null || a <= ABOVE_TGT_THRESH) return "";
+        return (
+          ' <span class="badge b-abovetgt" data-tip="' +
+          encodeURIComponent(
+            "Live price is " +
+              (a * 100).toFixed(0) +
+              "% above target buy (" +
+              money(tbuy) +
+              " MAD). It qualifies as undervalued vs fair value, but you'd be paying above the ideal entry \u2014 consider waiting for a dip.",
+          ) +
+          '" style="cursor:help">\u26A0 +' +
+          (a * 100).toFixed(0) +
+          "% vs tgt</span>"
+        );
+      }
+      function rbBuyTipHTML(x, ctx) {
+        // ctx: {capPct, secWBefore, secWAfter}
+        let h =
+          '<div style="font-weight:700;margin-bottom:6px">Why buy ' +
+          x.ticker +
+          "?</div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector</span><span style="font-family:var(--mono)">' +
+          x.cat +
+          "</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector weight now</span><span style="font-family:var(--mono)">' +
+          (ctx && ctx.secWBefore != null
+            ? (ctx.secWBefore * 100).toFixed(0) + "%"
+            : "\u2014") +
+          "</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>After this plan</span><span style="font-family:var(--mono)">' +
+          (ctx && ctx.secWAfter != null
+            ? (ctx.secWAfter * 100).toFixed(0) + "%"
+            : "\u2014") +
+          ' <span class="mini">(cap ' +
+          (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
+          "%)</span></span></div>";
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Fair value</span><span style="font-family:var(--mono)">' +
+          (x.fv != null ? money(x.fv) : "\u2014") +
+          " MAD</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Live price <span class="mini">(what you pay)</span></span><span style="font-family:var(--mono)"><b>' +
+          money(x.px) +
+          " MAD</b></span></div>";
+        if (x.tbuy != null)
+          h +=
+            '<div style="display:flex;justify-content:space-between;gap:18px"><span>Target Buy <span class="mini">(ideal entry)</span></span><span style="font-family:var(--mono);color:var(--text2)">' +
+            money(x.tbuy) +
+            " MAD</span></div>";
+        {
+          const _a = aboveTgtPct(x.px, x.tbuy);
+          if (_a != null)
+            h +=
+              '<div style="display:flex;justify-content:space-between;gap:18px"><span>vs target buy</span><span class="' +
+              (_a > ABOVE_TGT_THRESH ? "neg" : "pos") +
+              '" style="font-family:var(--mono)">' +
+              (_a >= 0 ? "+" : "") +
+              (_a * 100).toFixed(0) +
+              "%" +
+              (_a > ABOVE_TGT_THRESH ? " \u26A0" : "") +
+              "</span></div>";
+        }
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Discount to fair</span><span class="' +
+          (x.disc > 0 ? "pos" : "neg") +
+          '" style="font-family:var(--mono)">' +
+          (x.disc * 100).toFixed(0) +
+          "%</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Signal engine</span><span style="font-family:var(--mono)">' +
+          ((x.sig && x.sig.t) || "\u2014") +
+          "</span></div>";
+        // Conviction \u00D7 range-width sizing info
+        {
+          const _m = M[x.ticker];
+          const _sc =
+            typeof factorScores === "function" ? factorScores(_m) : null;
+          const _conv = _sc ? _sc.convScore : 0.5;
+          const _kelly = _conv >= 0.8 ? 3 : _conv >= 0.55 ? 2 : 1;
+          const _vol =
+            num(_m.low) && num(_m.high) && x.px > 0
+              ? (_m.high - _m.low) / x.px
+              : null;
+          h +=
+            '<div style="display:flex;justify-content:space-between;gap:18px"><span>Conviction sizing</span><span style="font-family:var(--mono)">' +
+            _kelly +
+            ' sh/step <span class="mini">(conv ' +
+            (_conv * 100).toFixed(0) +
+            "%)</span></span></div>";
+          if (_vol != null)
+            h +=
+              '<div style="display:flex;justify-content:space-between;gap:18px"><span>Range width (52w hi\u2212lo / px)</span><span style="font-family:var(--mono)">' +
+              (_vol * 100).toFixed(0) +
+              "%</span></div>";
+          h +=
+            '<div style="display:flex;justify-content:space-between;gap:18px"><span>Qty allocated</span><span style="font-family:var(--mono)"><b>' +
+            x.qty +
+            "</b> shares</span></div>";
+        }
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+        h +=
+          '<div class="mini">Chosen because its sector is <b>under-represented</b> (below the ' +
+          (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
+          "% cap) and it trades <b>" +
+          (x.disc > 0 ? (x.disc * 100).toFixed(0) + "% below" : "above") +
+          " fair value</b>. Buying it moves your mix toward balance.</div>";
+        return h;
+      }
+      function rbTrimTipHTML(x, ctx) {
+        let h =
+          '<div style="font-weight:700;margin-bottom:6px">Why trim ' +
+          x.ticker +
+          "?</div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector</span><span style="font-family:var(--mono)">' +
+          x.cat +
+          "</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector weight now</span><span class="neg" style="font-family:var(--mono)">' +
+          (ctx && ctx.secWBefore != null
+            ? (ctx.secWBefore * 100).toFixed(0) + "%"
+            : "\u2014") +
+          ' <span class="mini">(cap ' +
+          (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
+          "%)</span></span></div>";
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Fair value</span><span style="font-family:var(--mono)">' +
+          (x.fv != null ? money(x.fv) : "\u2014") +
+          " MAD</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Current price</span><span style="font-family:var(--mono)">' +
+          money(x.px) +
+          " MAD</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Discount to fair</span><span class="' +
+          (x.disc < 0 ? "neg" : "pos") +
+          '" style="font-family:var(--mono)">' +
+          (x.disc * 100).toFixed(0) +
+          "%</span></div>";
+        h +=
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sell qty \u2192 net</span><span style="font-family:var(--mono)">' +
+          x.qty +
+          " \u2192 " +
+          money(x.net, 0) +
+          " MAD</span></div>";
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+        h +=
+          '<div class="mini">This sector is <b>over the ' +
+          (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
+          "% cap</b>, and within it this name is the <b>most richly valued</b> (" +
+          (x.disc < 0
+            ? (-x.disc * 100).toFixed(0) + "% above"
+            : (x.disc * 100).toFixed(0) + "% below") +
+          " fair). Trimming it frees cash to diversify.</div>";
+        return h;
+      }
+      // ---- reusable tooltip builders (every number explains itself) ----
+      function _tipRow(l, v, cl) {
+        return (
+          '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
+          l +
+          '</span><span class="' +
+          (cl || "") +
+          '" style="font-family:var(--mono)">' +
+          v +
+          "</span></div>"
+        );
+      }
+      function _tipHead(t) {
+        return '<div style="font-weight:700;margin-bottom:6px">' + t + "</div>";
+      }
+      function _tipRule() {
+        return '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+      }
+
+      function fairValueTipHTML(m, ticker) {
+        const fv = fairValue(m);
+        const parts = fairValueParts(m);
+        let h = _tipHead("Fair value \u00B7 " + (ticker || ""));
+        if (!parts.length) {
+          h += '<div class="mini">Not enough data \u2014 using last price.</div>';
+          return h;
+        }
+        h +=
+          '<div class="mini" style="color:var(--text2);margin-bottom:2px">Blend of ' +
+          parts.length +
+          " anchor" +
+          (parts.length === 1 ? "" : "s") +
+          " (outliers trimmed):</div>";
+        parts.forEach((pr) => {
+          h += _tipRow(pr[0], money(pr[1]));
+        });
+        h += _tipRule();
+        h += _tipRow(
+          '<b>Fair value</b> <span class="mini">(mean)</span>',
+          "<b>" + (fv != null ? money(fv) : "\u2014") + " MAD</b>",
+        );
+        return h;
+      }
+      function upsideTipHTML(r) {
+        const m = r.m,
+          fv = r._tb && r._tb.fv != null ? r._tb.fv : fairValue(m);
+        const up =
+          fv != null && r.price != null && r.price > 0
+            ? ((fv - r.price) / r.price) * 100
+            : null;
+        let h = _tipHead("Upside to fair value \u00B7 " + r.ticker);
+        h += _tipRow(
+          "Current price",
+          (r.price != null ? money(r.price) : "\u2014") + " MAD",
+        );
+        h += _tipRow("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
+        h += _tipRule();
+        const parts = fairValueParts(m);
+        if (parts.length) {
+          h +=
+            '<div class="mini" style="color:var(--text2);margin-bottom:2px">Fair value = mean of:</div>';
+          parts.forEach((pr) => {
+            h += _tipRow(pr[0], money(pr[1]));
+          });
+          h += _tipRule();
+        }
+        h += _tipRow(
+          '<b>Upside</b> <span class="mini">((fair\u2212price)/price)</span>',
+          '<b class="' +
+            (up != null && up >= 0 ? "pos" : "neg") +
+            '">' +
+            (up != null ? (up >= 0 ? "+" : "") + up.toFixed(1) + "%" : "\u2014") +
+            "</b>",
+        );
+        return h;
+      }
+      function pirTipHTML(r) {
+        const m = r.m;
+        let h = _tipHead("Position in 52-wk range \u00B7 " + r.ticker);
+        h += _tipRow("52-wk low", (num(m.low) ? money(m.low) : "\u2014") + " MAD");
+        h += _tipRow(
+          "Current price",
+          (r.price != null ? money(r.price) : "\u2014") + " MAD",
+        );
+        h += _tipRow(
+          "52-wk high",
+          (num(m.high) ? money(m.high) : "\u2014") + " MAD",
+        );
+        h += _tipRule();
+        h += _tipRow(
+          '<b>Position</b> <span class="mini">((px\u2212low)/(high\u2212low))</span>',
+          "<b>" + (r.pir != null ? pct(r.pir) : "\u2014") + "</b>",
+        );
+        h +=
+          '<div class="mini" style="margin-top:6px">0% = at the 52-wk low (cheap end of its band) \u00B7 100% = at the high.</div>';
+        return h;
+      }
+      function peTipHTML(r) {
+        const m = r.m;
+        const epsAbs = num(m.eps) && m.eps > 0;
+        const eps = epsAbs
+          ? m.eps
+          : num(m.pe) && m.pe > 0
+            ? m.price / m.pe
+            : null;
+        let h = _tipHead("Price / Earnings \u00B7 " + r.ticker);
+        h += _tipRow(
+          "Price",
+          (r.price != null ? money(r.price) : "\u2014") + " MAD",
+        );
+        if (eps != null)
+          h += _tipRow(
+            'EPS <span class="mini">(' +
+              (epsAbs ? "reported" : "price/PE") +
+              ")</span>",
+            money(eps) + " MAD",
+          );
+        h += _tipRule();
+        h += _tipRow(
+          "<b>P/E</b>",
+          "<b>" + (r.pe != null ? money(r.pe, 1) : "\u2014") + "</b>",
+        );
+        const pr = sectorProfile(m.cat);
+        h +=
+          '<div class="mini" style="margin-top:6px">Sector-fair P/E \u2248 ' +
+          pr.peFair +
+          ". Lower than fair = cheaper on earnings.</div>";
+        return h;
+      }
+      function divyTipHTML(r) {
+        const m = r.m;
+        const dpsAbs = num(m.dps) && m.dps > 0;
+        const dps = dpsAbs
+          ? m.dps
+          : num(m.divy) && m.divy > 0
+            ? m.price * m.divy
+            : null;
+        let h = _tipHead("Dividend yield \u00B7 " + r.ticker);
+        h += _tipRow(
+          "Price",
+          (r.price != null ? money(r.price) : "\u2014") + " MAD",
+        );
+        if (dps != null)
+          h += _tipRow(
+            'Div / share <span class="mini">(price\u00D7yield)</span>',
+            money(dps) + " MAD",
+          );
+        h += _tipRule();
+        h += _tipRow(
+          "<b>Yield</b>",
+          "<b>" + (r.divy != null ? pct(r.divy) : "\u2014") + "</b>",
+        );
+        const pr = sectorProfile(m.cat);
+        h +=
+          '<div class="mini" style="margin-top:6px">Sector-fair yield \u2248 ' +
+          (pr.dyFair * 100).toFixed(1) +
+          "%. Higher = more income per MAD.</div>";
+        return h;
+      }
+      function priceTipHTML(r) {
+        const m = r.m;
+        let h = _tipHead("Last price \u00B7 " + r.ticker);
+        h += _tipRow(
+          "Price",
+          (r.price != null ? money(r.price) : "\u2014") + " MAD",
+        );
+        if (num(m.low) && num(m.high)) {
+          h += _tipRow("52-wk low", money(m.low));
+          h += _tipRow("52-wk high", money(m.high));
+        }
+        return h;
+      }
+
+      // Reusable peer-relative valuation tooltip (shared by the Signals breakdown and Top Buys cards).
+      function peerTipHTML(r) {
+        const m = r.m,
+          sc = r.sc;
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:6px">Peer-relative valuation \u00B7 ${escapeHtml(r.ticker)}</div>`;
+        const pf = sc && sc.parts && sc.parts.peerrel;
+        if (!pf || pf.s == null || !pf._n) {
+          h +=
+            '<div class="mini" style="color:var(--muted)">No comparable peers with valuation data \u2014 peer signal not used for this stock.</div>';
+          return h;
+        }
+        const st = typeof sectorStats === "function" ? sectorStats() : null;
+        const cat = m.cat || "Uncategorized";
+        const key =
+          typeof sectorProfile === "function" ? sectorProfile(m.cat).key : null;
+        const ref = st
+          ? pf._basis === "category"
+            ? st.cat && st.cat[cat]
+            : st.prof && st.prof[key]
+          : null;
+        const basisLbl =
+          pf._basis === "category"
+            ? "same category (" + escapeHtml(cat) + ")"
+            : "broad sector (" + (sc.profile || key) + ")";
+        h += row("Compared against", "<b>" + basisLbl + "</b>");
+        h += row(
+          "Comparables used",
+          "<b>" +
+            pf._n +
+            "</b>" +
+            (pf._n < 4
+              ? ' <span class="mini neg">(thin \u2014 down-weighted)</span>'
+              : ""),
+        );
+        if (ref) {
+          if (ref.pe != null)
+            h += row(
+              "Peer median P/E",
+              money(ref.pe, 1) +
+                (num(m.pe) && m.pe > 0
+                  ? '  <span class="mini">\u00B7 you ' + money(m.pe, 1) + "</span>"
+                  : ""),
+            );
+          if (ref.pb != null)
+            h += row(
+              "Peer median P/B",
+              money(ref.pb, 2) +
+                (num(m.pb) && m.pb > 0
+                  ? '  <span class="mini">\u00B7 you ' + money(m.pb, 2) + "</span>"
+                  : ""),
+            );
+          if (ref.divy != null)
+            h += row(
+              "Peer median Div Y",
+              (ref.divy * 100).toFixed(1) +
+                "%" +
+                (num(m.divy) && m.divy > 0
+                  ? '  <span class="mini">\u00B7 you ' +
+                    (m.divy * 100).toFixed(1) +
+                    "%</span>"
+                  : ""),
+            );
+        }
+        const verdict =
+          pf.s >= 0.6
+            ? "cheaper than peers"
+            : pf.s <= 0.4
+              ? "pricier than peers"
+              : "in line with peers";
+        h +=
+          '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+        h += row(
+          "<b>Peer verdict</b>",
+          '<b class="' +
+            (pf.s >= 0.6 ? "pos" : pf.s <= 0.4 ? "neg" : "") +
+            '">' +
+            (pf.s * 100).toFixed(0) +
+            "% \u00B7 " +
+            verdict +
+            "</b>",
+        );
+        h +=
+          '<div class="mini" style="margin-top:4px;color:var(--muted)">Prefers same-category peers when \u22654 exist, else the broad sector. Fewer comparables \u2192 lower weight in the score.</div>';
+        return h;
+      }
+      function signalTipHTML(r) {
+        const m = r.m,
+          sc = r.sc,
+          fv = fairValue(m);
+        const names = {
+          valuation: "Valuation (EV/EBITDA)",
+          safety: "Safety (Net Debt/EBITDA)",
+          quality: "Quality (ROE)",
+          growth: "Growth (PEG)",
+          yield: "Yield (Div %)",
+          book: "Book (P/B)",
+          timing: "Timing (Entry pos.)",
+          momentum: "Range Position (52w)",
+          peerrel: "Peer-relative (vs sector)",
+        };
+        const row = _tipRow; // shared tooltip row builder (gap:18px)
+        let h = `<div style="font-weight:700;margin-bottom:2px">${escapeHtml(r.ticker)} \u2014 ${escapeHtml(r.name || "")}</div>`;
+        h += `<div style="margin-bottom:8px"><span class="badge ${r.sig.c}">${r.sig.t}</span></div>`;
+        h += `<div style="color:var(--text2);font-size:11px;margin-bottom:2px">Factor \u00B7 <b>raw value</b> \u00B7 weight \u00B7 score \u2192 contribution</div>`;
+        if (sc && sc.parts) {
+          // Raw metric values for each factor
+          const _rawVals = {
+            valuation: m.ev != null ? m.ev.toFixed(1) + "x" : null,
+            safety: m.netdebt != null ? m.netdebt.toFixed(1) + "x" : null,
+            quality: m.roe != null ? (m.roe * 100).toFixed(1) + "%" : null,
+            growth:
+              m.peg != null
+                ? m.peg.toFixed(1) +
+                  (m.epsGrowth != null
+                    ? " (gr " +
+                      (m.epsGrowth >= 0 ? "+" : "") +
+                      (m.epsGrowth * 100).toFixed(0) +
+                      "%)"
+                    : "")
+                : null,
+            yield: m.divy != null ? (m.divy * 100).toFixed(2) + "%" : null,
+            book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
+            timing: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
+            momentum: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
+            peerrel:
+              sc.parts.peerrel && sc.parts.peerrel._n
+                ? sc.parts.peerrel._n + " peers"
+                : null,
+          };
+          for (const k in sc.parts) {
+            const f = sc.parts[k];
+            const rv = _rawVals[k];
+            const rawStr = rv ? "<b>" + rv + "</b> \u00B7 " : "";
+            const s =
+              f.s == null
+                ? '<span style="color:var(--muted)">no data</span>'
+                : (f.s * 100).toFixed(0) + "%";
+            const contrib =
+              f.s == null ? "" : " \u2192 " + (f.s * f.w * 100).toFixed(0) + "%";
+            h += row(
+              names[k] || k,
+              rawStr +
+                '<span class="mini">' +
+                (f.w * 100).toFixed(0) +
+                "%</span> \u00B7 " +
+                s +
+                contrib,
+            );
+          }
+        }
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += row(
+          '<b>Total Score</b> <span class="mini">(\u00F7 avail. weights, correlation-adjusted)</span>',
+          "<b>" +
+            (sc && sc.score != null ? (sc.score * 100).toFixed(0) + "%" : "\u2014") +
+            "</b>",
+        );
+        h += row(
+          "Sector weighting profile",
+          "<b>" + (sc && sc.profile ? sc.profile : "\u2014") + "</b>",
+        );
+        h += row(
+          'Conviction <span class="mini">(data coverage ' +
+            (sc && sc.wcov != null ? (sc.wcov * 100).toFixed(0) + "%" : "") +
+            ")</span>",
+          "<b>" + (sc && sc.conviction ? sc.conviction : "\u2014") + "</b>",
+          sc && sc.conviction === "High"
+            ? "pos"
+            : sc && sc.conviction === "Low"
+              ? "neg"
+              : "",
+        );
+        h += `<div style="margin-top:8px"></div>`;
+        h += row(
+          'Fair value <span class="mini">(price-independent anchors)</span>',
+          (fv != null ? money(fv) : "\u2014") + " MAD",
+        );
+        {
+          const aps = fairValueParts(m);
+          if (aps.length) {
+            h +=
+              '<div class="mini" style="margin:2px 0 2px 8px;color:var(--text2)">';
+            aps.forEach((a) => {
+              h +=
+                '<div style="display:flex;justify-content:space-between;gap:14px"><span>' +
+                a[0] +
+                '</span><span style="font-family:var(--mono)">' +
+                money(a[1]) +
+                "</span></div>";
+            });
+            h += "</div>";
+          }
+        }
+        // ---- (B) Peer-relative valuation detail: what we compared against, and how many peers ----
+        {
+          const pf = sc && sc.parts && sc.parts.peerrel;
+          if (pf && pf.s != null && pf._n) {
+            const st = typeof sectorStats === "function" ? sectorStats() : null;
+            const cat = m.cat || "Uncategorized";
+            const key =
+              typeof sectorProfile === "function"
+                ? sectorProfile(m.cat).key
+                : null;
+            const ref = st
+              ? pf._basis === "category"
+                ? st.cat && st.cat[cat]
+                : st.prof && st.prof[key]
+              : null;
+            h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600">Peer-relative valuation</div>`;
+            const basisLbl =
+              pf._basis === "category"
+                ? "same category (" + escapeHtml(cat) + ")"
+                : "broad sector (" + (sc.profile || key) + ")";
+            h += row("Compared against", "<b>" + basisLbl + "</b>");
+            h += row(
+              "Comparables used",
+              "<b>" +
+                pf._n +
+                "</b>" +
+                (pf._n < 4
+                  ? ' <span class="mini neg">(thin \u2014 down-weighted)</span>'
+                  : ""),
+            );
+            if (ref) {
+              if (ref.pe != null)
+                h += row(
+                  "Peer median P/E",
+                  money(ref.pe, 1) +
+                    (num(m.pe) && m.pe > 0
+                      ? '  <span class="mini">\u00B7 you ' +
+                        money(m.pe, 1) +
+                        "</span>"
+                      : ""),
+                );
+              if (ref.pb != null)
+                h += row(
+                  "Peer median P/B",
+                  money(ref.pb, 2) +
+                    (num(m.pb) && m.pb > 0
+                      ? '  <span class="mini">\u00B7 you ' +
+                        money(m.pb, 2) +
+                        "</span>"
+                      : ""),
+                );
+              if (ref.divy != null)
+                h += row(
+                  "Peer median Div Y",
+                  (ref.divy * 100).toFixed(1) +
+                    "%" +
+                    (num(m.divy) && m.divy > 0
+                      ? '  <span class="mini">\u00B7 you ' +
+                        (m.divy * 100).toFixed(1) +
+                        "%</span>"
+                      : ""),
+                );
+            }
+            const verdict =
+              pf.s >= 0.6
+                ? "cheaper than peers"
+                : pf.s <= 0.4
+                  ? "pricier than peers"
+                  : "in line with peers";
+            h += row(
+              "<b>Peer verdict</b>",
+              '<b class="' +
+                (pf.s >= 0.6 ? "pos" : pf.s <= 0.4 ? "neg" : "") +
+                '">' +
+                (pf.s * 100).toFixed(0) +
+                "% \u00B7 " +
+                verdict +
+                "</b>",
+            );
+            h +=
+              '<div class="mini" style="margin-top:4px;color:var(--muted)">Prefers same-category peers when \u22654 exist, else the broad sector. Fewer comparables \u2192 lower weight in the score.</div>';
+            h += `<div style="margin-top:8px"></div>`;
+          }
+        }
+        h += row(
+          'Target Buy <span class="mini">(fair \u2212 discount)</span>',
+          r.tbuy != null ? money(r.tbuy) : "\u2014",
+        );
+        h += row(
+          'Target Sell <span class="mini">(fair + premium)</span>',
+          r.tsell != null ? money(r.tsell) : "\u2014",
+        );
+        h += row("Current price", r.price != null ? money(r.price) : "\u2014");
+        h += row("Position in range", r.pir != null ? pct(r.pir) : "\u2014");
+        if (r.sig && r.sig.reasons && r.sig.reasons.length) {
+          h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600">Why this signal</div>`;
+          h +=
+            '<ul style="margin:4px 0 0;padding-left:16px">' +
+            r.sig.reasons
+              .map((x) => '<li style="margin:2px 0">' + x + "</li>")
+              .join("") +
+            "</ul>";
+        }
+        // \u2500\u2500 Earnings quality flags \u2500\u2500
+        if (sc && sc.eqFlags && sc.eqFlags.length) {
+          h +=
+            '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600;color:var(--warn)">\u26a0 Earnings quality concerns</div>';
+          h +=
+            '<ul style="margin:4px 0 0;padding-left:16px;color:var(--warn)">' +
+            sc.eqFlags
+              .map((f) => '<li style="margin:2px 0">' + escapeHtml(f) + "</li>")
+              .join("") +
+            "</ul>";
+        }
+        return h;
+      }
+
+      // Buy strength: how compelling the buy is (higher = act first).
+      // Combines the signal tier, the score, and how far below the buy target the price sits.
+      function buyStrength(r) {
+        const tier =
+          {
+            "\uD83D\uDE80 STRONG BUY": 5,
+            "\uD83D\uDCB0 BUY (Deep Value)": 4,
+            "\uD83D\uDCB8 BUY (Good Value)": 3,
+            "\u2753 BUY (Speculative)": 1,
+          }[r.sig.t] || 2;
+        const disc =
+          r.tbuy && r.price != null
+            ? Math.max(0, (r.tbuy - r.price) / r.tbuy)
+            : 0; // deeper discount = stronger
+        return tier * 100 + (r.score || 0) * 20 + disc * 40;
+      }
+      // Sell urgency: how urgent the exit is (higher = act first).
+      function sellUrgency(r) {
+        const tier =
+          r.sig.c === "b-sell"
+            ? 5
+            : r.sig.t.indexOf("TRIM 50") >= 0 ||
+                r.sig.t.indexOf("Well Above") >= 0
+              ? 4
+              : 3;
+        const over =
+          r.tsell && r.price != null
+            ? Math.max(0, (r.price - r.tsell) / r.tsell)
+            : 0; // further above target = more urgent
+        const weak = 1 - (r.score || 0.5); // weaker quality = more urgent to sell
+        return tier * 100 + over * 50 + weak * 20;
+      }
+      function topBuyRank(r) {
+        // Composite conviction-weighted buy quality. All components normalised ~0..1.
+        const tier =
+          {
+            "\uD83D\uDE80 STRONG BUY": 1.0,
+            "\uD83D\uDCB0 BUY (Deep Value)": 0.85,
+            "\uD83D\uDCB8 BUY (Good Value)": 0.7,
+            "\u2753 BUY (Speculative)": 0.45,
+          }[r.sig.t] || 0.6;
+        const fv = fairValue(r.m);
+        const disc =
+          fv && r.price != null
+            ? Math.max(0, Math.min(0.6, (fv - r.price) / fv))
+            : 0; // upside to fair value, capped 60%
+        const sc = r.score != null ? r.score : 0.5; // factor score 0..1
+        const convW =
+          { High: 1.0, Medium: 0.8, Low: 0.55 }[r.conviction] || 0.7; // data coverage / confidence
+        // weighted blend then scaled by conviction (low data confidence discounts the whole idea)
+        const raw = 0.45 * tier + 0.35 * (disc / 0.6) + 0.2 * sc;
+        return { rank: raw * convW, tier, disc, sc, convW, fv };
+      }
+
+      function renderTopBuys() {
+        const wrap = document.getElementById("topBuysWrap");
+        if (!wrap) return;
+        const at =
+          (document.getElementById("sigAsset") || {}).value || "stocks";
+        let rows = computeSignalsRows().filter((r) => r.sig.c === "b-buy");
+        if (at === "stocks")
+          rows = rows.filter((r) => !(r.m && r.m.cat === "OPCVM"));
+        else if (at === "opcvm")
+          rows = rows.filter((r) => r.m && r.m.cat === "OPCVM");
+        rows.forEach((r) => {
+          r._tb = topBuyRank(r);
+        });
+        rows.sort((a, b) => b._tb.rank - a._tb.rank);
+        const top = rows.slice(0, 10);
+        window.__topBuys = top;
+        // prune stale selections
+        if (window.__tbSel) {
+          const keep = {};
+          top.forEach((r) => {
+            if (window.__tbSel[r.ticker]) keep[r.ticker] = true;
+          });
+          window.__tbSel = keep;
+        } else window.__tbSel = {};
+        if (!top.length) {
+          wrap.innerHTML =
+            '<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column"><h3 style="margin:0 0 6px">\u2B50 Top Buys</h3><div class="mini" style="color:var(--text2)">No buy signals for the current asset filter.</div></div>';
+          renderTopSector();
+          renderTopHeadroom();
+          return;
+        }
+        const row = (r, i) => {
+          const up =
+            r._tb.fv && r.price != null
+              ? ((r._tb.fv - r.price) / r.price) * 100
+              : null;
+          const upTxt =
+            up != null ? (up >= 0 ? "+" : "") + up.toFixed(0) + "%" : "\u2014";
+          const checked = window.__tbSel[r.ticker] ? "checked" : "";
+          return `<div class="tb-card" style="display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--border);border-radius:9px;background:var(--panel);margin-bottom:5px" data-tip="${escapeHtml(r.name || r.ticker)} \u2014 ${
+            (r.sig.reasons || [])
+              .filter((x) => !/^Score\s/.test(x))
+              .slice(0, 2)
+              .join(" ") || "buy signal"
+          }">
+      <input type="checkbox" class="tb-chk" data-tk="${escapeHtml(r.ticker)}" data-act="toggleTbSel" data-args="${r.ticker},$checked" data-stop="true" ${checked} style="width:16px;height:16px;flex:none;cursor:pointer">
+      <div style="font-family:var(--mono);font-weight:800;font-size:13px;color:var(--muted);width:16px;flex:none">${i + 1}</div>
+      <div style="min-width:0;flex:1;cursor:pointer" data-act="prefillPending" data-args="${r.ticker}">
+        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.ticker)} <span class="badge ${r.sig.c}" style="font-size:9px">${r.sig.t}</span></div>
+        <div class="mini" style="color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.name || "")}</div>
+        ${aboveTgtBadge(r.price, r.tbuy) ? '<div style="margin-top:2px">' + aboveTgtBadge(r.price, r.tbuy) + "</div>" : ""}
+      </div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? encodeURIComponent(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
+    </div>`;
+        };
+        wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:10px">
+      <h3 style="margin:0;white-space:nowrap">\u2B50 Top Buys <span class="mini" style="font-weight:400;color:var(--text2)">(${top.length})</span></h3>
+      <span class="mini" style="color:var(--text2);text-align:right">tick names, then Draft selected</span>
+    </div>
+    <div style="flex:1 1 auto;min-height:0;overflow:auto;margin:-2px -2px 0;padding:2px">${top.map(row).join("")}</div>
+    <div id="tbSelBar" style="display:none;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;background:var(--panel2);border-radius:8px">
+      <span class="mini" id="tbSelCount" style="color:var(--text2)"></span>
+      <div style="flex:1"></div>
+      <button class="btn sec2" data-act="clearTbSel" style="font-size:11px;padding:4px 10px">Clear</button>
+      <button class="btn" data-act="openDraftSelected" style="font-size:11px;padding:4px 10px">\u2795 Draft selected</button>
+    </div>
+  </div>`;
+        updateTbSelBar();
+        renderTopSector();
+        renderTopHeadroom();
+      }
+
+      function toggleTbSel(tk, on) {
+        window.__tbSel = window.__tbSel || {};
+        if (on) window.__tbSel[tk] = true;
+        else delete window.__tbSel[tk];
+        updateTbSelBar();
+      }
+      function clearTbSel() {
+        window.__tbSel = {};
+        document
+          .querySelectorAll(".tb-chk")
+          .forEach((c) => (c.checked = false));
+        updateTbSelBar();
+      }
+      function updateTbSelBar() {
+        const bar = document.getElementById("tbSelBar");
+        if (!bar) return;
+        const n = Object.keys(window.__tbSel || {}).length;
+        bar.style.display = n ? "flex" : "none";
+        const c = document.getElementById("tbSelCount");
+        if (c) c.textContent = n + " name" + (n === 1 ? "" : "s") + " selected";
+      }
+
+      // Sector allocation donut for the companion card (current holdings by sector)
+      let CH_topSector = null,
+        CH_topCycle = null,
+        CH_topStyle = null;
+      function renderTopSector() {
+        const wrap = document.getElementById("topSectorWrap");
+        if (!wrap) return;
+        const { pos } = runFIFO();
+        const held = Object.values(pos).filter(
+          (p) => p.held > 0 && p.value > 0,
+        );
+        // Donuts exclude OPCVM funds (they have no sector/cycle/style classification);
+        // OPCVM still counts in Sector Headroom below.
+        const heldStocks = held.filter(
+          (p) => !((M[p.ticker] || {}).cat === "OPCVM"),
+        );
+        // Build a value breakdown by any metadata field, sorted desc.
+        const breakdown = (field, fallback) => {
+          const by = {};
+          heldStocks.forEach((p) => {
+            const m = M[p.ticker] || {};
+            const k =
+              m[field] != null && ("" + m[field]).trim()
+                ? ("" + m[field]).trim()
+                : fallback;
+            by[k] = (by[k] || 0) + p.value;
+          });
+          const total = Object.values(by).reduce((a, b) => a + b, 0);
+          const data = Object.keys(by)
+            .map((k) => ({ name: k, y: by[k] }))
+            .sort((a, b) => b.y - a.y);
+          return { data, total };
+        };
+        const sec = breakdown("cat", "Uncategorized");
+        const cyc = breakdown("cycle", "Unclassified");
+        const sty = breakdown("style", "Unclassified");
+        const total = sec.total;
+        if (!sec.data.length) {
+          wrap.innerHTML =
+            '<div class="sec" style="padding:12px 14px;margin:0;height:100%"><h3 style="margin:0 0 6px">\uD83E\uDD67 Your Mix</h3><div class="mini" style="color:var(--text2)">No holdings yet.</div></div>';
+          return;
+        }
+        const topCat = sec.data[0],
+          conc = total > 0 ? (topCat.y / total) * 100 : 0;
+        const flag =
+          conc >= 35
+            ? '<span class="neg">\u26A0 ' +
+              topCat.name +
+              " " +
+              conc.toFixed(0) +
+              "% \u2014 concentrated</span>"
+            : conc >= 25
+              ? '<span style="color:var(--warn)">' +
+                topCat.name +
+                " " +
+                conc.toFixed(0) +
+                "% (top sector)</span>"
+              : '<span class="pos">Well spread \u2014 top ' +
+                topCat.name +
+                " " +
+                conc.toFixed(0) +
+                "%</span>";
+
+        // Compact donut column: small heading + chart div. The three sit side-by-side in a grid.
+        const donutCol = (
+          id,
+          emoji,
+          title,
+          n,
+        ) => `<div style="min-width:0;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin:0 0 2px">
+        <h3 style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${emoji} ${title}</h3>
+        <span class="mini" style="color:var(--text2);flex:none">${n}</span>
+      </div>
+      <div id="${id}" style="height:180px"></div>
+    </div>`;
+
+        wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:8px">
+      <h3 style="margin:0;white-space:nowrap">\uD83E\uDD67 Your Mix</h3>
+      <span class="mini" style="color:var(--text2)">${money(total, 0)} MAD</span>
+    </div>
+    <div class="mini" style="margin-bottom:6px">${flag}</div>
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start">
+      ${donutCol("topSectorChart", "\uD83C\uDFE6", "By Sector", sec.data.length)}
+      ${donutCol("topCycleChart", "\uD83D\uDD04", "By Cycle", cyc.data.length)}
+      ${donutCol("topStyleChart", "\uD83C\uDFA8", "By Asset Style", sty.data.length)}
+    </div>
+  </div>`;
+        const tx = themeColor("text");
+        const donut = (id, data, h) => {
+          try {
+            return Highcharts.chart(id, {
+              chart: { type: "pie", backgroundColor: "transparent", height: h },
+              title: { text: null },
+              credits: { enabled: false },
+              legend: { enabled: false },
+              tooltip: {
+                pointFormat:
+                  "<b>{point.y:,.0f} MAD</b> ({point.percentage:.1f}%)",
+              },
+              plotOptions: {
+                pie: {
+                  innerSize: "56%",
+                  dataLabels: {
+                    enabled: true,
+                    style: { color: tx, fontSize: "10px", textOutline: "none" },
+                    format: "{point.name}: {point.percentage:.0f}%",
+                    distance: 6,
+                    connectorWidth: 1,
+                  },
+                },
+              },
+              series: [{ name: "Value", data: data }],
+            });
+          } catch (e) {
+            console.error(id, e);
+            return null;
+          }
+        };
+        CH_topSector = donut("topSectorChart", sec.data, 180);
+        CH_topCycle = donut("topCycleChart", cyc.data, 180);
+        CH_topStyle = donut("topStyleChart", sty.data, 180);
+      }
+
+      // Sector headroom card (card 3) \u2014 current sector weight vs the concentration cap set on the Rebalance tab.
+      function renderTopHeadroom() {
+        const wrap = document.getElementById("topHeadroomWrap");
+        if (!wrap) return;
+        const { pos } = runFIFO();
+        const held = Object.values(pos).filter(
+          (p) => p.held > 0 && p.value > 0,
+        );
+        const byCat = {};
+        held.forEach((p) => {
+          const cat = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
+          byCat[cat] = (byCat[cat] || 0) + p.value;
+        });
+        const total = Object.values(byCat).reduce((a, b) => a + b, 0);
+        const data = Object.keys(byCat)
+          .map((k) => ({ name: k, y: byCat[k] }))
+          .sort((a, b) => b.y - a.y);
+        const capPct = Math.min(
+          60,
+          Math.max(
+            5,
+            parseFloat((document.getElementById("rbCap") || {}).value) || 20,
+          ),
+        );
+        const capOpcvm = Math.min(
+          80,
+          Math.max(
+            5,
+            parseFloat((document.getElementById("rbCapOpcvm") || {}).value) ||
+              35,
+          ),
+        );
+        const capForP = (cat) => (cat === "OPCVM" ? capOpcvm : capPct);
+        if (!data.length) {
+          wrap.innerHTML =
+            '<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column"><h3 style="margin:0 0 6px">\uD83D\uDCCA Sector Headroom</h3><div class="mini" style="color:var(--text2)">No holdings yet.</div></div>';
+          return;
+        }
+        // sorted by current weight, highest first (matches the Sector Mix ordering)
+        const rowsData = data
+          .map((d) => {
+            const cap = capForP(d.name);
+            const w = total > 0 ? (d.y / total) * 100 : 0;
+            return { name: d.name, w, cap, room: cap - w };
+          })
+          .sort((a, b) => b.w - a.w); // highest current weight first
+        const overN = rowsData.filter((r) => r.w > r.cap + 1e-9).length;
+        const nearN = rowsData.filter(
+          (r) => r.w <= r.cap + 1e-9 && r.w >= r.cap * 0.8,
+        ).length;
+        const flag = overN
+          ? '<span class="neg">\u26A0 ' +
+            overN +
+            " sector" +
+            (overN === 1 ? "" : "s") +
+            " over cap</span>"
+          : nearN
+            ? '<span style="color:var(--warn)">' +
+              nearN +
+              " near cap (\u226580%)</span>"
+            : '<span class="pos">All sectors within cap</span>';
+        const hrRows = rowsData
+          .map((d) => {
+            const fill = Math.min(100, d.cap > 0 ? (d.w / d.cap) * 100 : 0);
+            const over = d.w > d.cap + 1e-9;
+            const near = !over && d.w >= d.cap * 0.8;
+            const col = over
+              ? "var(--error)"
+              : near
+                ? "var(--warn)"
+                : "var(--success)";
+            const capTag =
+              d.name === "OPCVM"
+                ? ' <span class="mini" style="color:var(--text2)">(fund cap)</span>'
+                : "";
+            const roomTxt = over
+              ? "+" + (d.w - d.cap).toFixed(0) + "% over"
+              : d.room.toFixed(0) + "% room";
+            return `<div style="margin-bottom:7px" data-tip="${escapeHtml(d.name)}: ${d.w.toFixed(1)}% of portfolio vs ${d.cap.toFixed(0)}% cap \u2014 ${over ? "over the cap by " + (d.w - d.cap).toFixed(1) + " pts" : d.room.toFixed(1) + " pts of headroom before the cap"}">
+      <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:2px">
+        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(d.name)}${capTag}</span>
+        <span style="font-family:var(--mono);color:${col};flex:none">${d.w.toFixed(0)}% \u00B7 ${roomTxt}</span>
+      </div>
+      <div style="position:relative;height:7px;border-radius:5px;background:var(--panel2);overflow:hidden">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${fill}%;background:${col};border-radius:5px;transition:width .3s"></div>
+      </div>
+    </div>`;
+          })
+          .join("");
+        wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:8px">
+      <h3 style="margin:0;white-space:nowrap">\uD83D\uDCCA Sector Headroom</h3>
+      <span class="mini" style="color:var(--text2);cursor:help" data-tip="Each bar shows a sector's current share of your portfolio against the concentration cap set on the Rebalance tab. Green = room to add \u00B7 amber = getting close (\u226580% of cap) \u00B7 red = over the cap. OPCVM funds use a separate, higher cap.">vs ${capPct.toFixed(0)}% \u00B7 OPCVM ${capOpcvm.toFixed(0)}% \u24D8</span>
+    </div>
+    <div class="mini" style="margin-bottom:6px">${flag}</div>
+    <div style="flex:1;min-height:0;overflow:auto">${hrRows}</div>
+    <div class="mini" style="color:var(--text2);margin-top:6px;text-align:right"><a href="#" data-act="gotoTab" data-args="rebalance" style="color:var(--info)">Adjust cap \u2192</a></div>
+  </div>`;
+      }
+
+      function openDraftSelected() {
+        const sel = Object.keys(window.__tbSel || {});
+        const top = window.__topBuys || [];
+        const picks = top.filter((r) => sel.includes(r.ticker));
+        if (!picks.length) {
+          toast("Tick at least one name first.", "warn");
+          return;
+        }
+        let ov = document.getElementById("draftSelOverlay");
+        if (!ov) {
+          ov = document.createElement("div");
+          ov.id = "draftSelOverlay";
+          ov.style.cssText =
+            "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
+          ov.onclick = (e) => {
+            if (e.target === ov) closeDraftSelected();
+          };
+          document.body.appendChild(ov);
+        }
+        const rowH = picks
+          .map((r) => {
+            const px = r.price != null && isFinite(r.price) ? r.price : null; // LIVE price = what you actually pay
+            const tb = r.tbuy != null && isFinite(r.tbuy) ? r.tbuy : null; // target buy = ideal entry (reference only)
+            return `<tr data-tk="${escapeHtml(r.ticker)}" data-px="${px || ""}">
+      <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(r.name || "")}</span></td>
+      <td style="text-align:right;font-family:var(--mono)"><b>${px != null ? money(px) : "\u2014"}</b></td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${tb != null ? money(tb) : "\u2014"}</td>
+      <td style="text-align:right"><input type="number" min="0" step="100" class="ds-amt" value="10000" style="width:100px;text-align:right" data-act="recalcDraftSel" data-on="input"></td>
+      <td style="text-align:right;font-family:var(--mono)" class="ds-qty">\u2014</td>
+      <td style="text-align:right;font-family:var(--mono)" class="ds-cost">\u2014</td>
+    </tr>`;
+          })
+          .join("");
+        ov.innerHTML = `<div class="sec" style="max-width:640px;width:100%;max-height:85vh;overflow:auto;margin:0;padding:16px 18px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <h2 style="margin:0">\u2795 Draft selected buys <span class="mini" style="font-weight:400">\u2014 ${picks.length} name${picks.length === 1 ? "" : "s"}</span></h2>
+      <button class="btn sec2" data-act="closeDraftSelected" style="padding:2px 10px" aria-label="Close" title="Close">\u2715</button>
+    </div>
+    <div class="mini" style="color:var(--text2);margin-bottom:10px">Enter how much to buy for each (MAD). Quantity is computed at the live market price (what you pay), rounded down. Edit or set 0 to skip a name.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <span class="mini" style="color:var(--text2)">Set all to</span>
+      <input type="number" min="0" step="500" id="dsAll" value="10000" style="width:110px;text-align:right">
+      <button class="btn sec2" data-act="applyDraftAll" style="font-size:11px;padding:4px 10px">Apply to all</button>
+    </div>
+    <table><thead><tr>
+      <th scope="col" class="l">Name</th><th scope="col" style="text-align:right" data-tip="Live market price \u2014 what you actually pay now">Live px</th><th scope="col" style="text-align:right" data-tip="Target buy (ideal entry below fair value) \u2014 reference only">Tgt buy</th><th scope="col" style="text-align:right">Amount MAD</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Est. cost</th>
+    </tr></thead><tbody id="dsBody">${rowH}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
+      <td class="l">Total</td><td></td><td></td><td></td><td style="text-align:right" id="dsQtyTot">\u2014</td><td style="text-align:right;font-family:var(--mono)" id="dsCostTot">\u2014</td>
+    </tr></tfoot></table>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+      <button class="btn sec2" data-act="closeDraftSelected">Cancel</button>
+      <button class="btn" data-act="commitDraftSelected">Push to Pending</button>
+    </div>
+  </div>`;
+        recalcDraftSel();
+      }
+      function applyDraftAll() {
+        const v = document.getElementById("dsAll").value;
+        document
+          .querySelectorAll("#dsBody .ds-amt")
+          .forEach((inp) => (inp.value = v));
+        recalcDraftSel();
+      }
+      function recalcDraftSel() {
+        let qTot = 0,
+          cTot = 0;
+        document.querySelectorAll("#dsBody tr").forEach((tr) => {
+          const px = parseFloat(tr.getAttribute("data-px"));
+          const amt = parseFloat(tr.querySelector(".ds-amt").value);
+          const _fund = isOpcvmTk(tr.getAttribute("data-tk"));
+          let qty = 0,
+            cost = 0;
+          if (isFinite(px) && px > 0 && isFinite(amt) && amt > 0) {
+            qty = buyableQty(px, amt, _fund);
+            cost = qty * px;
+          }
+          tr.querySelector(".ds-qty").textContent =
+            qty > 0 ? money(qty, _fund && qty % 1 ? 4 : 0) : "\u2014";
+          tr.querySelector(".ds-cost").textContent =
+            cost > 0 ? money(cost, 0) : "\u2014";
+          qTot += qty;
+          cTot += cost;
+        });
+        document.getElementById("dsQtyTot").textContent =
+          qTot > 0 ? money(qTot, qTot % 1 ? 2 : 0) : "\u2014";
+        document.getElementById("dsCostTot").textContent =
+          cTot > 0 ? money(cTot, 0) + " MAD" : "\u2014";
+      }
+      function commitDraftSelected() {
+        const today = new Date().toISOString().slice(0, 10);
+        let added = 0;
+        document.querySelectorAll("#dsBody tr").forEach((tr) => {
+          const tk = tr.getAttribute("data-tk");
+          const px = parseFloat(tr.getAttribute("data-px"));
+          const amt = parseFloat(tr.querySelector(".ds-amt").value);
+          if (!(isFinite(px) && px > 0 && isFinite(amt) && amt > 0)) return;
+          const m = M[tk];
+          const isOpcvm = !!(m && m.cat === "OPCVM");
+          const qty = buyableQty(px, amt, isOpcvm);
+          if (qty <= 0) return;
+          PENDING.push({
+            date: today,
+            ticker: tk,
+            action: "BUY",
+            qty: qty,
+            price: px,
+            pea: true,
+            opcvm: isOpcvm,
+            broker: "attijari",
+          });
+          added++;
+        });
+        if (!added) {
+          toast(
+            "Nothing to draft \u2014 set an amount for at least one name.",
+            "warn",
+          );
+          return;
+        }
+        savePending();
+        closeDraftSelected();
+        window.__tbSel = {};
+        gotoTab("pending");
+        if (typeof renderPending === "function") renderPending();
+        const hint = document.getElementById("pendHint");
+        if (hint) {
+          hint.style.color = "var(--info)";
+          hint.textContent =
+            "Drafted " +
+            added +
+            " pending buy" +
+            (added === 1 ? "" : "s") +
+            " from your Top Buys selection. Review quantities before confirming.";
+        }
+      }
+      function closeDraftSelected() {
+        const ov = document.getElementById("draftSelOverlay");
+        if (ov) ov.remove();
+      }
+
+
+// ===== 05-rebalance.js =====
+// ============================================================
+// 05-rebalance.js
+// rebalance: est costs, computeRebalance, rebalance render, rbDraft*, company-detail overlay
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+// ============ REBALANCE / SECTOR-DIVERSIFY OPTIMIZER ============
+function estBuyCost(px, qty, brokerId) {
+  const bk = BROKERS[brokerId || "attijari"];
+  if (bk) {
+    if (bk.feeType === "pea") return px * qty + brokerStockFees(px * qty, bk);
+    return px * qty * (1 + brokerFeeRate(bk)) + brokerFixedFee(bk);
+  }
+  return px * qty * (1 + feeRate()) + fixedFee();
+}
+function estSellNet(px, qty, brokerId) {
+  const bk = BROKERS[brokerId || "attijari"];
+  if (bk) {
+    if (bk.feeType === "pea") return px * qty - brokerStockFees(px * qty, bk);
+    return px * qty * (1 - brokerFeeRate(bk)) - brokerFixedFee(bk);
+  }
+  return px * qty * (1 - feeRate()) - fixedFee();
+}
+// ---- Moroccan market lot rule: stocks trade in WHOLE shares only; OPCVM funds allow fractions ----
+function isOpcvmTk(tk) {
+  const m = M[tk];
+  return !!(m && m.cat === "OPCVM");
+}
+// Max buyable quantity for a given cash amount at price px. Stocks floor to integer; OPCVM keep 4-dp fraction.
+function buyableQty(px, amount, opcvm) {
+  if (!(px > 0) || !(amount > 0)) return 0;
+  const raw = amount / px;
+  return opcvm ? +raw.toFixed(4) : Math.floor(raw);
+}
+// Round an arbitrary quantity to what the market permits for this asset.
+function lotRound(qty, opcvm) {
+  if (!(qty > 0)) return 0;
+  return opcvm ? +qty.toFixed(4) : Math.floor(qty + 1e-9);
+}
+
+function computeRebalance() {
+  const cash = Math.max(
+    0,
+    parseFloat((document.getElementById("rbCash") || {}).value) || 0,
+  );
+  const capPct =
+    Math.min(
+      100,
+      Math.max(
+        5,
+        parseFloat((document.getElementById("rbCap") || {}).value) || 20,
+      ),
+    ) / 100;
+  const capOpcvm =
+    Math.min(
+      100,
+      Math.max(
+        5,
+        parseFloat((document.getElementById("rbCapOpcvm") || {}).value) || 35,
+      ),
+    ) / 100;
+  // Per-sector cap: OPCVM funds (a single combined "OPCVM" bucket) get their own higher cap.
+  const capFor = (cat) => (cat === "OPCVM" ? capOpcvm : capPct);
+  const maxBuys = Math.min(
+    12,
+    Math.max(
+      1,
+      parseInt((document.getElementById("rbMaxBuys") || {}).value) || 5,
+    ),
+  );
+  const buyOnly = !!(document.getElementById("rbBuyOnly") || {}).checked;
+  const wantTrims = !!(document.getElementById("rbTrims") || {}).checked;
+  const includeOpcvm = !!(document.getElementById("rbOpcvm") || {}).checked; // when true, funds are buyable too
+
+  const { pos } = runFIFO();
+  const _rbPending = !!(document.getElementById("rbPending") || {}).checked;
+  // When "Account for pending" is on, project pending BUY/SELL orders into the position snapshot.
+  // This gives sector weights and buy suggestions that reflect the post-pending portfolio.
+  const _projPos = {};
+  Object.keys(pos).forEach((k) => {
+    _projPos[k] = Object.assign({}, pos[k]);
+  });
+  if (_rbPending) {
+    (PENDING || []).forEach((o) => {
+      if (o.action !== "BUY" && o.action !== "SELL") return;
+      if (o.price == null || o.qty == null || !(o.qty > 0)) return;
+      const m = M[o.ticker];
+      if (!m) return;
+      const px = m.price != null && m.price > 0 ? m.price : o.price; // use live price for value; fall back to order price
+      // key: match runFIFO() key format \u2014 combine PEA/Regular under the ticker
+      // runFIFO pos keys are `ticker||PEA` / `ticker||Regular` ; we work at the merged ticker level
+      // Find any existing pos entry for this ticker, or seed one.
+      const existKey = Object.keys(_projPos).find(
+        (k) => _projPos[k].ticker === o.ticker,
+      );
+      if (existKey) {
+        const p = _projPos[existKey];
+        if (o.action === "BUY") {
+          p.held += o.qty;
+          p.value = p.held * px;
+        } else {
+          p.held = Math.max(0, p.held - o.qty);
+          p.value = p.held * px;
+        }
+      } else if (o.action === "BUY") {
+        // new position that doesn't exist yet
+        const cat = m.cat || "Uncategorized";
+        _projPos["__pend__" + o.ticker] = {
+          ticker: o.ticker,
+          held: o.qty,
+          value: o.qty * px,
+          price: px,
+          avg: o.price,
+          cat,
+          name: m.name || o.ticker,
+          account: o.pea ? "PEA" : "Regular",
+          isPea: !!o.pea,
+        };
+      }
+    });
+  }
+  const held = Object.values(_projPos).filter((p) => p.held > 0 && p.value > 0);
+  const totalNow = held.reduce((a, p) => a + p.value, 0);
+
+  // current sector weights
+  const secVal = {};
+  held.forEach((p) => {
+    const c = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
+    secVal[c] = (secVal[c] || 0) + p.value;
+  });
+  const heldQtyByTk = {};
+  held.forEach((p) => {
+    heldQtyByTk[p.ticker] = (heldQtyByTk[p.ticker] || 0) + p.held;
+  });
+
+  // candidate universe: all non-OPCVM stocks with a price & fair value
+  let cands = computeSignalsRows().filter(
+    (r) =>
+      r.m &&
+      (includeOpcvm || r.m.cat !== "OPCVM") &&
+      r.price != null &&
+      r.price > 0 &&
+      (r.m.cat === "OPCVM" ? true : fairValue(r.m) != null),
+  );
+  if (buyOnly) cands = cands.filter((r) => r.sig && r.sig.c === "b-buy");
+  // annotate discount-to-fair (value tilt) and buy price
+  cands.forEach((r) => {
+    const fv = fairValue(r.m);
+    r._fv = fv;
+    // fv is null for OPCVM funds (no intrinsic value) \u2014 treat as neutral
+    // (disc 0, no value tilt) instead of letting (null-price)/null = NaN
+    // corrupt the greedy score. Funds are then picked only by under-weight.
+    r._disc = fv != null && fv > 0 ? (fv - r.price) / fv : 0;
+    r._px = r.price;
+    r._tbuyRef = r.tbuy != null && isFinite(r.tbuy) ? r.tbuy : null;
+    r._cat = r.m.cat || "Uncategorized";
+    r._cyc = r.m.cycle || "OPCVM / Funds";
+    r._sty = r.m.style || "OPCVM / Funds";
+  });
+
+  // ---- #5 DYNAMIC denominator: invested base grows as cash is deployed and shrinks as
+  // we trim. projTotal() reflects the CURRENT projected invested total so sector-weight
+  // caps bind against the right base at every greedy step (not a static totalNow+cash).
+  let investedBase = totalNow; // running invested MAD (updated on each buy/trim)
+  const projTotal = () => investedBase;
+  // running projected sector values as we allocate
+  const runSec = Object.assign({}, secVal);
+  // \u2500\u2500 SINGLE-NAME CONCENTRATION CAP \u2500\u2500
+  // Sector caps alone don't stop the greedy loop piling many lots into ONE cheap,
+  // underweight-sector name. Cap any single position at nameCap of the projected total
+  // (mirrors the 20% single-position concentration warning used on the Dashboard). This
+  // is the data-appropriate diversification control we CAN enforce without price history.
+  const nameCap = Math.min(0.25, Math.max(0.1, capPct)); // \u2264 sector cap, floored 10%, ceiled 25%
+  const runTk = {};
+  held.forEach((p) => {
+    runTk[p.ticker] = (runTk[p.ticker] || 0) + p.value;
+  });
+  // Economic-cycle & asset-style diversification: track running MAD by cycle/style so the
+  // greedy allocator spreads across cycles (Cyclical/Sensitives/Defensive) and styles
+  // (Yield King/Growth/Compounder/...). These are SOFT nudges (no hard cap) steering variety.
+  const cycVal = {},
+    styVal = {};
+  held.forEach((p) => {
+    const m = M[p.ticker] || {};
+    const cy = m.cycle || "OPCVM / Funds",
+      st = m.style || "OPCVM / Funds";
+    cycVal[cy] = (cycVal[cy] || 0) + p.value;
+    styVal[st] = (styVal[st] || 0) + p.value;
+  });
+  const runCyc = Object.assign({}, cycVal),
+    runSty = Object.assign({}, styVal);
+  const cycTarget = 1 / Math.max(1, new Set(cands.map((r) => r._cyc)).size);
+  const styTarget = 1 / Math.max(1, new Set(cands.map((r) => r._sty)).size);
+  const needBelow = (runMap, key, target) => {
+    const w = projTotal() > 0 ? (runMap[key] || 0) / projTotal() : 0;
+    return Math.max(0, (target - w) / target);
+  };
+  const plan = [];
+  let remaining = cash;
+
+  // ---- #8 TRUE REBALANCE: compute trims FIRST, recycle their net proceeds into the buy budget.
+  // Trimming an overweight sector frees cash that is redeployed into under-cap sectors in the
+  // SAME plan, and the trimmed value is removed from the running sector map + invested base so
+  // caps are measured against the post-trim portfolio.
+  const trims = [];
+  if (wantTrims) {
+    Object.keys(secVal).forEach((c) => {
+      // OPCVM funds are hands-off unless "Include OPCVM" is ticked. They have no
+      // fair-value data (price + fees only), so trimming them on a valuation
+      // ranking is meaningless \u2014 and the checkbox is meant to keep funds untouched.
+      if (c === "OPCVM" && !includeOpcvm) return;
+      const w = totalNow > 0 ? secVal[c] / totalNow : 0;
+      const _cap = capFor(c);
+      if (w > _cap) {
+        // holdings in this sector, ranked by MOST overvalued (lowest discount / negative)
+        const inSec = held
+          .filter(
+            (p) => ((M[p.ticker] && M[p.ticker].cat) || "Uncategorized") === c,
+          )
+          .map((p) => {
+            const fv = fairValue(M[p.ticker]);
+            const disc = fv != null ? (fv - p.price) / fv : 0;
+            return { p, disc, fv };
+          })
+          .sort((a, b) => a.disc - b.disc);
+        const excessVal = (w - _cap) * totalNow;
+        let toTrim = excessVal;
+        for (const { p, disc, fv } of inSec) {
+          if (toTrim <= 0) break;
+          const _fund = isOpcvmTk(p.ticker);
+          const rawQty = toTrim / p.price;
+          let qty = _fund
+            ? Math.min(p.held, +rawQty.toFixed(4))
+            : Math.min(p.held, Math.ceil(rawQty));
+          qty = lotRound(qty, _fund);
+          if (qty <= 0) continue;
+          // After-tax net proceeds: fees + TPCVM cap-gains tax on the gain (0 for PEA),
+          // using the SAME engine as everywhere else so the recycled budget is accurate.
+          const net = computeRow(
+            {
+              action: "SELL",
+              ticker: p.ticker,
+              qty: qty,
+              price: p.price,
+              pea: p.isPea,
+            },
+            p.avg,
+          ).net;
+          // Skip dust trims whose net proceeds don't clear fees/tax.
+          if (net <= 0) {
+            toTrim -= qty * p.price;
+            continue;
+          }
+          const gross = qty * p.price;
+          const _why = (function () {
+            const parts = [
+              "sector " +
+                (w * 100).toFixed(0) +
+                "% > " +
+                (_cap * 100).toFixed(0) +
+                "% cap",
+            ];
+            if (disc != null && disc < 0)
+              parts.push(
+                (Math.abs(disc) * 100).toFixed(0) + "% above fair value",
+              );
+            else if (disc != null && disc < 0.05) parts.push("near fair value");
+            return "Trimmed: " + parts.join(" \u00B7 ");
+          })();
+          trims.push({
+            ticker: p.ticker,
+            name: p.name,
+            cat: c,
+            px: p.price,
+            qty,
+            net,
+            gross,
+            disc,
+            fv: fv != null ? fv : null,
+            account: p.account,
+            opcvm: _fund,
+            why: _why,
+          });
+          // recycle: proceeds boost the buy budget; portfolio shrinks by the trimmed value
+          remaining += net;
+          investedBase = Math.max(0, investedBase - gross);
+          runSec[c] = Math.max(0, (runSec[c] || 0) - gross);
+          const _cy = (M[p.ticker] && M[p.ticker].cycle) || "OPCVM / Funds",
+            _st = (M[p.ticker] && M[p.ticker].style) || "OPCVM / Funds";
+          if (!_fund) {
+            runCyc[_cy] = Math.max(0, (runCyc[_cy] || 0) - gross);
+            runSty[_st] = Math.max(0, (runSty[_st] || 0) - gross);
+          }
+          toTrim -= gross;
+        }
+      }
+    });
+  }
+
+  // (Candidate selection is done inline in the greedy while-loop below, which also
+  //  enforces the single-name concentration cap. No separate pickNext() needed.)
+
+  // \u2500\u2500 CONVICTION \u00D7 RANGE-WIDTH POSITION SIZING \u2500\u2500
+  // NOTE: This is a heuristic, NOT true Kelly (which needs win/loss probabilities and edge)
+  // and NOT return volatility (which needs a price time-series we don't store).
+  // Risk proxy per candidate = (52w high - low) / price \u2014 the trading-range WIDTH.
+  // Wider range = treated as riskier, so it gets down-sized. Narrower = steadier.
+  // Conviction base: High\u21923 shares/step, Medium\u21922, Low\u21921.
+  const _volArr = cands
+    .filter((r) => num(r.m.low) && num(r.m.high) && r._px > 0)
+    .map((r) => (r.m.high - r.m.low) / r._px);
+  const _medVol =
+    _volArr.length > 2
+      ? _volArr.sort((a, b) => a - b)[Math.floor(_volArr.length / 2)]
+      : 0.3;
+  function _lotSize(r) {
+    // Conviction base (see note above \u2014 heuristic, not literal Kelly)
+    const sc = r.sig ? factorScores(r.m) : null;
+    const conv = sc ? sc.convScore : 0.5;
+    const kellyBase = conv >= 0.8 ? 3 : conv >= 0.55 ? 2 : 1;
+    // Range-width scale: dampen wide-range (riskier) stocks
+    const vol =
+      num(r.m.low) && num(r.m.high) && r._px > 0
+        ? (r.m.high - r.m.low) / r._px
+        : _medVol;
+    const volRatio = _medVol > 0 ? vol / _medVol : 1;
+    const volScale = 1 / Math.max(1, volRatio); // <=1 for above-median vol; 1 for below
+    const lot = Math.max(1, Math.round(kellyBase * volScale));
+    // For OPCVM funds, keep lot=1 (fractional units handled differently)
+    return r._cat === "OPCVM" ? 1 : lot;
+  }
+
+  let guard = 0;
+  while (remaining > 0 && plan.length <= maxBuys * 3 && guard++ < 500) {
+    // stop opening NEW names once we hit maxBuys distinct tickers (still allow topping up existing picks)
+    const distinct = new Set(plan.map((x) => x.ticker));
+    let cand = null,
+      candScore = -1e9;
+    for (const r of cands) {
+      if (r._dust) continue; // fee overhead too large \u2014 permanently skip
+      const px = r._px,
+        costOne = estBuyCost(px, 1);
+      if (costOne > remaining) continue;
+      const curSec = runSec[r._cat] || 0,
+        secW = projTotal() > 0 ? curSec / projTotal() : 0;
+      const _cap = capFor(r._cat);
+      if (secW >= _cap) continue;
+      // Single-name concentration guard (skip funds \u2014 the OPCVM sector cap governs them)
+      if (r._cat !== "OPCVM") {
+        const tkW = projTotal() > 0 ? (runTk[r.ticker] || 0) / projTotal() : 0;
+        if (tkW >= nameCap) continue;
+      }
+      if (!distinct.has(r.ticker) && distinct.size >= maxBuys) continue; // no new names beyond cap
+      const sectorNeed = 1 - secW / _cap,
+        valueTilt = Math.max(0, r._disc);
+      const cycleNeed = needBelow(runCyc, r._cyc, cycTarget),
+        styleNeed = needBelow(runSty, r._sty, styTarget);
+      const score =
+        sectorNeed * 1.0 +
+        valueTilt * 0.6 +
+        cycleNeed * 0.35 +
+        styleNeed * 0.35 +
+        (r.sig && r.sig.c === "b-buy" ? 0.15 : 0);
+      if (score > candScore) {
+        candScore = score;
+        cand = r;
+      }
+    }
+    if (!cand) break;
+    // Build the "why" explanation for the CHOSEN candidate from its live score components.
+    (function () {
+      const r = cand,
+        curSec = runSec[r._cat] || 0,
+        secW = projTotal() > 0 ? curSec / projTotal() : 0,
+        _cap = capFor(r._cat);
+      const sectorNeed = Math.max(0, 1 - secW / _cap),
+        valueTilt = Math.max(0, r._disc || 0);
+      const cycleNeed = needBelow(runCyc, r._cyc, cycTarget),
+        styleNeed = needBelow(runSty, r._sty, styTarget);
+      const parts = [];
+      if (sectorNeed > 0.05)
+        parts.push(
+          r._cat +
+            " underweight (" +
+            (secW * 100).toFixed(0) +
+            "% vs " +
+            (_cap * 100).toFixed(0) +
+            "% cap)",
+        );
+      if (valueTilt > 0.02)
+        parts.push((valueTilt * 100).toFixed(0) + "% below fair value");
+      if (cycleNeed > 0.05) parts.push("adds " + r._cyc + " exposure");
+      if (styleNeed > 0.05 && r._sty !== r._cyc) parts.push(r._sty + " style");
+      if (r.sig && r.sig.c === "b-buy") parts.push("rated Buy");
+      cand._why = parts.length
+        ? "Picked: " + parts.slice(0, 3).join(" \u00B7 ")
+        : "Picked: fills remaining budget within caps";
+    })();
+    // Dynamic lot per greedy step: conviction \u00D7 range-width-scaled.
+    const _candFund = cand._cat === "OPCVM";
+    const _lot = _lotSize(cand);
+    const px = cand._px,
+      cost = estBuyCost(px, _lot);
+    if (cost > remaining) {
+      // Can't afford the full lot \u2014 try 1 share as fallback
+      const cost1 = estBuyCost(px, 1);
+      if (cost1 > remaining) break;
+      // Fall back to single share
+      const _feeOverhead1 = cost1 - px;
+      if (px > 0 && _feeOverhead1 / px > 0.05) {
+        cand._dust = true;
+        continue;
+      }
+      remaining -= cost1;
+      investedBase += px;
+      runSec[cand._cat] = (runSec[cand._cat] || 0) + px;
+      runTk[cand.ticker] = (runTk[cand.ticker] || 0) + px;
+      runCyc[cand._cyc] = (runCyc[cand._cyc] || 0) + px;
+      runSty[cand._sty] = (runSty[cand._sty] || 0) + px;
+      const ex = plan.find((x) => x.ticker === cand.ticker);
+      if (ex) {
+        ex.qty += 1;
+        ex.gross += px;
+        ex.cost += cost1;
+      } else
+        plan.push({
+          ticker: cand.ticker,
+          name: cand.m.name || cand.ticker,
+          cat: cand._cat,
+          cyc: cand._cyc,
+          sty: cand._sty,
+          px,
+          qty: 1,
+          gross: px,
+          cost: cost1,
+          disc: cand._disc,
+          fv: cand._fv,
+          tbuy: cand._tbuyRef,
+          sig: cand.sig,
+          held: (heldQtyByTk[cand.ticker] || 0) > 0,
+          opcvm: _candFund,
+          why: cand._why,
+        });
+    } else {
+      // Full lot affordable
+      const lotGross = px * _lot;
+      const _feeOverhead = cost - lotGross;
+      if (lotGross > 0 && _feeOverhead / lotGross > 0.05) {
+        cand._dust = true;
+        continue;
+      }
+      remaining -= cost;
+      investedBase += lotGross;
+      runSec[cand._cat] = (runSec[cand._cat] || 0) + lotGross;
+      runTk[cand.ticker] = (runTk[cand.ticker] || 0) + lotGross;
+      runCyc[cand._cyc] = (runCyc[cand._cyc] || 0) + lotGross;
+      runSty[cand._sty] = (runSty[cand._sty] || 0) + lotGross;
+      const ex = plan.find((x) => x.ticker === cand.ticker);
+      if (ex) {
+        ex.qty += _lot;
+        ex.gross += lotGross;
+        ex.cost += cost;
+      } else
+        plan.push({
+          ticker: cand.ticker,
+          name: cand.m.name || cand.ticker,
+          cat: cand._cat,
+          cyc: cand._cyc,
+          sty: cand._sty,
+          px,
+          qty: _lot,
+          gross: lotGross,
+          cost,
+          disc: cand._disc,
+          fv: cand._fv,
+          tbuy: cand._tbuyRef,
+          sig: cand.sig,
+          held: (heldQtyByTk[cand.ticker] || 0) > 0,
+          opcvm: _candFund,
+          why: cand._why,
+        });
+    }
+  }
+
+  const trimProceeds = trims.reduce((a, t) => a + (t.net || 0), 0);
+  const buyBudget = cash + trimProceeds; // total cash available to deploy (new cash + recycled trims)
+  return {
+    cash,
+    capPct,
+    capOpcvm,
+    maxBuys,
+    buyOnly,
+    wantTrims,
+    includeOpcvm,
+    totalNow,
+    secVal,
+    cycVal,
+    styVal,
+    plan,
+    trims,
+    trimProceeds,
+    buyBudget,
+    spent: buyBudget - remaining,
+    remaining,
+  };
+}
+
+const RB_LS = "casa_rebalance_v1";
+function saveRbSettings() {
+  try {
+    const g = (id) => document.getElementById(id);
+    const s = {
+      cash: (g("rbCash") || {}).value,
+      cap: (g("rbCap") || {}).value,
+      capOpcvm: (g("rbCapOpcvm") || {}).value,
+      maxBuys: (g("rbMaxBuys") || {}).value,
+      buyOnly: !!(g("rbBuyOnly") || {}).checked,
+      trims: !!(g("rbTrims") || {}).checked,
+      opcvm: !!(g("rbOpcvm") || {}).checked,
+      pending: !!(g("rbPending") || {}).checked,
+    };
+    safeSetItem(RB_LS, JSON.stringify(s));
+  } catch (e) {}
+}
+function loadRbSettings() {
+  try {
+    const raw = localStorage.getItem(RB_LS);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    const g = (id) => document.getElementById(id);
+    if (s.cash != null && g("rbCash")) g("rbCash").value = s.cash;
+    if (s.cap != null && g("rbCap")) g("rbCap").value = s.cap;
+    if (s.capOpcvm != null && g("rbCapOpcvm"))
+      g("rbCapOpcvm").value = s.capOpcvm;
+    if (s.maxBuys != null && g("rbMaxBuys")) g("rbMaxBuys").value = s.maxBuys;
+    if (s.buyOnly != null && g("rbBuyOnly"))
+      g("rbBuyOnly").checked = !!s.buyOnly;
+    if (s.trims != null && g("rbTrims")) g("rbTrims").checked = !!s.trims;
+    if (s.opcvm != null && g("rbOpcvm")) g("rbOpcvm").checked = !!s.opcvm;
+    if (s.pending != null && g("rbPending"))
+      g("rbPending").checked = !!s.pending;
+  } catch (e) {}
+}
+function renderRebalance() {
+  const wrap = document.getElementById("rbResult");
+  if (!wrap) return;
+  saveRbSettings();
+  const R = computeRebalance();
+  const hint = document.getElementById("rbHint");
+  if (R.totalNow <= 0 && R.cash <= 0) {
+    wrap.innerHTML = "";
+    if (hint) hint.textContent = "Add some holdings or cash to compute a plan.";
+    return;
+  }
+
+  // projected sector weights after plan (trims reduce, buys add)
+  const proj = Object.assign({}, R.secVal);
+  R.trims.forEach((t) => {
+    proj[t.cat] = Math.max(
+      0,
+      (proj[t.cat] || 0) - (t.gross || t.qty * t.px || 0),
+    );
+  });
+  R.plan.forEach((x) => {
+    proj[x.cat] = (proj[x.cat] || 0) + x.gross;
+  });
+  const trimGross = R.trims.reduce(
+    (a, t) => a + (t.gross || t.qty * t.px || 0),
+    0,
+  );
+  const buyGross = R.plan.reduce((a, x) => a + x.gross, 0);
+  const projTot = Math.max(0, R.totalNow - trimGross) + buyGross;
+  const secRows = Object.keys(proj)
+    .map((c) => ({
+      c,
+      before: R.totalNow > 0 ? (R.secVal[c] || 0) / R.totalNow : 0,
+      after: projTot > 0 ? proj[c] / projTot : 0,
+    }))
+    .sort((a, b) => b.after - a.after);
+
+  const _secBefore = {},
+    _secAfter = {};
+  Object.keys(proj).forEach((c) => {
+    _secBefore[c] = R.totalNow > 0 ? (R.secVal[c] || 0) / R.totalNow : 0;
+    _secAfter[c] = projTot > 0 ? proj[c] / projTot : 0;
+  });
+  const _ctx = (c) => ({
+    capPct: R.capPct,
+    secWBefore: _secBefore[c],
+    secWAfter: _secAfter[c],
+  });
+  const buyRows = R.plan
+    .sort((a, b) => b.cost - a.cost)
+    .map(
+      (
+        x,
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbBuyTipHTML(x, _ctx(x.cat)))}">
+    <td class="l"><div><b>${x.ticker}</b> ${x.held ? '<span class="tag-in" style="font-size:9px">held</span>' : '<span class="badge b-buy" style="font-size:9px">new</span>'}${aboveTgtBadge(x.px, x.tbuy)} <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
+    <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)}${x.opcvm ? '<span class="mini" style="color:var(--text2)"> u</span>' : ""}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.cost, 0)}</td>
+    <td style="text-align:right;font-family:var(--mono)" class="${x.disc > 0 ? "pos" : "neg"}">${(x.disc * 100).toFixed(0)}%</td>
+    ${(function () {
+      const _m = M[x.ticker];
+      const _dy = _m && _m.divy != null ? _m.divy : null;
+      return (
+        '<td style="text-align:right;font-family:var(--mono)" class="' +
+        (_dy > 0 ? "pos" : "") +
+        '">' +
+        (_dy != null
+          ? pct(_dy)
+          : "<span style='color:var(--muted)'>\u2014</span>") +
+        "</td>"
+      );
+    })()}
+    <td style="text-align:right"><button class="btn sec2" style="font-size:10px;padding:3px 8px" data-act="rbDraftOne" data-args="${x.ticker},${x.px},${x.qty}">Draft</button></td>
+  </tr>`,
+    )
+    .join("");
+
+  const trimRows = R.trims
+    .map(
+      (
+        x,
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
+    <td class="l"><div><b>${x.ticker}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
+    <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)} \u00B7 ${x.account}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)}${x.opcvm ? '<span class="mini" style="color:var(--text2)"> u</span>' : ""}</td>
+    <td style="text-align:right;font-family:var(--mono)">${money(x.net, 0)}</td>
+    <td style="text-align:right;font-family:var(--mono)" class="${x.disc < 0 ? "neg" : "pos"}">${(x.disc * 100).toFixed(0)}%</td>
+    ${(function () {
+      const _m = M[x.ticker];
+      const _dy = _m && _m.divy != null ? _m.divy : null;
+      return (
+        '<td style="text-align:right;font-family:var(--mono)" class="' +
+        (_dy > 0 ? "pos" : "") +
+        '">' +
+        (_dy != null
+          ? pct(_dy)
+          : "<span style='color:var(--muted)'>\u2014</span>") +
+        "</td>"
+      );
+    })()}
+  </tr>`,
+    )
+    .join("");
+
+  if (hint) hint.textContent = "";
+  wrap.innerHTML = `
+  <div class="sec">
+    <h3 style="margin:0 0 6px" data-tip="Casablanca stocks are bought in whole shares only, so each suggested buy is a whole number of shares. OPCVM funds (not suggested here) allow fractions.">\uD83D\uDCCB Suggested buys <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 ${R.plan.length} name${R.plan.length === 1 ? "" : "s"} \u00B7 ${money(R.spent, 0)} MAD deployed \u00B7 ${money(R.remaining, 0)} MAD left (fees incl.)${R.trimProceeds > 0 ? ' \u00B7 <span class="pos">' + money(R.trimProceeds, 0) + " MAD recycled from trims</span>" : ""}</span>${R.pendingAccounted ? '<span class="badge b-wait" style="font-size:10px;margin-left:8px" title="Sector weights and suggestions include your ' + R.pendingCount + ' pending order(s)">\u23F3 +pending</span>' : ""}</h3>
+    ${
+      R.plan.length
+        ? `<div class="tbl-wrap"><table><thead><tr>
+      <th scope="col" class="l">Name</th><th scope="col" class="l">Sector</th><th scope="col" style="text-align:right">Price</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Cost (net fees)</th><th scope="col" style="text-align:right" data-tip="Discount to Fair Value. Positive = trading below intrinsic (cheap). Negative = trading above (premium).">Disc. to FV</th><th scope="col" style="text-align:right" data-tip="Dividend yield (same as Signals tab)">Div Y</th><th scope="col"></th>
+    </tr></thead><tbody>${buyRows}</tbody></table></div>
+    <div style="margin-top:10px;text-align:right"><button class="btn" data-act="rbDraftAll">\u2795 Draft all these buys to Pending</button></div>`
+        : '<div class="mini" style="color:var(--text2)">No buys fit the constraints \u2014 try raising the sector cap, disabling "Buy-signal only", or adding more cash.</div>'
+    }
+  </div>
+  ${
+    R.wantTrims
+      ? `<div class="sec">
+    <h3 style="margin:0 0 6px">\u2702\uFE0F Suggested trims <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 overweight sectors (> ${(R.capPct * 100).toFixed(0)}%), most overvalued first \u00B7 net of fees</span></h3>
+    ${
+      R.trims.length
+        ? `<div class="tbl-wrap"><table><thead><tr>
+      <th scope="col" class="l">Name</th><th scope="col" class="l">Sector \u00B7 account</th><th scope="col" style="text-align:right">Price</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Net proceeds</th><th scope="col" style="text-align:right">Disc. to FV</th><th scope="col" style="text-align:right" data-tip="Dividend yield (same as Signals tab)">Div Y</th>
+    </tr></thead><tbody>${trimRows}</tbody></table></div>`
+        : '<div class="mini pos">No sector exceeds the cap \u2014 nothing to trim. \uD83C\uDF89</div>'
+    }
+  </div>`
+      : ""
+  }
+  <div class="sec">
+    <h3 style="margin:0 0 8px">\uD83C\uDFAF Sector weights \u2014 before \u2192 after</h3>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${secRows
+        .map((s) => {
+          const rowCap = s.c === "OPCVM" ? R.capOpcvm || R.capPct : R.capPct;
+          const overAfter = s.after > rowCap;
+          return `<div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
+            <span>${s.c}${overAfter ? ' <span class="neg">\u26A0</span>' : ""}</span>
+            <span class="mini" style="color:var(--text2);font-family:var(--mono)">${(s.before * 100).toFixed(0)}% \u2192 <b style="color:var(--text)">${(s.after * 100).toFixed(0)}%</b></span>
+          </div>
+          <div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative">
+            <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, s.before * 100)}%;background:var(--muted);opacity:.4"></div>
+            <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, s.after * 100)}%;background:${overAfter ? "var(--error)" : "var(--accent,#4c8bf5)"};opacity:.85"></div>
+            <div style="position:absolute;top:0;bottom:0;left:${Math.min(100, rowCap * 100)}%;width:2px;background:var(--warn)"></div>
+          </div>
+        </div>`;
+        })
+        .join("")}
+    </div>
+    <div class="mini" style="color:var(--text2);margin-top:8px">Faded bar = current weight \u00B7 solid bar = after plan \u00B7 yellow line = your sector cap (${(R.capPct * 100).toFixed(0)}% stocks \u00B7 ${((R.capOpcvm || R.capPct) * 100).toFixed(0)}% OPCVM). Red = still over that sector\u2019s cap after buys (consider trims or a lower target elsewhere). No single stock is taken above ${(Math.min(0.25, Math.max(0.1, R.capPct)) * 100).toFixed(0)}% of the projected portfolio (single-name concentration cap).</div>
+  </div>`;
+  // ---- Economic-cycle & asset-style diversification (soft nudge shown for transparency) ----
+  (function () {
+    const projTot = R.totalNow + R.spent;
+    const mk = (baseVal, planKey, title, note) => {
+      const after = Object.assign({}, baseVal);
+      R.plan.forEach((x) => {
+        const k = x[planKey] || "OPCVM / Funds";
+        after[k] = (after[k] || 0) + x.gross;
+      });
+      const keys = Object.keys(after).sort(
+        (a, b) => (after[b] || 0) - (after[a] || 0),
+      );
+      if (!keys.length) return "";
+      const rows = keys
+        .map((k) => {
+          const b = R.totalNow > 0 ? (baseVal[k] || 0) / R.totalNow : 0;
+          const a = projTot > 0 ? (after[k] || 0) / projTot : 0;
+          return (
+            '<div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>' +
+            k +
+            "</span>" +
+            '<span class="mini" style="color:var(--text2);font-family:var(--mono)">' +
+            (b * 100).toFixed(0) +
+            '% \u2192 <b style="color:var(--text)">' +
+            (a * 100).toFixed(0) +
+            "%</b></span></div>" +
+            '<div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative">' +
+            '<div style="position:absolute;left:0;top:0;bottom:0;width:' +
+            Math.min(100, b * 100) +
+            '%;background:var(--muted);opacity:.4"></div>' +
+            '<div style="position:absolute;left:0;top:0;bottom:0;width:' +
+            Math.min(100, a * 100) +
+            '%;background:var(--accent,#4c8bf5);opacity:.85"></div></div></div>'
+          );
+        })
+        .join("");
+      return (
+        '<div class="sec"><h3 style="margin:0 0 8px">' +
+        title +
+        '</h3><div style="display:flex;flex-direction:column;gap:6px">' +
+        rows +
+        "</div>" +
+        '<div class="mini" style="color:var(--text2);margin-top:8px">' +
+        note +
+        "</div></div>"
+      );
+    };
+    wrap.innerHTML += mk(
+      R.cycVal,
+      "cyc",
+      "\u267b\ufe0f Economic-cycle mix \u2014 before \u2192 after",
+      "Spreads new buys across Cyclical / Sensitives / Defensive so the portfolio isn\u2019t over-exposed to one phase of the cycle.",
+    );
+    wrap.innerHTML += mk(
+      R.styVal,
+      "sty",
+      "\ud83c\udff7\ufe0f Asset-style mix \u2014 before \u2192 after",
+      "Balances Yield King / Growth / Compounder / Recovery / Value / Defensive for a mix of income, growth and quality.",
+    );
+  })();
+  // stash for draft-all
+  window.__rbPlan = R.plan;
+  // keep the Signals-tab sector-headroom bars in sync with the cap set here
+  try {
+    if (typeof renderTopSector === "function") renderTopSector();
+    if (typeof renderTopHeadroom === "function") renderTopHeadroom();
+  } catch (e) {}
+}
+
+function rbDraftOne(tk, px, qty) {
+  const today = new Date().toISOString().slice(0, 10);
+  const m = M[tk];
+  const isOpcvm = !!(m && m.cat === "OPCVM");
+  PENDING.push({
+    date: today,
+    ticker: tk,
+    action: "BUY",
+    qty: qty,
+    price: px,
+    pea: true,
+    opcvm: isOpcvm,
+    broker: "attijari",
+  });
+  savePending();
+  const hint = document.getElementById("rbHint");
+  if (hint) {
+    hint.style.color = "var(--info)";
+    hint.textContent = "Drafted " + qty + " \u00D7 " + tk + " to Pending.";
+  }
+}
+function rbDraftAll() {
+  const plan = window.__rbPlan || [];
+  if (!plan.length) {
+    toast("No buys to draft.", "warn");
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  let n = 0;
+  plan.forEach((x) => {
+    const m = M[x.ticker];
+    PENDING.push({
+      date: today,
+      ticker: x.ticker,
+      action: "BUY",
+      qty: x.qty,
+      price: x.px,
+      pea: true,
+      opcvm: !!(m && m.cat === "OPCVM"),
+      broker: "attijari",
+    });
+    n++;
+  });
+  savePending();
+  gotoTab("pending");
+  if (typeof renderPending === "function") renderPending();
+  const hint = document.getElementById("pendHint");
+  if (hint) {
+    hint.style.color = "var(--info)";
+    hint.textContent =
+      "Drafted " +
+      n +
+      " rebalance buy" +
+      (n === 1 ? "" : "s") +
+      " to Pending. Review before confirming.";
+  }
+}
+
+// \u2500\u2500 Company Detail Page (full overlay, triggered from Signals tab name click) \u2500\u2500
+window.showCompanyDetail = function (tk) {
+  const m = M[tk];
+  if (!m) return;
+  const sc = typeof factorScores === "function" ? factorScores(m) : null;
+  const fv = typeof fairValue === "function" ? fairValue(m) : null;
+  const fvParts = typeof fairValueParts === "function" ? fairValueParts(m) : [];
+  const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
+  const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
+  const sig =
+    typeof signal === "function"
+      ? signal(m, sc, heldSharesOf(runFIFO().pos, tk) > 0)
+      : null;
+  const eq =
+    typeof earningsQuality === "function"
+      ? earningsQuality(m)
+      : { ok: true, flags: [] };
+  const _pr = typeof peerRelScore === "function" ? peerRelScore(m) : null;
+  const ds = typeof divSafety === "function" ? divSafety(m) : null;
+  const pir = typeof posInRange === "function" ? posInRange(m) : null;
+  const prof =
+    typeof sectorProfile === "function" ? sectorProfile(m.cat) : null;
+  const row = (l, v, cl) =>
+    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>' +
+    l +
+    '</span><span class="' +
+    (cl || "") +
+    '" style="font-family:var(--mono)">' +
+    v +
+    "</span></div>";
+  const sec = (title, body) =>
+    '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"><div style="font-weight:700;margin-bottom:8px;font-size:13px">' +
+    title +
+    "</div>" +
+    body +
+    "</div>";
+
+  let h = "";
+  // Header
+  h +=
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">';
+  h +=
+    '<div><h2 style="margin:0">' +
+    escapeHtml(tk) +
+    " \u2014 " +
+    escapeHtml(m.name || "") +
+    "</h2>";
+  h +=
+    '<div class="mini" style="margin-top:4px;color:var(--text2)">' +
+    (m.cat || "\u2014") +
+    " \u00B7 " +
+    (m.cycle || "\u2014") +
+    " \u00B7 " +
+    (m.style || "\u2014") +
+    " \u00B7 Profile: " +
+    (prof ? prof.label : "\u2014") +
+    "</div></div>";
+  h +=
+    '<button class="btn sec2" data-act="closeCompanyDetail" style="padding:4px 12px">\u2715 Close</button></div>';
+  // Signal badge
+  if (sig)
+    h +=
+      '<div style="margin-bottom:12px"><span class="badge ' +
+      sig.c +
+      '">' +
+      sig.t +
+      "</span></div>";
+
+  // Grid: 2 columns
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+  // Col 1: Metrics (color-coded with educational tooltip: what it means + why the color)
+  // trow = row with a data-tip explaining the metric definition, threshold logic, and color reason
+  const trow = (l, v, cl, tip) =>
+    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0' +
+    (tip ? ";cursor:help" : "") +
+    '" ' +
+    (tip ? 'data-tip="' + encodeURIComponent(tip) + '"' : "") +
+    "><span>" +
+    l +
+    '</span><span class="' +
+    (cl || "") +
+    '" style="font-family:var(--mono)">' +
+    v +
+    "</span></div>";
+  let m1 = "";
+  m1 += trow(
+    "Live Price",
+    m.price != null ? money(m.price) + " MAD" : "\u2014",
+    "",
+    "The current market price per share. No color coding \u2014 it\u2019s context-neutral on its own.",
+  );
+  m1 += trow(
+    "52-week Low",
+    m.low != null ? money(m.low) + " MAD" : "\u2014",
+    "",
+    "The lowest price this stock traded at over the past 52 weeks. Used as the floor of the price range.",
+  );
+  m1 += trow(
+    "52-week High",
+    m.high != null ? money(m.high) + " MAD" : "\u2014",
+    "",
+    "The highest price this stock traded at over the past 52 weeks. Used as the ceiling of the price range.",
+  );
+  {
+    const _c =
+      pir != null ? (pir < 0.35 ? "pos" : pir > 0.75 ? "neg" : "") : "";
+    const _t =
+      pir != null
+        ? "Position in Range = (Price \u2212 Low) / (High \u2212 Low). Shows where the stock sits within its 52-week band.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (\u226435%): Near the bottom of its range \u2014 historically cheap territory, good potential entry."
+            : _c === "neg"
+              ? "\u274c Red (>75%): Near its 52-week high \u2014 expensive entry, limited upside unless it breaks out."
+              : "\u2796 Neutral (35\u201375%): Mid-range. Neither particularly cheap nor expensive.")
+        : "";
+    m1 += trow(
+      "Position in Range",
+      pir != null ? (pir * 100).toFixed(0) + "%" : "\u2014",
+      _c,
+      _t,
+    );
+  }
+  m1 += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  {
+    const _c = m.pe != null ? (m.pe < 15 ? "pos" : m.pe > 25 ? "neg" : "") : "";
+    const _t =
+      m.pe != null
+        ? "P/E (Price-to-Earnings) = Share price / EPS. Measures how many years of earnings you pay for.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (<15): You\u2019re paying less than 15 years of earnings \u2014 typically considered cheap. The market either doesn\u2019t expect growth or has a temporary concern (opportunity if fundamentals are solid)."
+            : _c === "neg"
+              ? "\u274c Red (>25): You\u2019re paying 25+ years of earnings \u2014 expensive. Only justified if the company grows fast enough to \u201cgrow into\u201d its valuation. Otherwise risky."
+              : "\u2796 Neutral (15\u201325): Fairly valued relative to earnings. Neither cheap nor overly expensive for the Casablanca market.")
+        : "";
+    m1 += trow("P/E", m.pe != null ? m.pe.toFixed(1) : "\u2014", _c, _t);
+  }
+  {
+    const _c =
+      m.pb != null ? (m.pb < 1.5 ? "pos" : m.pb > 3.5 ? "neg" : "") : "";
+    const _t =
+      m.pb != null
+        ? "P/B (Price-to-Book) = Share price / Book Value per share. Compares market price to the net asset value on the balance sheet.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (<1.5): Trading near or below book value \u2014 you\u2019re buying the company\u2019s assets at a discount. Classic value signal (especially for financials/industrials)."
+            : _c === "neg"
+              ? "\u274c Red (>3.5): Significant premium over book \u2014 the market prices in strong intangibles (brand, tech, growth) that may or may not materialize."
+              : "\u2796 Neutral (1.5\u20133.5): Reasonable premium. The market values some intangible growth beyond balance-sheet assets.")
+        : "";
+    m1 += trow("P/B", m.pb != null ? m.pb.toFixed(2) : "\u2014", _c, _t);
+  }
+  {
+    const _c =
+      m.peg != null ? (m.peg < 1.0 ? "pos" : m.peg > 2.5 ? "neg" : "") : "";
+    const _t =
+      m.peg != null
+        ? "PEG (P/E \u00f7 Earnings Growth %) = How much you pay per unit of growth. A growth-adjusted valuation.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (<1.0): You\u2019re paying less than the growth rate warrants \u2014 \u201cgrowth at a reasonable price\u201d (GARP). A PEG of 0.5 means you\u2019re getting twice the growth per unit of valuation."
+            : _c === "neg"
+              ? "\u274c Red (>2.5): You\u2019re paying a big premium even accounting for growth. Either growth expectations are unrealistic, or the market is too optimistic."
+              : "\u2796 Neutral (1.0\u20132.5): Growth and valuation are roughly in balance. Neither a bargain nor overpriced for the growth delivered.")
+        : "";
+    m1 += trow("PEG", m.peg != null ? m.peg.toFixed(2) : "\u2014", _c, _t);
+  }
+  {
+    const _c = m.ev != null ? (m.ev < 10 ? "pos" : m.ev > 18 ? "neg" : "") : "";
+    const _t =
+      m.ev != null
+        ? "EV/EBITDA = Enterprise Value / Operating Profit. Measures how expensive the whole business is (debt + equity) relative to cash earnings. Debt-neutral (unlike P/E).\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (<10): Cheap enterprise valuation \u2014 you\u2019re buying the business for less than 10 years of operating cash flow. Often a sign of undervaluation or mature stability."
+            : _c === "neg"
+              ? "\u274c Red (>18): Expensive \u2014 the enterprise is priced at 18+ years of operating cash flow. Needs strong growth or asset revaluation to justify."
+              : "\u2796 Neutral (10\u201318): Reasonable. Mid-range for most Casablanca equities.")
+        : "";
+    m1 += trow("EV/EBITDA", m.ev != null ? m.ev.toFixed(1) : "\u2014", _c, _t);
+  }
+  {
+    const _c =
+      m.netdebt != null
+        ? m.netdebt < 1.5
+          ? "pos"
+          : m.netdebt > 4
+            ? "neg"
+            : ""
+        : "";
+    const _t =
+      m.netdebt != null
+        ? "Net Debt/EBITDA = Total debt minus cash, divided by operating profit. Measures how many years it would take to pay off all debt from earnings alone.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (<1.5): Low leverage \u2014 the company could clear its debt in under 1.5 years. Safe balance sheet, low risk of distress."
+            : _c === "neg"
+              ? "\u274c Red (>4): Heavy leverage \u2014 4+ years of earnings just to service debt. Vulnerable to rate hikes, margin compression, or downturns. Higher bankruptcy risk."
+              : "\u2796 Neutral (1.5\u20134): Moderate leverage. Manageable but keep an eye on interest-rate sensitivity and cash-flow stability.")
+        : "";
+    m1 += trow(
+      "Net Debt/EBITDA",
+      m.netdebt != null ? m.netdebt.toFixed(2) : "\u2014",
+      _c,
+      _t,
+    );
+  }
+  {
+    const _c =
+      m.roe != null ? (m.roe > 0.15 ? "pos" : m.roe < 0.08 ? "neg" : "") : "";
+    const _t =
+      m.roe != null
+        ? "ROE (Return on Equity) = Net Income / Shareholders\u2019 Equity. Measures how efficiently the company turns your invested capital into profit.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (>15%): Strong profitability \u2014 the company generates 15+ cents of profit for every dirham of equity. Sign of competitive advantage, pricing power, or efficient operations."
+            : _c === "neg"
+              ? "\u274c Red (<8%): Weak profitability \u2014 the company struggles to generate returns above the cost of capital. May indicate poor management, structural decline, or capital-intensive low-margin business."
+              : "\u2796 Neutral (8\u201315%): Adequate. The company earns a decent return but doesn\u2019t have exceptional competitive positioning.")
+        : "";
+    m1 += trow(
+      "ROE",
+      m.roe != null ? (m.roe * 100).toFixed(1) + "%" : "\u2014",
+      _c,
+      _t,
+    );
+  }
+  {
+    const _c =
+      m.divy != null
+        ? m.divy > 0.04
+          ? "pos"
+          : m.divy < 0.015
+            ? "neg"
+            : ""
+        : "";
+    const _t =
+      m.divy != null
+        ? "Dividend Yield = Annual dividend / Share price. The cash income you earn just by holding the stock (before tax).\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (>4%): Generous yield \u2014 above the Casablanca market average. Attractive for income investors (but check payout sustainability via DPS/EPS)."
+            : _c === "neg"
+              ? "\u274c Red (<1.5%): Thin yield \u2014 the stock pays very little income. Either it reinvests heavily (growth), or the price is too high relative to the dividend."
+              : "\u2796 Neutral (1.5\u20134%): Reasonable yield. Not outstanding but contributes meaningful income alongside capital gains.")
+        : "";
+    m1 += trow(
+      "Dividend Yield",
+      m.divy != null ? (m.divy * 100).toFixed(2) + "%" : "\u2014",
+      _c,
+      _t,
+    );
+  }
+  m1 += trow(
+    "DPS",
+    m.dps != null ? money(m.dps) + " MAD" : "\u2014",
+    "",
+    "DPS (Dividend Per Share) = The actual MAD amount paid per share annually. No color \u2014 compare with EPS to assess sustainability (DPS/EPS = payout ratio).",
+  );
+  {
+    const _c = m.eps != null ? (m.eps > 0 ? "pos" : "neg") : "";
+    const _t =
+      m.eps != null
+        ? "EPS (Earnings Per Share) = Net profit / Number of shares. The fundamental measure of profitability per share.\n\n" +
+          (_c === "pos"
+            ? "\u2705 Green (>0): The company is profitable \u2014 it earns money for shareholders."
+            : "\u274c Red (\u22640): Loss-making \u2014 the company is burning cash. Dividends from a loss-making company come from reserves (unsustainable).")
+        : "";
+    m1 += trow("EPS", m.eps != null ? money(m.eps) + " MAD" : "\u2014", _c, _t);
+  }
+  m1 += trow(
+    "BVPS",
+    m.bvps != null ? money(m.bvps) + " MAD" : "\u2014",
+    "",
+    "BVPS (Book Value Per Share) = Total equity / Number of shares. What you\u2019d theoretically receive per share if the company liquidated at book value. Compare with Price to get P/B.",
+  );
+  m1 += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  {
+    const _fcfCl =
+      m.fcf != null
+        ? m.fcf > 0
+          ? m.eps != null && m.eps > 0 && m.fcf / m.eps > 0.7
+            ? "pos"
+            : m.fcf / m.eps < 0.4
+              ? "neg"
+              : ""
+          : "neg"
+        : "";
+    m1 += trow(
+      "FCF/Share",
+      m.fcf != null ? money(m.fcf) + " MAD" : "\u2014",
+      _fcfCl,
+      "FCF (Free Cash Flow Per Share) = Operating cash flow minus capital expenditures, per share. The actual cash the business generates after reinvesting.\n\nGreen: FCF > 70% of EPS \u2014 strong cash conversion, earnings are real.\nRed: FCF < 40% of EPS or negative \u2014 earnings may be inflated by accounting (accruals) rather than actual cash generation.\n\nFCF is the truest measure of shareholder value \u2014 dividends and buybacks come from FCF, not reported EPS.",
+    );
+  }
+  {
+    const _revPS =
+      m.revenue != null && m.price != null && m.revenue > 0
+        ? m.price / m.revenue
+        : null; // crude P/S (price/revenue-per-share-ish)
+    m1 += trow(
+      "Revenue/Sh",
+      m.revenue != null ? money(m.revenue) + " MAD" : "\u2014",
+      "",
+      "Revenue Per Share (from Total Revenue TTM / Shares). Useful for loss-making companies where P/E is meaningless \u2014 the P/S (Price/Sales) ratio is a fallback valuation anchor.\n\nNo color coding \u2014 revenue alone doesn\u2019t indicate cheap or expensive; compare with margins and sector peers.",
+    );
+  }
+  {
+    const _grCl =
+      m.epsGrowth != null
+        ? m.epsGrowth > 0.15
+          ? "pos"
+          : m.epsGrowth < 0
+            ? "neg"
+            : ""
+        : "";
+    m1 += trow(
+      "EPS Growth (YoY)",
+      m.epsGrowth != null
+        ? (m.epsGrowth >= 0 ? "+" : "") + (m.epsGrowth * 100).toFixed(1) + "%"
+        : "\u2014",
+      _grCl,
+      "EPS Diluted Growth (TTM, Year-over-Year) = How fast earnings are growing vs last year.\n\n" +
+        (m.epsGrowth != null
+          ? _grCl === "pos"
+            ? "\u2705 Green (>15%): Strong earnings momentum \u2014 the business is expanding."
+            : _grCl === "neg"
+              ? "\u274c Red (<0%): Earnings are shrinking \u2014 declining profitability or one-time hits."
+              : "\u2796 Neutral (0\u201315%): Modest growth."
+          : "") +
+        "\n\nAlso validates PEG: PEG = P/E \u00f7 Growth. If growth is negative, PEG is misleading.",
+    );
+  }
+  h += sec("\ud83d\udcca Key Metrics", m1);
+
+  // Col 2: Valuation + Signal (with educational tooltips)
+  let m2 = "";
+  m2 += trow(
+    "<b>Fair Value</b>",
+    fv != null ? "<b>" + money(fv) + " MAD</b>" : "\u2014",
+    "",
+    "Fair Value = The intrinsic worth of the stock based on fundamentals (not market price). Blends multiple valuation anchors: Graham formula, Earnings Power, Dividend Discount Model, and 52-wk midpoint. Outlier anchors are trimmed before averaging. If price < fair value \u2192 potentially undervalued.",
+  );
+  if (fvParts.length) {
+    fvParts.forEach((a) => {
+      m2 += trow(
+        '<span class="mini">' + a[0] + "</span>",
+        money(a[1]),
+        "",
+        "One of the valuation anchors contributing to fair value. Each uses a different methodology; they are weighted by sector and averaged after outlier trimming.",
+      );
+    });
+  }
+  m2 += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  m2 += trow(
+    "Target Buy",
+    tb != null ? money(tb) + " MAD" : "\u2014",
+    "pos",
+    "Target Buy = Fair value minus a margin of safety. The ideal entry price \u2014 buying below this means you have a cushion.\n\nMargin scales with conviction: High \u2192 small margin (+0%), Medium \u2192 +4%, Low \u2192 +10%. Total discount from fair capped at 45%.",
+  );
+  m2 += trow(
+    "Target Sell",
+    ts != null ? money(ts) + " MAD" : "\u2014",
+    "neg",
+    "Target Sell = Price at which the stock is fully valued.\n\nComputed as max(Fair Value, Buy Target \u00d7 1.18), capped ~10% above 52-week high. Ensures sell is always meaningfully above buy (18%+ spread).",
+  );
+  if (m.price != null && fv != null) {
+    const disc = (fv - m.price) / fv;
+    m2 += trow(
+      "Discount to Fair",
+      (disc * 100).toFixed(0) + "%",
+      disc > 0 ? "pos" : "neg",
+      "Discount = (Fair Value \u2212 Price) / Fair Value.\n\n" +
+        (disc > 0
+          ? "Positive: stock trades below intrinsic value \u2192 potential upside."
+          : "Negative: stock trades above fair value \u2192 premium over fundamentals."),
+    );
+  }
+  m2 += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  {
+    const _sScr = sc && sc.score != null ? sc.score : null;
+    const _sCl =
+      _sScr != null ? (_sScr > 0.65 ? "pos" : _sScr < 0.4 ? "neg" : "") : "";
+    m2 += trow(
+      "<b>Signal Score</b>",
+      _sScr != null ? "<b>" + (_sScr * 100).toFixed(0) + "%</b>" : "\u2014",
+      _sCl,
+      "Signal Score = Weighted average of 9 factors (valuation, safety, quality, growth, yield, book value, timing, momentum, peer-relative), adjusted for correlation between similar factors.\n\nWeights vary by sector profile. Score is 0\u2013100%.\n\nGreen (>65%): strong multi-factor signal.\nRed (<40%): weak/unfavorable.\nNeutral (40\u201365%): mixed.",
+    );
+  }
+  {
+    const _convTip =
+      "Conviction = How much to TRUST the signal score.\n\nBased on:\n1) Factor coverage: what % of scoring factors have data (by weight).\n2) Core data depth: how many of 6 key fundamentals are present (EPS, Book, ROE, Dividends, Balance sheet, 52w range).\n\nHigh (\u226580%): strong data \u2192 score is reliable.\nMedium (55\u201380%): partial \u2192 directionally useful but has gaps.\nLow (<55%): sparse \u2192 treat as speculative.";
+    m2 += trow(
+      "Conviction",
+      sc
+        ? '<span class="chip" style="font-size:10px;background:' +
+            (sc.conviction === "High"
+              ? "rgba(34,197,94,.15);color:var(--success)"
+              : sc.conviction === "Low"
+                ? "rgba(239,68,68,.15);color:var(--error)"
+                : "rgba(245,158,11,.15);color:var(--warn)") +
+            '">' +
+            sc.conviction +
+            "</span>"
+        : "\u2014",
+      "",
+      _convTip,
+    );
+  }
+  {
+    const _q = sc && sc.quality != null ? sc.quality : null;
+    const _qCl = _q != null ? (_q > 0.6 ? "pos" : _q < 0.35 ? "neg" : "") : "";
+    m2 += trow(
+      "Quality sub-score",
+      _q != null ? (_q * 100).toFixed(0) + "%" : "\u2014",
+      _qCl,
+      'Quality = Weighted blend of ROE + Safety + Growth, penalized by earnings-quality red flags.\n\nIsolates "is this a good business?" from "is it cheap?" A cheap stock with low quality = value trap.\n\nGreen (>60%): strong business.\nRed (<35%): weak \u2192 may block BUY.\nNeutral: adequate.',
+    );
+  }
+  h += sec("\ud83c\udfaf Valuation & Signal", m2);
+
+  h += "</div>"; // close grid
+
+  // Full-width sections
+  // Factor scores
+  if (sc && sc.parts) {
+    const names = {
+      valuation: "Valuation (EV/EBITDA)",
+      safety: "Safety (Net Debt)",
+      quality: "Quality (ROE)",
+      growth: "Growth (PEG)",
+      yield: "Yield (Div %)",
+      book: "Book (P/B)",
+      timing: "Timing",
+      momentum: "Range Position",
+      peerrel: "Peer-relative",
+    };
+    const rawVals = {
+      valuation: m.ev != null ? m.ev.toFixed(1) + "x" : null,
+      safety: m.netdebt != null ? m.netdebt.toFixed(1) + "x" : null,
+      quality: m.roe != null ? (m.roe * 100).toFixed(1) + "%" : null,
+      growth: m.peg != null ? m.peg.toFixed(1) : null,
+      yield: m.divy != null ? (m.divy * 100).toFixed(2) + "%" : null,
+      book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
+      timing: pir != null ? (pir * 100).toFixed(0) + "%" : null,
+      momentum: pir != null ? (pir * 100).toFixed(0) + "%" : null,
+      peerrel: _pr && _pr.n ? _pr.n + " peers" : null,
+    };
+    let fb =
+      '<table style="width:100%;font-size:12px"><thead><tr><th class="l">Factor</th><th>Raw</th><th>Weight</th><th>Score</th><th>Contribution</th></tr></thead><tbody>';
+    for (const k in sc.parts) {
+      const f = sc.parts[k];
+      const rv = rawVals[k] || "\u2014";
+      const _fCl =
+        f.s != null ? (f.s > 0.65 ? "pos" : f.s < 0.35 ? "neg" : "") : "";
+      fb +=
+        '<tr><td class="l">' +
+        (names[k] || k) +
+        "</td><td>" +
+        rv +
+        "</td><td>" +
+        (f.w * 100).toFixed(0) +
+        '%</td><td class="' +
+        _fCl +
+        '">' +
+        (f.s != null ? (f.s * 100).toFixed(0) + "%" : "\u2014") +
+        '</td><td class="' +
+        _fCl +
+        '">' +
+        (f.s != null ? (f.s * f.w * 100).toFixed(0) + "%" : "\u2014") +
+        "</td></tr>";
+    }
+    fb += "</tbody></table>";
+    fb +=
+      '<div class="mini" style="margin-top:6px;color:var(--muted)">Score is correlation-adjusted (cheapness cluster capped at 1.5\u00d7 max single factor weight).</div>';
+    h += sec("\ud83e\udde0 Factor Breakdown", fb);
+  }
+
+  // Peer comparison
+  if (_pr) {
+    let pb = "";
+    pb += row(
+      "Comparison basis",
+      _pr.basis === "category"
+        ? (m.cat || "\u2014") + " (same category)"
+        : "Broad sector (" + (prof ? prof.label : "\u2014") + ")",
+    );
+    pb += row(
+      "Comparable count",
+      String(_pr.n) + (_pr.n < 4 ? ' <span class="neg">(thin)</span>' : ""),
+    );
+    const st = typeof sectorStats === "function" ? sectorStats() : null;
+    const ref = st
+      ? _pr.basis === "category"
+        ? st.cat && st.cat[m.cat || ""]
+        : st.prof && st.prof[prof ? prof.key : ""]
+      : null;
+    if (ref) {
+      if (ref.pe != null)
+        pb += row(
+          "Peer median P/E",
+          ref.pe.toFixed(1) +
+            (m.pe
+              ? ' <span class="mini">(you: ' + m.pe.toFixed(1) + ")</span>"
+              : ""),
+        );
+      if (ref.pb != null)
+        pb += row(
+          "Peer median P/B",
+          ref.pb.toFixed(2) +
+            (m.pb
+              ? ' <span class="mini">(you: ' + m.pb.toFixed(2) + ")</span>"
+              : ""),
+        );
+      if (ref.divy != null)
+        pb += row(
+          "Peer median Div Y",
+          (ref.divy * 100).toFixed(1) +
+            "%" +
+            (m.divy
+              ? ' <span class="mini">(you: ' +
+                (m.divy * 100).toFixed(1) +
+                "%)</span>"
+              : ""),
+        );
+    }
+    pb += row(
+      "Peer score",
+      (_pr.score * 100).toFixed(0) +
+        "% \u2014 " +
+        (_pr.score >= 0.6
+          ? "cheaper than peers"
+          : _pr.score <= 0.4
+            ? "pricier than peers"
+            : "in line"),
+      _pr.score >= 0.6 ? "pos" : _pr.score <= 0.4 ? "neg" : "",
+    );
+    h += sec("\ud83d\udc65 Peer Comparison", pb);
+  }
+
+  // Earnings quality
+  if (!eq.ok) {
+    let eqb = '<ul style="margin:0;padding-left:16px;color:var(--warn)">';
+    eq.flags.forEach((f) => {
+      eqb += "<li>" + escapeHtml(f) + "</li>";
+    });
+    eqb += "</ul>";
+    h += sec("\u26a0\ufe0f Earnings Quality Concerns", eqb);
+  }
+
+  // Dividend safety
+  if (ds) {
+    let dsb = "";
+    dsb += row(
+      "Level",
+      '<span class="' +
+        (ds.level === "ok" ? "pos" : ds.level === "danger" ? "neg" : "") +
+        '">' +
+        ds.level +
+        "</span>",
+    );
+    if (ds.note) dsb += row("Note", ds.note);
+    h += sec("\ud83d\udcb0 Dividend Safety", dsb);
+  }
+
+  // Signal reasons
+  if (sig && sig.reasons && sig.reasons.length) {
+    h += sec(
+      "\ud83d\udca1 Signal Reasons",
+      '<ul style="margin:0;padding-left:16px">' +
+        sig.reasons.map((x) => "<li>" + x + "</li>").join("") +
+        "</ul>",
+    );
+  }
+
+  // Action: draft pending
+  h +=
+    '<div style="text-align:center;margin-top:14px"><button class="btn" data-act="draftPendingFromDetail" data-args="' +
+    tk +
+    '">\u2795 Draft pending order for ' +
+    escapeHtml(tk) +
+    "</button></div>";
+
+  // Overlay
+  let ov = document.getElementById("compDetailOverlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "compDetailOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:flex-start;justify-content:center;padding:30px 20px;overflow:auto";
+    ov.onclick = (e) => {
+      if (e.target === ov) closeCompanyDetail();
+    };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML =
+    '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:22px 26px;max-width:860px;width:100%;box-shadow:var(--shadow);max-height:90vh;overflow:auto">' +
+    h +
+    "</div>";
+  ov.style.display = "flex";
+};
+window.closeCompanyDetail = function () {
+  const ov = document.getElementById("compDetailOverlay");
+  if (ov) ov.style.display = "none";
+};
+// Named handler for the detail-overlay "Draft pending order" button
+// (replaces a compound inline onclick so it can use data-act delegation).
+window.draftPendingFromDetail = function (tk) {
+  closeCompanyDetail();
+  if (typeof prefillPending === "function") prefillPending(tk);
+};
+
+
+// ===== 06-features.js =====
+// ============================================================
+// 06-features.js
+// features: signals render, dividends dashboards, transactions, pending, forms wiring, TV/CSV/calendar import, broker fee UI, backup/restore, bulk edit, recently bought/sold
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+function renderSignals() {
+  try {
+    renderTopBuys();
+  } catch (e) {
+    console.error("topBuys", e);
+  }
+  const f = document.getElementById("sigFilter").value;
+  const at = (document.getElementById("sigAsset") || {}).value || "stocks";
+  let rows = computeSignalsRows();
+  if (at === "stocks") rows = rows.filter((r) => !(r.m && r.m.cat === "OPCVM"));
+  else if (at === "opcvm")
+    rows = rows.filter((r) => r.m && r.m.cat === "OPCVM");
+  if (f === "buy") rows = rows.filter((r) => r.sig.c === "b-buy");
+  else if (f === "sell")
+    rows = rows.filter((r) => r.sig.c === "b-sell" || r.sig.c === "b-trim");
+  else if (f === "held") rows = rows.filter((r) => r.held);
+  // Free-text search across ticker + name (case-insensitive).
+  const _sq = ((document.getElementById("sigSearch") || {}).value || "")
+    .trim()
+    .toLowerCase();
+  if (_sq)
+    rows = rows.filter((r) =>
+      ((r.ticker || "") + " " + (r.name || "")).toLowerCase().includes(_sq),
+    );
+  // If the user hasn't clicked a column header, sort by SIGNAL STRENGTH for the active filter:
+  //   Buy filter  -> strongest buys first;  Sell filter -> most urgent sells first.
+  const userSorted = typeof SIG_SORT !== "undefined" && SIG_SORT.userSet;
+  // Group rank for the "All" view: Buys first, then Wait/Hold, then Sells/Trims.
+  const groupRank = (r) =>
+    r.sig.c === "b-buy"
+      ? 0
+      : r.sig.c === "b-wait" || r.sig.c === "b-hold"
+        ? 1
+        : 2;
+  if (!userSorted && f === "buy") {
+    rows.sort((a, b) => buyStrength(b) - buyStrength(a));
+  } else if (!userSorted && f === "sell") {
+    rows.sort((a, b) => sellUrgency(b) - sellUrgency(a));
+  } else if (!userSorted && (f === "all" || f === "held")) {
+    // Ranked: strongest buys \u2192 holds/waits \u2192 most urgent sells.
+    // Within the middle "Hold / Wait" band, cluster identical signal labels together
+    // (all HOLDs, then WAITs, then AVOIDs) so the list doesn't visually zig-zag between
+    // labels; within each label, best score first. (Rows are score-ranked overall, but
+    // grouping like-labels makes the ordering read cleanly.)
+    const midLabelRank = (r) => {
+      const t = (r.sig && r.sig.t) || "";
+      if (t.indexOf("HOLD") >= 0) return 0; // fairly valued
+      if (t.indexOf("WAIT") >= 0) return 1; // cheap-ish but wait for entry
+      if (t.indexOf("AVOID") >= 0) return 2; // rich / overvalued / weak
+      return 3; // any other wait/hold variant
+    };
+    rows.sort((a, b) => {
+      const ga = groupRank(a),
+        gb = groupRank(b);
+      if (ga !== gb) return ga - gb;
+      if (ga === 0) return buyStrength(b) - buyStrength(a); // buys: strongest first
+      if (ga === 2) return sellUrgency(b) - sellUrgency(a); // sells: most urgent first
+      const la = midLabelRank(a),
+        lb = midLabelRank(b); // holds/waits: cluster by label\u2026
+      if (la !== lb) return la - lb;
+      return (b.score || 0) - (a.score || 0); // \u2026then best score first within a label
+    });
+  } else {
+    const k =
+      typeof SIG_SORT !== "undefined" && SIG_SORT.k ? SIG_SORT.k : "score";
+    const d = typeof SIG_SORT !== "undefined" ? SIG_SORT.d : -1;
+    rows.sort((a, b) => {
+      let x = a[k],
+        y = b[k];
+      if (typeof x === "string")
+        return d * String(x).localeCompare(String(y || ""));
+      return d * ((x || 0) - (y || 0));
+    });
+  }
+  window._sigRows = {};
+  rows.forEach((r) => (window._sigRows[r.ticker] = r));
+  // Group dividers only in the ranked (non-user-sorted) All/Held views
+  const showDividers = !userSorted && (f === "all" || f === "held");
+  const grpLabel = (r) =>
+    r.sig.c === "b-buy"
+      ? "\uD83D\uDFE2 Buy Opportunities"
+      : r.sig.c === "b-wait" || r.sig.c === "b-hold"
+        ? "\u26AA Hold / Wait"
+        : "\uD83D\uDD34 Sell / Trim";
+  const divider = (txt) =>
+    `<tr><td colspan="12" style="background:var(--panel2);color:var(--text2);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px">${txt}</td></tr>`;
+  let lastGrp = null;
+  const rowHtml = (r) => `<tr class="${r.held ? "held-row" : ""} sig-row">
+    <td class="l" style="cursor:pointer" data-tip="Click to draft a pending order for ${escapeHtml(r.ticker)}" data-act="prefillPending" data-args="${r.ticker}" data-stop="true"><b style="color:var(--primary2)">${escapeHtml(r.ticker)}</b>${r.held ? ' <span class="tag-in">held</span>' : ""}</td>
+    <td class="l" style="cursor:pointer;color:var(--text2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="${r.ticker}" data-stop="true">${escapeHtml(r.name || "")}</td>
+    <td class="center nis-cell" style="cursor:help" data-tip="${encodeURIComponent(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
+    <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? encodeURIComponent(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? encodeURIComponent(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
+    <td class="${r.tbuy != null ? "nis-cell" : ""}" style="${r.tbuy != null ? "cursor:help" : ""}" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</td>
+    <td class="${r.tsell != null ? "nis-cell" : ""}" style="${r.tsell != null ? "cursor:help" : ""}" data-tip="${r.tsell != null ? encodeURIComponent(tgtSellTipHTML(r)) : ""}">${r.tsell != null ? money(r.tsell) : "\u2014"}</td>
+    <td class="${r.score != null ? "nis-cell" : ""}" style="${r.score != null ? "cursor:help" : ""}" data-tip="${r.score != null ? encodeURIComponent(scoreTipHTML(r)) : ""}">${r.score != null ? (r.score * 100).toFixed(0) + "%" : "\u2014"}</td>
+    <td class="center ${r.sc ? "nis-cell" : ""}" style="${r.sc ? "cursor:help" : ""}" data-tip="${r.sc ? encodeURIComponent(convTipHTML(r)) : ""}">${r.conviction ? `<span class="chip" style="background:${r.conviction === "High" ? "rgba(34,197,94,.15);color:var(--success)" : r.conviction === "Medium" ? "rgba(245,158,11,.15);color:var(--warn)" : "rgba(239,68,68,.15);color:var(--error)"}">${r.conviction}</span>` : "\u2014"}</td>
+    <td class="${r.pir != null ? "nis-cell" : ""}" style="${r.pir != null ? "cursor:help" : ""}" data-tip="${r.pir != null ? encodeURIComponent(pirTipHTML(r)) : ""}">${r.pir != null ? pct(r.pir) : "\u2014"}</td><td class="${r.pe != null ? "nis-cell" : ""}" style="${r.pe != null ? "cursor:help" : ""}" data-tip="${r.pe != null ? encodeURIComponent(peTipHTML(r)) : ""}">${r.pe != null ? money(r.pe, 1) : "\u2014"}</td>
+    <td class="${r.divy != null ? "nis-cell" : ""}" style="${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}">${r.divy != null ? pct(r.divy) : "\u2014"}</td></tr>`;
+  const _tb = rows
+    .map((r) => {
+      let out = "";
+      if (showDividers) {
+        const g = grpLabel(r);
+        if (g !== lastGrp) {
+          out += divider(g);
+          lastGrp = g;
+        }
+      }
+      return out + rowHtml(r);
+    })
+    .join("");
+  document.querySelector("#sigTable tbody").innerHTML =
+    _tb ||
+    `<tr><td colspan="12" class="l" style="color:var(--muted);padding:14px">${_sq ? "No opportunities match \u201c" + escapeHtml(_sq) + "\u201d." : "No opportunities."}</td></tr>`;
+}
+function heldSharesOf(pos, tk) {
+  let q = 0;
+  for (const k in pos) {
+    if (pos[k].ticker === tk) q += pos[k].held;
+  }
+  return q;
+}
+// \u2500\u2500 SINGLE SOURCE OF TRUTH for an estimated dividend (blended PEA/Regular) \u2500\u2500
+// Splits `shares` into PEA (tax-exempt) and Regular (taxed) portions by shares held
+// at the ex-date, then computes gross, fees (0 for OPCVM), withholding tax on the
+// Regular portion, and net. Both the tooltip and divNetFor() call this so the number
+// is defined once.
+function divCalc(d, shares) {
+  const yr = new Date(d.pay_date).getFullYear();
+  const rate = divRate(yr);
+  const exd = d.ex_date || d.pay_date;
+  const peaSh = heldBefore(d.ticker, true, exd),
+    regSh = heldBefore(d.ticker, false, exd);
+  const tot = peaSh + regSh;
+  const peaPortion = tot > 1e-9 ? shares * (peaSh / tot) : 0;
+  const regPortion = shares - peaPortion;
+  const gross = d.amount * shares;
+  const _m = M[d.ticker];
+  const isOpcvm = !!(_m && _m.cat === "OPCVM");
+  // Resolve the regular-account broker for this ticker from its transactions
+  // (falls back to Saham) rather than hardcoding, so dividend fees follow the
+  // actual broker's DIV commission.
+  const _regTxn = (TXNS || []).find((t) => t.ticker === d.ticker && !t.pea);
+  const _regBk =
+    BROKERS[(_regTxn && txnBroker(_regTxn)) || "saham"] ||
+    BROKERS["saham"] ||
+    null;
+  const _round = __core.money.roundMoney;
+  const grossR = _round(gross);
+  const fees = isOpcvm
+    ? 0
+    : _regBk
+      ? calcBrokerFees(grossR, "DIV", _regBk, false)
+      : _round(grossR * feeRate() + fixedFee());
+  // Dividend tax on the REGULAR-account portion only (PEA is exempt), rounded
+  // to centimes to match the cents-precise core.
+  const tax = _round(d.amount * regPortion * (1 + vatRate()) * rate);
+  const net = _round(grossR - fees - tax);
+  return {
+    yr,
+    rate,
+    peaPortion,
+    regPortion,
+    gross: grossR,
+    isOpcvm,
+    fees,
+    tax,
+    net,
+  };
+}
+function divEstTipHTML(d, shares) {
+  const row = _tipRow; // shared tooltip row builder (gap:18px)
+  const _c = divCalc(d, shares);
+  const yr = _c.yr,
+    rate = _c.rate,
+    peaPortion = _c.peaPortion,
+    regPortion = _c.regPortion,
+    gross = _c.gross,
+    _opc = _c.isOpcvm,
+    fees = _c.fees,
+    tax = _c.tax,
+    net = _c.net;
+  let h = `<div style="font-weight:700;margin-bottom:6px">Estimated dividend \u00B7 ${d.ticker}</div>`;
+  h += row("Amount per share", money(d.amount) + " MAD");
+  h += row(
+    "Shares held",
+    money(shares, shares % 1 ? 3 : 0) +
+      (peaPortion > 1e-9
+        ? " (" +
+          money(peaPortion, peaPortion % 1 ? 3 : 0) +
+          " PEA + " +
+          money(regPortion, regPortion % 1 ? 3 : 0) +
+          " Reg)"
+        : ""),
+  );
+  h += row("Gross", money(gross) + " MAD");
+  h += _opc
+    ? row('Fund fee <span class="mini">(none on dividends)</span>', "0", "pos")
+    : row("\u2212 Fees", "\u2212" + money(fees));
+  if (peaPortion > 1e-9) h += row("PEA portion tax", "0 (exempt)", "pos");
+  h += row(
+    '\u2212 Dividend tax on Reg <span class="mini">(' +
+      (rate * 100).toFixed(2) +
+      "% incl VAT, " +
+      yr +
+      ")</span>",
+    "\u2212" + money(tax),
+  );
+  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+  h += row("<b>Est. net cash</b>", "<b>" + money(net) + " MAD</b>", "pos");
+  h += row("Payment date", d.pay_date);
+  return h;
+}
+// Total eligible shares (both accounts) held at a dividend's ex-date.
+
+// ---------- dividend income dashboard ----------
+let CH_divIncome = null,
+  CH_divReceived = null,
+  CH_divByTk = null;
+function divNetFor(d, shares) {
+  // Net dividend = gross \u2212 fees \u2212 tax (PEA portion exempt). Single source: divCalc().
+  return divCalc(d, shares).net;
+}
+function renderDivDashboard(pos) {
+  const _divProject = !!(document.getElementById("divProjectNext") || {})
+    .checked;
+  // If projecting, clone THIS YEAR's calendar entries shifted +12 months.
+  // "This year" = entries whose pay_date is in the current calendar year.
+  let _projCal = DIVCAL;
+  if (_divProject) {
+    const yr = TODAY.getFullYear();
+    const shifted = DIVCAL.filter(
+      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+    ).map((d) => {
+      const nd = d.pay_date.replace(/^\d{4}/, String(yr + 1));
+      const ne = d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null;
+      return { ...d, pay_date: nd, ex_date: ne, _projected: true };
+    });
+    _projCal = DIVCAL.concat(shifted);
+  }
+  // Expected income: dividends you're eligible for (held before ex-date) that are upcoming
+  // OR just passed (within 30 days) but not yet recorded. Uses ex-date eligibility.
+  const upcoming = _projCal.filter((d) => {
+    if (!d.pay_date || eligibleSharesAtEx(d) <= 0) return false;
+    const du = daysUntil(d.pay_date);
+    return du >= 0 || (du >= -30 && !divRecorded(d));
+  });
+  let inc90 = 0,
+    inc12 = 0;
+  const byMonth = {},
+    byMonthTk = {},
+    det90 = [],
+    det12 = [];
+  for (const d of upcoming) {
+    const sh = eligibleSharesAtEx(d);
+    const net = divNetFor(d, sh);
+    const du = daysUntil(d.pay_date);
+    const item = {
+      ticker: d.ticker,
+      date: d.pay_date,
+      amount: net,
+      sh: sh,
+    };
+    if (du <= 90) {
+      inc90 += net;
+      det90.push(item);
+    }
+    if (du <= 365) {
+      inc12 += net;
+      det12.push(item);
+    }
+    const mk = d.pay_date.slice(0, 7);
+    byMonth[mk] = (byMonth[mk] || 0) + net;
+    (byMonthTk[mk] = byMonthTk[mk] || {})[d.ticker] =
+      (byMonthTk[mk][d.ticker] || 0) + net;
+  }
+  // Received YTD (recorded DIV transactions this calendar year) \u2014 with detail
+  const yr = TODAY.getFullYear();
+  let received = 0;
+  const detRecv = [];
+  for (const t of TXNS) {
+    if (t.action === "DIV" && new Date(t.date).getFullYear() === yr) {
+      const r = computeRow(t, 0);
+      received += r.net;
+      detRecv.push({ ticker: t.ticker, date: t.date, amount: r.net });
+    }
+  }
+  // Build an HTML detail tooltip: title + per-dividend rows (ticker \u00B7 date \u00B7 amount), sorted by date
+  const detTip = (title, lines, arr) => {
+    let h =
+      `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
+      lines
+        .map((l) => `<div class="mini" style="margin:0">${l}</div>`)
+        .join("");
+    if (arr && arr.length) {
+      h += `<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:6px"></div>`;
+      [...arr]
+        .sort((a, b) => (a.date < b.date ? -1 : 1))
+        .forEach((x) => {
+          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${x.ticker} <span class="mini">${x.date}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
+        });
+    } else h += '<div class="mini" style="margin-top:6px">No dividends.</div>';
+    return h;
+  };
+  // KPI cards
+  const T = (title, lines) =>
+    `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
+    lines.map((l) => `<div>${l}</div>`).join("");
+  let portVal = 0;
+  for (const kk in pos) {
+    portVal += pos[kk].value;
+  }
+  const __FWDYIELD__ =
+    portVal > 0 ? ((inc12 / portVal) * 100).toFixed(2) + "%" : "\u2014";
+  document.getElementById("divKpiRow").innerHTML =
+    kpi(
+      "Income \u00B7 next 90d",
+      money(inc90, 0) + " MAD",
+      "pos",
+      detTip(
+        "Expected income \u00B7 next 90 days",
+        ["Net, on shares eligible at ex-date."],
+        det90,
+      ),
+    ) +
+    kpi(
+      "Income \u00B7 next 12mo",
+      money(inc12, 0) + " MAD",
+      "pos",
+      detTip(
+        "Expected income \u00B7 next 12 months",
+        ["Net of dividend tax."],
+        det12,
+      ),
+    ) +
+    kpi(
+      "Received in " + yr,
+      money(received, 0) + " MAD",
+      "pos",
+      detTip(
+        "Dividends received in " + yr,
+        ["Recorded DIV transactions this year."],
+        detRecv,
+      ),
+    ) +
+    kpi(
+      "YTD Yield",
+      portVal > 0 ? ((received / portVal) * 100).toFixed(2) + "%" : "\u2014",
+      "pos",
+      T("YTD dividend yield", [
+        "Dividends received in " + yr + " divided by",
+        "current portfolio market value.",
+        "(Realized income yield so far this year.)",
+      ]),
+    ) +
+    kpi(
+      "Fwd Yield (12mo)",
+      __FWDYIELD__,
+      "",
+      T("Forward dividend yield", [
+        "Next-12mo expected income divided by",
+        "current portfolio market value.",
+      ]),
+    );
+  // Monthly chart (next 12 months, or 24 when projecting next year)
+  const _chartRange = _divProject ? 24 : 12;
+  const months = [];
+  const base = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+  for (let i = 0; i < _chartRange; i++) {
+    const dt = new Date(base.getFullYear(), base.getMonth() + i, 1);
+    months.push(dt.toISOString().slice(0, 7));
+  }
+  const data = months.map((m) => +(byMonth[m] || 0).toFixed(2));
+  const labels = months.map((m) => {
+    const [y, mo] = m.split("-");
+    return (
+      [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ][+mo - 1] +
+      " '" +
+      y.slice(2)
+    );
+  });
+  const tx2 = themeColor("text2");
+  const tx = themeColor("text");
+  const incMonths = months.slice();
+  CH_divIncome = Highcharts.chart("divIncomeChart", {
+    chart: { type: "column", backgroundColor: "transparent" },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { enabled: false },
+    xAxis: { categories: labels, labels: { style: { color: tx2 } } },
+    yAxis: {
+      title: { text: null },
+      gridLineColor: "#2c3742",
+      labels: { style: { color: tx2 }, format: "{value:,.0f}" },
+    },
+    tooltip: {
+      useHTML: true,
+      backgroundColor: "#161d27",
+      borderColor: "#2a3441",
+      style: { color: "#e8eef5" },
+      formatter: function () {
+        const mk = incMonths[this.point.index];
+        const tks = byMonthTk[mk] || {};
+        const items = Object.keys(tks)
+          .sort((a, b) => tks[b] - tks[a])
+          .map(
+            (t) =>
+              '<div style="display:flex;justify-content:space-between;gap:14px"><span>' +
+              t +
+              '</span><span style="font-family:monospace">' +
+              Math.round(tks[t]).toLocaleString() +
+              "</span></div>",
+          )
+          .join("");
+        return (
+          "<b>" +
+          this.x +
+          "</b> \u2014 " +
+          Math.round(this.y).toLocaleString() +
+          " MAD net<br>" +
+          (items || '<span style="color:#9aa7b4">\u2014</span>')
+        );
+      },
+    },
+    plotOptions: {
+      column: {
+        color: themeColor("warn"),
+        borderRadius: 3,
+        dataLabels: {
+          enabled: true,
+          style: { color: tx, textOutline: "none", fontWeight: "600" },
+          format: "{point.y:,.0f}",
+          allowOverlap: true,
+        },
+      },
+    },
+    series: [{ data: data }],
+  });
+
+  // ---- Historical dividends RECEIVED (from recorded DIV transactions) ----
+  const recvByMonth = {};
+  const recvByMonthTk = {};
+  for (const t of TXNS) {
+    if (t.action !== "DIV") continue;
+    const r = computeRow(t, 0); // net cash received
+    const mk = t.date.slice(0, 7);
+    recvByMonth[mk] = (recvByMonth[mk] || 0) + r.net;
+    (recvByMonthTk[mk] = recvByMonthTk[mk] || {})[t.ticker] =
+      (recvByMonthTk[mk][t.ticker] || 0) + r.net;
+  }
+  const rmonths = Object.keys(recvByMonth).sort();
+  const sub = document.getElementById("divRecvSubtitle");
+  if (!rmonths.length) {
+    if (sub) sub.textContent = "(none recorded yet)";
+    CH_divReceived = Highcharts.chart("divReceivedChart", {
+      chart: { backgroundColor: "transparent" },
+      title: {
+        text: "No dividends recorded yet",
+        style: { color: tx2, fontSize: "13px" },
+      },
+      credits: { enabled: false },
+      series: [],
+    });
+  } else {
+    const totalRecv = rmonths.reduce((s, m) => s + recvByMonth[m], 0);
+    if (sub) sub.textContent = "(total " + money(totalRecv, 0) + " MAD, net)";
+    const rlabels = rmonths.map((m) => {
+      const [y, mo] = m.split("-");
+      return (
+        [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ][+mo - 1] +
+        " '" +
+        y.slice(2)
+      );
+    });
+    let cum = 0;
+    const cumData = rmonths.map((m) => +(cum += recvByMonth[m]).toFixed(2));
+    CH_divReceived = Highcharts.chart("divReceivedChart", {
+      chart: { backgroundColor: "transparent" },
+      title: { text: null },
+      credits: { enabled: false },
+      legend: { itemStyle: { color: tx2 } },
+      xAxis: { categories: rlabels, labels: { style: { color: tx2 } } },
+      yAxis: {
+        title: { text: null },
+        gridLineColor: "#2c3742",
+        labels: { style: { color: tx2 }, format: "{value:,.0f}" },
+      },
+      tooltip: {
+        useHTML: true,
+        backgroundColor: "#161d27",
+        borderColor: "#2a3441",
+        style: { color: "#e8eef5" },
+        formatter: function () {
+          const mk = rmonths[this.point.index];
+          const tks = recvByMonthTk[mk] || {};
+          if (this.series.name === "Cumulative")
+            return (
+              "<b>" +
+              this.x +
+              "</b><br>Cumulative: " +
+              Math.round(this.y).toLocaleString() +
+              " MAD"
+            );
+          const items = Object.keys(tks)
+            .sort((a, b) => tks[b] - tks[a])
+            .map(
+              (t) =>
+                '<div style="display:flex;justify-content:space-between;gap:14px"><span>' +
+                t +
+                '</span><span style="font-family:monospace">' +
+                Math.round(tks[t]).toLocaleString() +
+                "</span></div>",
+            )
+            .join("");
+          return (
+            "<b>" +
+            this.x +
+            "</b> \u2014 " +
+            Math.round(this.y).toLocaleString() +
+            " MAD net<br>" +
+            (items || "")
+          );
+        },
+      },
+      series: [
+        {
+          name: "Received",
+          type: "column",
+          color: themeColor("success"),
+          borderRadius: 3,
+          data: rmonths.map((m) => +recvByMonth[m].toFixed(2)),
+        },
+        {
+          name: "Cumulative",
+          type: "line",
+          color: themeColor("primary"),
+          data: cumData,
+        },
+      ],
+    });
+  }
+
+  // ---- Received by ticker (net, all-time) ----
+  const byTk = {};
+  for (const t of TXNS) {
+    if (t.action !== "DIV") continue;
+    const r = computeRow(t, 0);
+    const e = byTk[t.ticker] || (byTk[t.ticker] = { net: 0, count: 0 });
+    e.net += r.net;
+    e.count++;
+  }
+  const tks = Object.keys(byTk).sort((a, b) => byTk[b].net - byTk[a].net);
+  const grand = tks.reduce((s, tk) => s + byTk[tk].net, 0);
+  const tb = document.querySelector("#divByTickerTable tbody");
+  if (tb) {
+    if (!tks.length) {
+      tb.innerHTML =
+        '<tr><td colspan="5" class="l" style="color:var(--muted)">No dividends recorded yet.</td></tr>';
+    } else {
+      tb.innerHTML =
+        tks
+          .map(
+            (tk) => `<tr><td class="l"><b>${tk}</b></td>
+        <td class="l" style="color:var(--text2)">${(M[tk] && M[tk].name) || ""}</td>
+        <td class="center">${byTk[tk].count}</td>
+        <td class="pos">${money(byTk[tk].net)}</td>
+        <td>${grand > 0 ? ((byTk[tk].net / grand) * 100).toFixed(1) + "%" : "\u2014"}</td></tr>`,
+          )
+          .join("") +
+        `<tr style="border-top:2px solid var(--border)"><td class="l"><b>Total</b></td><td></td><td class="center"><b>${tks.reduce((s, tk) => s + byTk[tk].count, 0)}</b></td><td class="pos"><b>${money(grand)}</b></td><td><b>100%</b></td></tr>`;
+    }
+  }
+  // pie chart of received-by-ticker
+  const txp = themeColor("text");
+  const txp2 = themeColor("text2");
+  const pieData = tks.map((tk) => ({
+    name: tk,
+    y: +byTk[tk].net.toFixed(2),
+  }));
+  CH_divByTk = Highcharts.chart("divByTickerChart", {
+    chart: { type: "pie", backgroundColor: "transparent" },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { itemStyle: { color: txp2 } },
+    tooltip: {
+      pointFormat: "<b>{point.y:,.0f} MAD</b> ({point.percentage:.1f}%)",
+    },
+    plotOptions: {
+      pie: {
+        dataLabels: {
+          style: { color: txp },
+          format: "{point.name}: {point.percentage:.0f}%",
+        },
+      },
+    },
+    series: [{ name: "Received", data: pieData }],
+  });
+}
+
+function eligibleSharesAtEx(d) {
+  const exd = d.ex_date || d.pay_date;
+  return heldBefore(d.ticker, false, exd) + heldBefore(d.ticker, true, exd);
+}
+// Is this calendar dividend already recorded? (ticker+amount within the match window)
+function divRecorded(d) {
+  const amt = +(+d.amount).toFixed(4);
+  for (const t of TXNS) {
+    if (t.action !== "DIV" || t.ticker !== d.ticker) continue;
+    if (+(+t.price).toFixed(4) !== amt) continue;
+    if (daysBetween(t.date, d.pay_date) <= DIV_MATCH_WINDOW_DAYS) return true;
+  }
+  return false;
+}
+function divStatus(d) {
+  const elig = eligibleSharesAtEx(d);
+  if (elig <= 1e-9)
+    return {
+      t: "\u2014",
+      c: "var(--muted)",
+      title: "You did not hold shares before the ex-date",
+    };
+  if (divRecorded(d))
+    return {
+      t: "\u2705 Recorded",
+      c: "var(--success)",
+      title: "A matching dividend transaction exists",
+    };
+  // eligible but not recorded \u2014 only meaningful once ex-date has passed
+  if (daysUntil(d.ex_date || d.pay_date) > 0)
+    return {
+      t: "\u23F3 Upcoming",
+      c: "var(--info)",
+      title: "Eligible \u2014 ex-date not yet reached",
+    };
+  return {
+    t: "\u26A0 Not recorded",
+    c: "var(--warn)",
+    title:
+      "You were eligible (" +
+      money(elig, elig % 1 ? 3 : 0) +
+      " sh) but no dividend is logged",
+  };
+}
+// \u2500\u2500 Dividend Calendar Grid View (monthly, color-coded ex/pay dates) \u2500\u2500
+let _divCalMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1); // current month
+// Named handlers for the calendar prev/next buttons (replaces a compound inline
+// onclick so the buttons can use data-act event delegation).
+function divCalPrevMonth() {
+  _divCalMonth = new Date(
+    _divCalMonth.getFullYear(),
+    _divCalMonth.getMonth() - 1,
+    1,
+  );
+  renderDivCalGrid();
+}
+function divCalNextMonth() {
+  _divCalMonth = new Date(
+    _divCalMonth.getFullYear(),
+    _divCalMonth.getMonth() + 1,
+    1,
+  );
+  renderDivCalGrid();
+}
+function renderDivCalGrid(pos) {
+  const wrap = document.getElementById("divCalGrid");
+  if (!wrap) return;
+  const f = document.getElementById("divFilter").value;
+  // Filter DIVCAL the same way the table does
+  const _projOn = !!(document.getElementById("divProjectNext") || {}).checked;
+  const yr = new Date().getFullYear();
+  let cal = DIVCAL;
+  if (_projOn) {
+    const shifted = DIVCAL.filter(
+      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+    ).map((d) => ({
+      ...d,
+      pay_date: d.pay_date.replace(/^\d{4}/, String(yr + 1)),
+      ex_date: d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null,
+      _projected: true,
+    }));
+    cal = DIVCAL.concat(shifted);
+  }
+  let rows = cal.filter((d) => d.pay_date);
+  if (f === "upcoming" || f === "held")
+    rows = rows.filter((d) => daysUntil(d.pay_date) >= 0);
+  if (f === "held") rows = rows.filter((d) => eligibleSharesAtEx(d) > 0);
+  if (f === "missing")
+    rows = rows.filter((d) => divStatus(d).t === "\u26a0 Not recorded");
+
+  // Build event maps for displayed month + overflow (prev/next month)
+  const mYear = _divCalMonth.getFullYear(),
+    mMonth = _divCalMonth.getMonth();
+  const events = {},
+    prevEvents = {},
+    nextEvents = {};
+  const _prevM = mMonth === 0 ? 11 : mMonth - 1,
+    _prevY = mMonth === 0 ? mYear - 1 : mYear;
+  const _nextM = mMonth === 11 ? 0 : mMonth + 1,
+    _nextY = mMonth === 11 ? mYear + 1 : mYear;
+  const addEv = (dateStr, ev) => {
+    if (!dateStr) return;
+    const d = new Date(dateStr);
+    const dy = d.getFullYear(),
+      dm = d.getMonth(),
+      dd = d.getDate();
+    if (dy === mYear && dm === mMonth) {
+      (events[dd] = events[dd] || []).push(ev);
+    } else if (dy === _prevY && dm === _prevM) {
+      (prevEvents[dd] = prevEvents[dd] || []).push(ev);
+    } else if (dy === _nextY && dm === _nextM) {
+      (nextEvents[dd] = nextEvents[dd] || []).push(ev);
+    }
+  };
+  for (const d of rows) {
+    const held = eligibleSharesAtEx(d) > 0;
+    const recorded = divRecorded(d);
+    addEv(d.ex_date, {
+      ticker: d.ticker,
+      type: "ex",
+      amount: d.amount,
+      held,
+      recorded,
+      projected: !!d._projected,
+    });
+    addEv(d.pay_date, {
+      ticker: d.ticker,
+      type: "pay",
+      amount: d.amount,
+      held,
+      recorded,
+      projected: !!d._projected,
+    });
+  }
+
+  // Render
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const today = new Date();
+  const todayKey =
+    today.getFullYear() === mYear && today.getMonth() === mMonth
+      ? today.getDate()
+      : null;
+
+  // Calendar math
+  const firstDay = new Date(mYear, mMonth, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(mYear, mMonth + 1, 0).getDate();
+  const weeksNeeded = Math.ceil((firstDay + daysInMonth) / 7);
+
+  let h =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
+  h += '<div style="font-weight:700;font-size:13px">Dividend Calendar</div>';
+  h += '<div style="display:flex;align-items:center;gap:10px">';
+  h +=
+    '<button class="btn sec2" style="padding:2px 8px;font-size:14px" data-act="divCalPrevMonth">\u25c0</button>';
+  h +=
+    '<span style="font-weight:700;min-width:90px;text-align:center">' +
+    monthNames[mMonth] +
+    " " +
+    mYear +
+    "</span>";
+  h +=
+    '<button class="btn sec2" style="padding:2px 8px;font-size:14px" data-act="divCalNextMonth">\u25b6</button>';
+  h += "</div></div>";
+
+  // Grid header
+  h += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:1px">';
+  dayNames.forEach((d) => {
+    h +=
+      '<div style="text-align:center;font-size:10px;font-weight:700;color:var(--muted);padding:4px 0;text-transform:uppercase">' +
+      d +
+      "</div>";
+  });
+
+  // Grid cells (show overflow days from prev/next month in muted style)
+  const prevMonthDays = new Date(mYear, mMonth, 0).getDate(); // last day of previous month
+  let day = 1;
+  for (let w = 0; w < weeksNeeded; w++) {
+    for (let dow = 0; dow < 7; dow++) {
+      const cellIdx = w * 7 + dow;
+      if (cellIdx < firstDay) {
+        // Previous month overflow (with events)
+        const prevDay = prevMonthDays - firstDay + cellIdx + 1;
+        const _pEvts = prevEvents[prevDay] || [];
+        h +=
+          '<div style="min-height:72px;background:var(--bg2);border-radius:4px;padding:4px;opacity:.65">';
+        h +=
+          '<div style="font-size:11px;color:var(--muted)">' +
+          prevDay +
+          "</div>";
+        _pEvts.slice(0, 2).forEach((ev) => {
+          const col =
+            ev.type === "ex" ? themeColor("warn") : themeColor("success");
+          const dot = ev.projected ? "\u25cb" : "\u25cf";
+          h +=
+            '<div style="font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' +
+            col +
+            ';margin:1px 0">' +
+            dot +
+            " " +
+            ev.ticker +
+            (ev.type === "pay" ? " Pay" : "  Ex") +
+            "</div>";
+        });
+        if (_pEvts.length > 2)
+          h +=
+            '<div style="font-size:8px;color:var(--muted)">+' +
+            (_pEvts.length - 2) +
+            "</div>";
+        h += "</div>";
+      } else if (day > daysInMonth) {
+        // Next month overflow (with events)
+        const nextDay = day - daysInMonth;
+        const _nEvts = nextEvents[nextDay] || [];
+        h +=
+          '<div style="min-height:72px;background:var(--bg2);border-radius:4px;padding:4px;opacity:.65">';
+        h +=
+          '<div style="font-size:11px;color:var(--muted)">' +
+          nextDay +
+          "</div>";
+        _nEvts.slice(0, 2).forEach((ev) => {
+          const col =
+            ev.type === "ex" ? themeColor("warn") : themeColor("success");
+          const dot = ev.projected ? "\u25cb" : "\u25cf";
+          h +=
+            '<div style="font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' +
+            col +
+            ';margin:1px 0">' +
+            dot +
+            " " +
+            ev.ticker +
+            (ev.type === "pay" ? " Pay" : "  Ex") +
+            "</div>";
+        });
+        if (_nEvts.length > 2)
+          h +=
+            '<div style="font-size:8px;color:var(--muted)">+' +
+            (_nEvts.length - 2) +
+            "</div>";
+        h += "</div>";
+        day++;
+      } else {
+        const isToday = day === todayKey;
+        const evts = events[day] || [];
+        h +=
+          '<div style="min-height:72px;background:' +
+          (isToday ? "rgba(59,130,246,.12)" : "var(--panel2)") +
+          ";border-radius:4px;padding:4px;border:" +
+          (isToday ? "1px solid var(--primary)" : "1px solid transparent") +
+          '">';
+        h +=
+          '<div style="font-size:11px;font-weight:600;color:' +
+          (isToday ? "var(--primary2)" : "var(--text2)") +
+          ';margin-bottom:2px">' +
+          day +
+          "</div>";
+        // Show up to 3 events per cell, then "+N"
+        const show = evts.slice(0, 3);
+        show.forEach((ev) => {
+          const col =
+            ev.type === "ex" ? themeColor("warn") : themeColor("success"); // yellow=ex, green=pay
+          const filled = !ev.projected;
+          const dot = filled ? "\u25cf" : "\u25cb"; // filled or hollow circle
+          const label =
+            ev.ticker +
+            (ev.type === "pay"
+              ? " Pay: " + money(ev.amount, 0) + " \u062f.\u0645"
+              : "  Ex-Div");
+          h +=
+            '<div style="font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' +
+            col +
+            ';margin:1px 0" title="' +
+            ev.ticker +
+            " " +
+            (ev.type === "ex" ? "Ex-dividend" : "Payment") +
+            " " +
+            (ev.projected ? "(projected)" : "") +
+            '">' +
+            dot +
+            " " +
+            label +
+            "</div>";
+        });
+        if (evts.length > 3)
+          h +=
+            '<div style="font-size:9px;color:var(--muted)">+' +
+            (evts.length - 3) +
+            " more</div>";
+        h += "</div>";
+        day++;
+      }
+    }
+  }
+  h += "</div>";
+  // Legend
+  h +=
+    '<div style="display:flex;gap:16px;margin-top:8px;font-size:10.5px;color:var(--text2)">';
+  h += '<span>\u25cf <span style="color:var(--warn)">Ex-Dividend</span></span>';
+  h +=
+    '<span>\u25cb <span style="color:var(--warn)">Ex-Div (projected)</span></span>';
+  h += '<span>\u25cf <span style="color:var(--success)">Payment</span></span>';
+  h +=
+    '<span>\u25cb <span style="color:var(--success)">Payment (projected)</span></span>';
+  h += "</div>";
+  wrap.innerHTML = h;
+}
+function renderDividends(pos) {
+  const f = document.getElementById("divFilter").value;
+  let rows = DIVCAL.filter((d) => d.pay_date);
+  if (f !== "all") rows = rows.filter((d) => daysUntil(d.pay_date) >= 0);
+  if (f === "held") rows = rows.filter((d) => eligibleSharesAtEx(d) > 0);
+  if (f === "missing")
+    rows = rows.filter((d) => divStatus(d).t === "\u26A0 Not recorded");
+  rows.sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
+  const missCount = DIVCAL.filter(
+    (d) => d.pay_date && divStatus(d).t === "\u26a0 Not recorded",
+  ).length;
+  const mc = document.getElementById("divMissingCount");
+  if (mc)
+    mc.innerHTML = missCount
+      ? '<span style="color:var(--warn)">\u26a0 ' +
+        missCount +
+        " eligible dividend(s) not recorded</span>"
+      : '<span style="color:var(--success)">\u2705 All eligible dividends recorded</span>';
+  document.querySelector("#divTable tbody").innerHTML =
+    rows
+      .map((d) => {
+        const sh = heldSharesOf(pos, d.ticker);
+        const held = sh > 0;
+        const du = daysUntil(d.pay_date);
+        const st = divStatus(d);
+        const eligNow = eligibleSharesAtEx(d);
+        const amtCell =
+          eligNow > 0
+            ? `<td class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, eligNow))}">${money(d.amount)} <span style="color:var(--muted)">\u24D8</span></td>`
+            : `<td>${money(d.amount)}</td>`;
+        const rowStyle =
+          st.t === "\u26A0 Not recorded"
+            ? ' style="background:rgba(245,158,11,.10)"'
+            : "";
+        return `<tr${rowStyle}><td class="l" style="color:var(--text2)">${d.ex_date || "\u2014"}</td><td class="l">${d.pay_date}</td><td class="l">${(function () {
+          const recorded = d._fromTxn || divRecorded(d);
+          if (recorded)
+            return (
+              "<b>" +
+              d.ticker +
+              '</b> <span class="chip" style="background:rgba(38,208,124,.14);color:var(--success)" data-tip="Already recorded in Transactions">\u2713 recorded</span>'
+            );
+          return (
+            '<b><a href="#" data-act="prefillDividend" data-args="' +
+            d.ticker +
+            "," +
+            d.amount +
+            "," +
+            d.pay_date +
+            "," +
+            (d.ex_date || "") +
+            '" style="color:var(--primary2);text-decoration:none" data-tip="Add this dividend to Transactions (prefilled)">' +
+            d.ticker +
+            " \uFF0B</a></b>"
+          );
+        })()}${(function () {
+          const du = daysUntil(d.pay_date);
+          return du < 0
+            ? ' <span class="chip" style="background:rgba(245,166,35,.15);color:var(--warn)" data-tip="Payment date passed \u2014 record it?">due</span>'
+            : "";
+        })()}</td>
+      <td class="l" style="color:var(--text2)">${escapeHtml(d.issuer || "")}</td><td class="l"><span class="chip">${d.div_type || ""}</span></td>
+      ${amtCell}<td class="center">${held ? '<span class="tag-in">Yes</span>' : "\u2014"}</td>
+      <td class="center" data-tip="${st.title}" style="color:${st.c};white-space:nowrap">${st.t}${st.t === "\u26A0 Not recorded" ? ` <button class="chip" style="cursor:pointer;border:none;background:rgba(34,197,94,.15);color:var(--success)" data-act="addMissingDiv" data-args="${d.ticker},${d.pay_date},${d.amount},${d.ex_date || d.pay_date}">+ Add</button>` : ""}</td>
+      <td class="center" style="color:${du < 0 ? "var(--muted)" : du < 14 ? "var(--warn)" : "var(--text2)"}">${du < 0 ? "past" : du + "d"}</td></tr>`;
+      })
+      .join("") ||
+    '<tr><td colspan="9" class="l" style="color:var(--muted)">No dividends match.</td></tr>';
+  renderDivDashboard(pos);
+  renderDivCalGrid(pos);
+}
+function renderDashDivs(pos) {
+  // Source 1: calendar dividends you're ELIGIBLE for (held before the ex-date), whose payment is upcoming
+  // OR just passed (within 30 days) but NOT yet recorded as received. Uses ex-date eligibility, not current holdings.
+  let rows = DIVCAL.filter((d) => {
+    if (!d.pay_date || eligibleSharesAtEx(d) <= 0) return false;
+    const du = daysUntil(d.pay_date);
+    if (du >= 0) return true; // upcoming
+    if (du >= -30 && !divRecorded(d)) return true; // just passed, not yet recorded
+    return false;
+  });
+  // Source 2: DIV transactions you've RECORDED with a future pay date (not yet received),
+  // even if they aren't in the calendar. Dedup against calendar by ticker+amount within the window.
+  const seen = new Set(
+    rows.map((d) => d.ticker + "|" + +(+d.amount).toFixed(4)),
+  );
+  TXNS.filter((t) => t.action === "DIV" && daysUntil(t.date) >= 0).forEach(
+    (t) => {
+      const key = t.ticker + "|" + +(+t.price).toFixed(4);
+      // avoid duplicating a calendar row already listed for this ticker+amount
+      const dupCal = rows.some(
+        (d) =>
+          d.ticker === t.ticker &&
+          Math.abs(+d.amount - +t.price) < 1e-4 &&
+          daysBetween(d.pay_date, t.date) <= DIV_MATCH_WINDOW_DAYS,
+      );
+      if (dupCal) return;
+      rows.push({
+        ticker: t.ticker,
+        issuer: (M[t.ticker] && M[t.ticker].name) || "",
+        amount: t.price,
+        pay_date: t.date,
+        ex_date: t.exDate || "",
+        _fromTxn: true,
+        _txnQty: t.qty,
+        _txnPea: t.pea,
+      });
+    },
+  );
+  rows.sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
+  const tb = document.querySelector("#dashDivTable tbody");
+  const empty = document.getElementById("dashDivEmpty");
+  if (!rows.length) {
+    tb.innerHTML = "";
+    empty.textContent =
+      "No upcoming dividends \u2014 none where you qualified at the ex-date and payment is still pending.";
+    return;
+  }
+  empty.textContent = "";
+  tb.innerHTML = rows
+    .map((d) => {
+      const q = d._fromTxn ? d._txnQty : eligibleSharesAtEx(d);
+      const est = d._fromTxn
+        ? computeRow({
+            action: "DIV",
+            qty: d._txnQty,
+            price: d.amount,
+            date: d.pay_date,
+            pea: d._txnPea,
+          }).net
+        : divNetFor(d, q);
+      return `<tr><td class="l" style="color:var(--text2)">${d.ex_date || "\u2014"}</td>${(function () {
+        if (!d.ex_date)
+          return '<td class="center" style="color:var(--muted)">\u2014</td>';
+        const de = daysUntil(d.ex_date);
+        const col =
+          de < 0 ? "var(--muted)" : de <= 3 ? "var(--warn)" : "var(--text2)";
+        return (
+          '<td class="center" style="color:' +
+          col +
+          '">' +
+          (de < 0 ? "passed" : de + "d") +
+          "</td>"
+        );
+      })()}<td class="l">${d.pay_date}</td><td class="l">${(function () {
+        const recorded = d._fromTxn || divRecorded(d);
+        if (recorded)
+          return (
+            "<b>" +
+            d.ticker +
+            '</b> <span class="chip" style="background:rgba(38,208,124,.14);color:var(--success)" data-tip="Already recorded in Transactions">\u2713 recorded</span>'
+          );
+        return (
+          '<b><a href="#" data-act="prefillDividend" data-args="' +
+          d.ticker +
+          "," +
+          d.amount +
+          "," +
+          d.pay_date +
+          "," +
+          (d.ex_date || "") +
+          '" style="color:var(--primary2);text-decoration:none" data-tip="Add this dividend to Transactions (prefilled)">' +
+          d.ticker +
+          " \uFF0B</a></b>"
+        );
+      })()}${(function () {
+        const du = daysUntil(d.pay_date);
+        return du < 0
+          ? ' <span class="chip" style="background:rgba(245,166,35,.15);color:var(--warn)" data-tip="Payment date passed \u2014 record it?">due</span>'
+          : "";
+      })()}</td>
+      <td class="l" style="color:var(--text2)">${escapeHtml(d.issuer || "")}</td><td>${money(d.amount)}</td>
+      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
+    })
+    .join("");
+}
+function autoDivTip(t) {
+  const row = (l, v) =>
+    `<div style="display:flex;justify-content:space-between;gap:18px"><span>${l}</span><span style="font-family:var(--mono)">${v}</span></div>`;
+  let h = `<div style="font-weight:700;margin-bottom:6px">Auto-added dividend \u00B7 ${escapeHtml(t.ticker)}</div>`;
+  h += row(
+    'Ex-date <span class="mini">(eligibility cutoff)</span>',
+    t.exDate || "\u2014",
+  );
+  h += row("Pay date", t.date);
+  h += row(
+    "Shares held before ex-date",
+    money(t.eligBasis != null ? t.eligBasis : t.qty, t.qty % 1 ? 3 : 0),
+  );
+  h += row("Amount / share", money(t.price));
+  h += `<div class="mini" style="margin-top:6px">Eligible = shares bought before the ex-date and not sold on/before it. Review & edit or delete if wrong.</div>`;
+  return h;
+}
+
+function ttcTipHTML(t, e) {
+  const row = _tipRow; // shared tooltip row builder (gap:18px)
+  const gross = t.price * t.qty;
+  const manual = typeof t.total === "number" && t.total > 0;
+  const _brokerName = (BROKERS[txnBroker(t)] || {}).name || txnBroker(t);
+  let h = `<div style="font-weight:700;margin-bottom:6px">${t.action} ${escapeHtml(t.ticker)} \u2014 ${t.pea ? "PEA" : "Regular"} \u00B7 ${escapeHtml(_brokerName)}</div>`;
+  h += row(
+    "Quantity \u00D7 Unit price",
+    money(t.qty, t.qty % 1 ? 3 : 0) + " \u00D7 " + money(t.price),
+  );
+  h += row("Gross", money(gross) + " MAD");
+  if (manual) {
+    h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+    h += row("Manual Total (TTC) entered", money(t.total) + " MAD", "pos");
+    h += row("Implied fees/costs", money(e.fees));
+    h += row("<b>TTC / share</b>", "<b>" + money(e.ttc) + "</b>");
+    h += `<div class="mini" style="margin-top:6px">Custom total (e.g. OPCVM) \u2014 standard fee/tax formula skipped.</div>`;
+    return h;
+  }
+  // OPCVM (fund) breakdown \u2014 subscription/redemption fee %, no brokerage courier fee.
+  if (e.opcvm) {
+    const meta = M[t.ticker] || {};
+    const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
+    h += `<div style="color:var(--info);font-size:11px;margin:4px 0 2px;font-weight:700">\uD83C\uDFE6 OPCVM fund${meta.name ? " \u2014 " + meta.name : ""}</div>`;
+    if (t.action === "BUY") {
+      const hasFee = meta.buyFee != null;
+      h += row(
+        'Commission de souscription <span class="mini">(' +
+          (hasFee ? pctOf(meta.buyFee) : "not imported") +
+          ")</span>",
+        "\u2212" + money(e.fees),
+      );
+    } else if (t.action === "SELL") {
+      const hasFee = meta.sellFee != null;
+      h += row(
+        'Commission de rachat <span class="mini">(' +
+          (hasFee ? pctOf(meta.sellFee) : "not imported") +
+          ")</span>",
+        "\u2212" + money(e.fees),
+      );
+      const yr2 = new Date(t.date).getFullYear();
+      h += row(
+        "TPCVM cap-gains tax " +
+          (t.pea
+            ? '<span class="mini">(PEA exempt)</span>'
+            : '<span class="mini">(' + pctOf(FP.tpcvm) + " on gain)</span>"),
+        "\u2212" + money(e.tax),
+      );
+    } else if (t.action === "DIV") {
+      h += row(
+        'Fund fee <span class="mini">(none on dividends)</span>',
+        "0",
+        "pos",
+      );
+      const yr2 = new Date(t.date).getFullYear();
+      h += t.pea
+        ? row('Dividend tax <span class="mini">(PEA exempt)</span>', "0", "pos")
+        : row(
+            'Dividend tax <span class="mini">(' +
+              pctOf(divRate(yr2)) +
+              " \u00D7 " +
+              (1 + FP.vat).toFixed(2) +
+              " VAT, " +
+              yr2 +
+              ")</span>",
+            "\u2212" + money(e.tax),
+          );
+    }
+    if (
+      (t.action === "BUY" && meta.buyFee == null) ||
+      (t.action === "SELL" && meta.sellFee == null)
+    ) {
+      h += `<div class="mini" style="margin-top:6px;color:var(--warn)">Fund fee % not imported \u2014 import the weekly OPCVM file (VL + fees) to populate it. Treated as 0% for now.</div>`;
+    }
+    h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+    h += row(
+      '<b>TTC / share</b> <span class="mini">' +
+        (t.action === "BUY"
+          ? "(gross+fees)/qty"
+          : "(gross\u2212fees\u2212tax)/qty") +
+        "</span>",
+      "<b>" + money(e.ttc) + "</b>",
+    );
+    h += row("Net cash", money(e.net) + " MAD", cls(e.net));
+    return h;
+  }
+  // Standard (stock) fee breakdown \u2014 broker-aware so Attijari (PEA-type) shows its
+  // courtage/r\u00E8glement/bourse structure, and Saham (regular) shows market/interm\u00E9d/
+  // r\u00E8glement + fixed courrier. Uses the SAME broker resolution as computeRow.
+  const _bk = BROKERS[txnBroker(t)] || null;
+  const _f = _bk && _bk.fees ? _bk.fees : null;
+  const _vat = vatRate();
+  const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
+  h += `<div style="color:var(--text2);font-size:11px;margin:4px 0 2px">Trading fees (incl. ${(_vat * 100).toFixed(0)}% VAT):</div>`;
+  if (_bk && _bk.feeType === "pea" && _f) {
+    // Attijari-style: courtage (with min floor) + r\u00E8glement + bourse, all \u00D7 VAT.
+    const court = Math.max(gross * (_f.courtage || 0), _f.courtageMin || 0);
+    const regl = gross * (_f.regl || 0);
+    const bourse = gross * (_f.bourse || 0);
+    h += row(
+      '&nbsp;&nbsp;Courtage <span class="mini">(' +
+        pctOf(_f.courtage || 0) +
+        (court <= (_f.courtageMin || 0)
+          ? ", min " + money(_f.courtageMin || 0)
+          : "") +
+        ")</span>",
+      "\u2212" + money(court * (1 + _vat)),
+    );
+    h += row(
+      '&nbsp;&nbsp;R\u00E8glement/livraison <span class="mini">(' +
+        pctOf(_f.regl || 0) +
+        ")</span>",
+      "\u2212" + money(regl * (1 + _vat)),
+    );
+    h += row(
+      '&nbsp;&nbsp;Commission bourse <span class="mini">(' +
+        pctOf(_f.bourse || 0) +
+        ")</span>",
+      "\u2212" + money(bourse * (1 + _vat)),
+    );
+  } else {
+    // Saham-style / regular: market + interm\u00E9diation + r\u00E8glement + fixed courrier.
+    const _cm = _f && _f.c_marche != null ? _f.c_marche : FP.c_marche;
+    const _ci = _f && _f.c_interm != null ? _f.c_interm : FP.c_interm;
+    const _cr = _f && _f.c_regl != null ? _f.c_regl : FP.c_regl;
+    const _courier = _f && _f.courier != null ? _f.courier : FP.courier;
+    const cm = gross * _cm * (1 + _vat),
+      ci = gross * _ci * (1 + _vat),
+      cr = gross * _cr * (1 + _vat),
+      courier = _courier * (1 + _vat);
+    h += row(
+      '&nbsp;&nbsp;Commission de march\u00E9 <span class="mini">(' +
+        pctOf(_cm) +
+        ")</span>",
+      "\u2212" + money(cm),
+    );
+    h += row(
+      '&nbsp;&nbsp;Commission d\'interm\u00E9diation <span class="mini">(' +
+        pctOf(_ci) +
+        ")</span>",
+      "\u2212" + money(ci),
+    );
+    h += row(
+      '&nbsp;&nbsp;Commission r\u00E8gl./livraison <span class="mini">(' +
+        pctOf(_cr) +
+        ")</span>",
+      "\u2212" + money(cr),
+    );
+    h += row(
+      '&nbsp;&nbsp;Frais de courrier <span class="mini">(fixed)</span>',
+      "\u2212" + money(courier),
+    );
+  }
+  h += row(
+    "&nbsp;&nbsp;<b>Total fees</b>",
+    "<b>\u2212" + money(e.fees) + "</b>",
+  );
+  const yr = new Date(t.date).getFullYear();
+  if (t.action === "DIV")
+    h += t.pea
+      ? row('Dividend tax <span class="mini">(PEA exempt)</span>', "0", "pos")
+      : row(
+          'Dividend tax <span class="mini">(' +
+            pctOf(divRate(yr)) +
+            " \u00D7 " +
+            (1 + FP.vat).toFixed(2) +
+            " VAT, " +
+            yr +
+            ")</span>",
+          "\u2212" + money(e.tax),
+        );
+  else if (t.action === "SELL")
+    h += row(
+      "TPCVM cap-gains tax " +
+        (t.pea
+          ? '<span class="mini">(PEA exempt)</span>'
+          : '<span class="mini">(' + pctOf(FP.tpcvm) + " on gain)</span>"),
+      "\u2212" + money(e.tax),
+    );
+  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+  h += row(
+    '<b>TTC / share</b> <span class="mini">' +
+      (t.action === "BUY"
+        ? "(gross+fees)/qty"
+        : "(gross\u2212fees\u2212tax)/qty") +
+      "</span>",
+    "<b>" + money(e.ttc) + "</b>",
+  );
+  h += row("Net cash", money(e.net), cls(e.net));
+  return h;
+}
+
+function renderTxns(enriched) {
+  document.getElementById("txnCount").textContent = TXNS.length + " trades";
+  // (filtered count updated after row build below)
+  const byKey = {};
+  enriched.forEach((e) => {
+    byKey[e.date + e.ticker + e.action + e.qty + e.price] = e;
+  });
+  const q = (
+    document.getElementById("txnSearch")
+      ? document.getElementById("txnSearch").value
+      : ""
+  )
+    .trim()
+    .toLowerCase();
+  let rows = [...TXNS].map((t, i) => ({ t, i }));
+  if (q)
+    rows = rows.filter(({ t }) => {
+      const cat = ((M[t.ticker] && M[t.ticker].cat) || "").toLowerCase();
+      const nm = ((M[t.ticker] && M[t.ticker].name) || "").toLowerCase();
+      return (
+        (t.ticker || "").toLowerCase().includes(q) ||
+        (t.action || "").toLowerCase().includes(q) ||
+        (t.date || "").includes(q) ||
+        nm.includes(q) ||
+        cat.includes(q) ||
+        ((q === "opcvm" || q === "fund" || q === "funds" || q === "fonds") &&
+          cat === "opcvm")
+      );
+    });
+  rows.sort((a, b) => (a.t.date < b.t.date ? 1 : -1));
+  if (q) {
+    const cc = document.getElementById("txnCount");
+    if (cc) cc.textContent = rows.length + " of " + TXNS.length + " trades";
+  }
+  document.querySelector("#txnTable tbody").innerHTML = rows
+    .map(({ t, i }) => {
+      const e = byKey[t.date + t.ticker + t.action + t.qty + t.price] || {};
+      const ac =
+        t.action === "BUY"
+          ? "b-buy"
+          : t.action === "SELL"
+            ? "b-sell"
+            : "b-wait";
+      const rowStyle = t.auto ? ' style="background:rgba(245,158,11,.10)"' : "";
+      return `<tr${rowStyle}><td class="center"><input type="checkbox" class="txnChk" data-idx="${i}"></td><td class="l">${t.date}</td><td class="l"><b>${escapeHtml(t.ticker)}</b>${t.auto ? ' <span class="chip nis-cell" style="background:rgba(245,158,11,.18);color:var(--warn);cursor:help" data-tip="' + encodeURIComponent(autoDivTip(t)) + '">auto \u24D8</span>' : ""}${typeof t.total === "number" && t.total > 0 ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Manual total \u2014 custom fees (e.g. OPCVM)">manual</span>' : ""}</td>
+      <td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml((M[t.ticker] && M[t.ticker].name) || "")}">${escapeHtml((M[t.ticker] && M[t.ticker].name) || "\u2014")}</td>
+      <td class="l"><span class="badge ${ac}">${t.action}</span></td><td>${money(t.qty, t.qty % 1 ? 3 : 0)}</td>
+      <td>${money(t.price)}</td><td>${e.fees != null ? money(e.fees) : "\u2014"}</td><td>${e.tax != null ? money(e.tax) : "\u2014"}</td>
+      <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
+      <td style="text-align:center">${t.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "Reg"}</td>
+      <td style="font-size:10px;text-align:center">${escapeHtml((BROKERS[txnBroker(t)] || {}).name || txnBroker(t))}</td>
+      <td class="center" style="white-space:nowrap"><button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editTxn" data-args="${i}" aria-label="Edit transaction" title="Edit transaction">\u270E</button><button class="chip" style="cursor:pointer;border:none" data-act="delTxn" data-args="${i}" aria-label="Delete transaction" title="Delete transaction">\u2715</button></td></tr>`;
+    })
+    .join("");
+}
+function renderTickerList() {
+  document.getElementById("tickerList").innerHTML = Object.keys(M)
+    .sort()
+    .map((t) => `<option value="${t}">`)
+    .join("");
+}
+window.delTxn = async function (i) {
+  if (!(await appConfirm("Delete this transaction?"))) return;
+  TXNS.splice(i, 1);
+  saveTxns(TXNS);
+  render();
+};
+
+// ---------- interactions ----------
+const _rbBtn = document.getElementById("rbRun");
+try {
+  loadRbSettings();
+} catch (e) {}
+if (_rbBtn)
+  _rbBtn.onclick = () => {
+    try {
+      renderRebalance();
+    } catch (e) {
+      console.error(e);
+      toast("Rebalance error: " + e.message, "err");
+    }
+  };
+document.querySelectorAll(".tab[data-view]").forEach(
+  (b) =>
+    (b.onclick = () => {
+      document
+        .querySelectorAll(".tab[data-view]")
+        .forEach((x) => x.classList.remove("active"));
+      document
+        .querySelectorAll(".view")
+        .forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      document.getElementById(b.dataset.view).classList.add("active");
+      try {
+        // Persist the active tab so a refresh reopens it (see boot restore in
+        // 08-salary.js). We intentionally do NOT write the tab into the URL
+        // hash - the last-tab is restored from localStorage, keeping the URL
+        // clean and consistent across all tabs (portfolio, expenses, salary).
+        localStorage.setItem("casa_last_tab_v1", b.dataset.view);
+        localStorage.setItem("casa_last_app_v1", "portfolio");
+      } catch (e) {}
+      if (CH_break) CH_break.reflow();
+      if (typeof CH_divIncome !== "undefined" && CH_divIncome)
+        setTimeout(() => CH_divIncome.reflow(), 10);
+      if (typeof CH_divReceived !== "undefined" && CH_divReceived)
+        setTimeout(() => CH_divReceived.reflow(), 10);
+      if (typeof CH_divByTk !== "undefined" && CH_divByTk)
+        setTimeout(() => CH_divByTk.reflow(), 10);
+      if (typeof CH_history !== "undefined" && CH_history)
+        setTimeout(() => CH_history.reflow(), 10);
+      if (b.dataset.view === "rebalance") {
+        try {
+          renderRebalance();
+        } catch (e) {
+          console.error("rebalance", e);
+        }
+      }
+      // Keep the entry date fresh: if not editing an existing row, reset to today when opening the tab.
+      if (b.dataset.view === "cash") {
+        renderCash();
+      }
+      if (b.dataset.view === "transactions") {
+        const d = document.getElementById("tDate");
+        if (d && (typeof EDIT_IX === "undefined" || EDIT_IX == null))
+          d.value = _qwTodayISO();
+      }
+      if (b.dataset.view === "pending") {
+        const d = document.getElementById("pDate");
+        if (d && (typeof PEND_EDIT === "undefined" || PEND_EDIT == null))
+          d.value = _qwTodayISO();
+      }
+      if (
+        b.dataset.view === "signals" &&
+        typeof CH_topSector !== "undefined" &&
+        CH_topSector
+      )
+        setTimeout(() => CH_topSector.reflow(), 10);
+    }),
+);
+document.getElementById("sigFilter").onchange = () => {
+  if (typeof SIG_SORT !== "undefined") SIG_SORT.userSet = false;
+  renderSignals();
+};
+document.getElementById("sigAsset").onchange = () => {
+  if (typeof SIG_SORT !== "undefined") SIG_SORT.userSet = false;
+  renderSignals();
+};
+(function () {
+  const si = document.getElementById("sigSearch"),
+    sc = document.getElementById("sigSearchClear");
+  if (si) {
+    si.addEventListener("input", () => {
+      if (sc) sc.style.display = si.value ? "block" : "none";
+      renderSignals();
+    });
+  }
+  if (sc) {
+    sc.onclick = () => {
+      si.value = "";
+      sc.style.display = "none";
+      renderSignals();
+      si.focus();
+    };
+  }
+  const cs = document.getElementById("sigClearSort");
+  if (cs) {
+    cs.onclick = () => {
+      if (typeof SIG_SORT !== "undefined") {
+        SIG_SORT.k = "score";
+        SIG_SORT.d = -1;
+        SIG_SORT.userSet = false;
+      }
+      renderSignals();
+    };
+  }
+})();
+// Dashboard "include OPCVM" toggles \u2014 re-render just the movers lists.
+["contribOpcvm", "detractOpcvm"].forEach((id) => {
+  const cb = document.getElementById(id);
+  if (cb)
+    cb.onchange = () => {
+      try {
+        const { pos } = runFIFO();
+        renderDashMovers(Object.values(pos));
+      } catch (e) {
+        console.error("movers toggle", e);
+      }
+    };
+});
+document.getElementById("divFilter").onchange = () => render();
+document.getElementById("divProjectNext").onchange = () => render();
+if (document.getElementById("tDate"))
+  document.getElementById("tDate").value = _qwTodayISO();
+if (document.getElementById("pDate"))
+  document.getElementById("pDate").value = _qwTodayISO();
+function liveCalc() {
+  const t = {
+    date:
+      document.getElementById("tDate").value ||
+      new Date().toISOString().slice(0, 10),
+    ticker: document.getElementById("tTicker").value.trim().toUpperCase(),
+    action: document.getElementById("tAction").value,
+    qty: parseFloat(document.getElementById("tQty").value),
+    price: parseFloat(document.getElementById("tPrice").value),
+    pea: document.getElementById("tPea").checked,
+    opcvm: !!(
+      document.getElementById("tOpcvm") &&
+      document.getElementById("tOpcvm").checked
+    ),
+    broker: (document.getElementById("tBroker") || {}).value || "attijari",
+  };
+  const _lt = parseFloat(document.getElementById("tTotal").value);
+  if (!isNaN(_lt) && _lt > 0) t.total = _lt;
+  // Mirror the save path: funds are Total-driven so the preview matches what gets saved.
+  const _isFundLC = !!(
+    (document.getElementById("tOpcvm") &&
+      document.getElementById("tOpcvm").checked) ||
+    (M[t.ticker] && M[t.ticker].cat === "OPCVM")
+  );
+
+  if (t.total > 0 && t.qty && (_isFundLC || isNaN(t.price) || !t.price)) {
+    t.price = t.total / t.qty;
+  }
+  if (!t.qty || (!t.price && !t.total)) {
+    document.getElementById("txnCalc").textContent = "";
+    return;
+  }
+  const { pos } = runFIFO();
+  const _pk = t.ticker + "||" + (t.pea ? "PEA" : "REG");
+  const avg = pos[_pk] ? pos[_pk].avg : 0;
+  const r = computeRow(t, avg);
+  document.getElementById("txnCalc").innerHTML =
+    (r.manual
+      ? '<span style="color:var(--warn)">Manual total</span> \u00B7 '
+      : "") +
+    `Fees: <b>${money(r.fees)}</b>${r.manual ? " (implied)" : ""} \u00B7 Tax: <b>${money(r.tax)}</b> \u00B7 Cost/share: <b>${money(r.ttc)}</b> \u00B7 Net cash: <b class="${cls(r.net)}">${money(r.net)}</b> MAD`;
+}
+["tTicker", "tAction", "tQty", "tPrice", "tTotal", "tDate"].forEach((id) =>
+  document.getElementById(id).addEventListener("input", liveCalc),
+);
+
+// ---------- pending form live calc (mirrors txn liveCalc; shows total WITH fees) ----------
+function pLiveCalc() {
+  const g = (id) => document.getElementById(id);
+  const calc = g("pendCalc");
+  if (!calc) return;
+  const tk = (g("pTicker").value || "").trim().toUpperCase();
+  const t = {
+    action: g("pAction").value || "BUY",
+    ticker: tk,
+    qty: parseFloat(g("pQty").value),
+    price: parseFloat(g("pPrice").value),
+    date: g("pDate").value || new Date().toISOString().slice(0, 10),
+    pea: g("pPea").checked,
+  };
+  const _lt = parseFloat(g("pTotal").value);
+  if (!isNaN(_lt) && _lt > 0) t.total = _lt;
+  const _isFund = !!(
+    (g("pOpcvm") && g("pOpcvm").checked) ||
+    (M[t.ticker] && M[t.ticker].cat === "OPCVM")
+  );
+  t.opcvm = _isFund;
+  if (t.total > 0 && t.qty && (_isFund || isNaN(t.price) || !t.price)) {
+    t.price = t.total / t.qty;
+  }
+  if (!t.qty || (!t.price && !t.total)) {
+    calc.textContent = "";
+    return;
+  }
+  const { pos } = runFIFO();
+  const _pk = t.ticker + "||" + (t.pea ? "PEA" : "REG");
+  const avg = pos[_pk] ? pos[_pk].avg : 0;
+  const r = computeRow(t, avg);
+  const gross = (t.price || 0) * (t.qty || 0);
+  const expTot =
+    t.action === "BUY"
+      ? gross + r.fees
+      : t.action === "SELL"
+        ? r.net
+        : t.total != null
+          ? t.total
+          : gross;
+  const lbl =
+    t.action === "BUY"
+      ? "Expected cost"
+      : t.action === "SELL"
+        ? "Expected proceeds"
+        : "Total";
+  calc.innerHTML =
+    (r.manual
+      ? '<span style="color:var(--warn)">Manual total</span> \u00B7 '
+      : "") +
+    `Gross: <b>${money(gross)}</b> \u00B7 Fees: <b>${money(r.fees)}</b>${r.manual ? " (implied)" : ""}` +
+    (t.action === "SELL" && r.tax > 0
+      ? ` \u00B7 Tax: <b>${money(r.tax)}</b>`
+      : "") +
+    ` \u00B7 ${lbl} (incl. fees): <b class="${cls(t.action === "BUY" ? -expTot : expTot)}">${money(expTot)}</b> MAD`;
+}
+[
+  "pTicker",
+  "pAction",
+  "pQty",
+  "pPrice",
+  "pTotal",
+  "pDate",
+  "pPea",
+  "pOpcvm",
+].forEach((id) => {
+  const e = document.getElementById(id);
+  if (e) e.addEventListener("input", pLiveCalc);
+});
+document.getElementById("pPea") &&
+  document.getElementById("pPea").addEventListener("change", pLiveCalc);
+document.getElementById("pOpcvm") &&
+  document.getElementById("pOpcvm").addEventListener("change", pLiveCalc);
+
+// ---------- OPCVM detection: badge + auto Total-mode (Transactions & Pending) ----------
+// Sets a visible "\uD83C\uDFE6 OPCVM fund" / "\uD83D\uDCC8 Stock" chip next to the ticker so it's obvious
+// what kind of instrument you're entering, and tunes the price/total fields for funds.
+function setKindBadge(badgeEl, tkVal, forceFund) {
+  if (!badgeEl) return null;
+  const t = (tkVal || "").trim().toUpperCase();
+  const known = M[t];
+  // Hide only when there's nothing to show: no ticker AND not manually flagged as a fund.
+  if (!t && !forceFund) {
+    badgeEl.style.display = "none";
+    return null;
+  }
+  const isFund = forceFund === true || !!(known && known.cat === "OPCVM");
+  if (!isFund && !known) {
+    badgeEl.style.display = "none";
+    return null;
+  }
+  badgeEl.style.display = "inline-block";
+  if (isFund) {
+    badgeEl.textContent = "\uD83C\uDFE6 OPCVM fund";
+    badgeEl.style.background = "rgba(56,189,248,.20)";
+    badgeEl.style.color = "var(--info)";
+    badgeEl.style.fontWeight = "700";
+    badgeEl.style.border = "1px solid var(--info)";
+    const hasFees = known && (known.buyFee != null || known.sellFee != null);
+    badgeEl.setAttribute(
+      "data-tip",
+      "OPCVM fund" +
+        (hasFees
+          ? " \u2014 buy " +
+            (((known && known.buyFee) || 0) * 100).toFixed(2) +
+            "% / sell " +
+            (((known && known.sellFee) || 0) * 100).toFixed(2) +
+            "%"
+          : " \u2014 fees not imported yet (import the weekly file)"),
+    );
+  } else {
+    badgeEl.textContent = "\uD83D\uDCC8 Stock";
+    badgeEl.style.background = "var(--panel2)";
+    badgeEl.style.color = "var(--muted)";
+    badgeEl.style.fontWeight = "600";
+    badgeEl.style.border = "1px solid var(--border)";
+    badgeEl.setAttribute(
+      "data-tip",
+      "Listed stock \u2014 standard brokerage fees apply.",
+    );
+  }
+  return isFund;
+}
+(function () {
+  const tk = document.getElementById("tTicker"),
+    price = document.getElementById("tPrice"),
+    total = document.getElementById("tTotal"),
+    calc = document.getElementById("txnCalc"),
+    badge = document.getElementById("tKind"),
+    opc = document.getElementById("tOpcvm");
+  if (!tk) return;
+  let _lastTk = (tk.value || "").trim().toUpperCase(); // track ticker to detect real changes
+  function apply(fromCheckbox) {
+    const curTk = (tk.value || "").trim().toUpperCase();
+    const tickerChanged = curTk !== _lastTk;
+    const known = M[curTk];
+    const knownFund = !!(known && known.cat === "OPCVM");
+    // A known fund auto-checks the box; the user may also tick it manually for a fund not in the list.
+    if (!fromCheckbox && knownFund && opc && !opc.checked) opc.checked = true;
+    const isFund = (opc && opc.checked) || knownFund;
+    setKindBadge(badge, tk.value, isFund);
+    // --- Name: shown for BOTH stocks and funds now. Keep it in sync with the ticker: on a real
+    //     ticker change, refresh from the master list (a known name wins over the previous one). ---
+    {
+      const nw = document.getElementById("tFundNameWrap"),
+        nf = document.getElementById("tFundName");
+      if (nw) nw.style.display = ""; // always visible
+      if (nf) {
+        if (known && known.name) {
+          if (tickerChanged || !nf.value) nf.value = known.name;
+        } else if (tickerChanged) {
+          nf.value = "";
+        } // unknown ticker on a change \u2192 clear for manual entry
+      }
+    }
+    // --- Price: auto-populate today's / last-known price on a real ticker change (stocks & funds).
+    //     Skipped while loading an existing row into the form for editing (keep stored values). ---
+    if (tickerChanged && !window._loadingEditForm) {
+      const lastPx = known && known.price != null ? known.price : null;
+      if (lastPx != null) price.value = lastPx;
+      else if (isFund) price.value = ""; // unknown fund, no price \u2192 leave empty (derive from Total)
+    }
+    if (isFund) {
+      price.placeholder = "(price known \u2014 or leave, Total wins)";
+      price.style.opacity = "1";
+      total.style.borderColor = "var(--info)";
+      total.setAttribute(
+        "data-tip",
+        "OPCVM \u2014 enter Quantity + Total TTC; unit price is derived (Total wins over price).",
+      );
+      if (!total.value && calc && !calc.textContent) {
+        calc.innerHTML =
+          '<span style="color:var(--info)">OPCVM fund \u2014 enter Quantity + Total TTC (custom fees; standard formula skipped).</span>';
+      }
+      suggestTotal(tickerChanged); // auto-suggest Total = price \u00D7 qty for funds
+    } else {
+      price.placeholder = "or use Total";
+      price.style.opacity = "1";
+      total.style.borderColor = "";
+    }
+    _lastTk = curTk;
+  }
+  // Auto-suggest Total for funds: fill Total = price \u00D7 qty when both are known, so the user can
+  // review/adjust it. Only sets Total when it is empty or was itself auto-suggested (never clobbers
+  // a value the user typed). Total still wins over price on save.
+  function suggestTotal(force) {
+    if (window._loadingEditForm) return;
+    const isFund =
+      (opc && opc.checked) ||
+      !!(
+        M[(tk.value || "").trim().toUpperCase()] &&
+        M[(tk.value || "").trim().toUpperCase()].cat === "OPCVM"
+      );
+    if (!isFund) return;
+    const q = parseFloat(document.getElementById("tQty").value),
+      px = parseFloat(price.value);
+    if (!isNaN(q) && q > 0 && !isNaN(px) && px > 0) {
+      const sug = +(q * px).toFixed(2);
+      if (total.value === "" || total.dataset.auto === "1" || force) {
+        total.value = sug;
+        total.dataset.auto = "1";
+      }
+    }
+  }
+  // Once the user edits Total themselves, stop auto-overwriting it.
+  total.addEventListener("input", () => {
+    total.dataset.auto = "";
+  });
+  ["tQty", "tPrice"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => suggestTotal(false));
+  });
+  tk.addEventListener("input", () => apply(false));
+  tk.addEventListener("change", () => apply(false));
+  if (opc) opc.addEventListener("change", () => apply(true));
+  apply(false);
+})();
+// Pending form \u2014 same OPCVM badge + Total-field hint
+(function () {
+  const tk = document.getElementById("pTicker"),
+    badge = document.getElementById("pKind"),
+    total = document.getElementById("pTotal"),
+    price = document.getElementById("pPrice"),
+    opc = document.getElementById("pOpcvm");
+  if (!tk) return;
+  let _lastPTk = (tk.value || "").trim().toUpperCase();
+  const apply = (fromCheckbox) => {
+    const curTk = (tk.value || "").trim().toUpperCase();
+    const tickerChanged = curTk !== _lastPTk;
+    const known = M[curTk];
+    const knownFund = !!(known && known.cat === "OPCVM");
+    if (!fromCheckbox && knownFund && opc && !opc.checked) opc.checked = true;
+    const isFund = (opc && opc.checked) || knownFund;
+    setKindBadge(badge, tk.value, isFund);
+    {
+      const nw = document.getElementById("pFundNameWrap"),
+        nf = document.getElementById("pFundName");
+      if (nw) nw.style.display = ""; // Name shown for stocks & funds
+      if (nf) {
+        if (known && known.name) {
+          if (tickerChanged || !nf.value) nf.value = known.name;
+        } else if (tickerChanged) {
+          nf.value = "";
+        }
+      }
+    }
+    // Auto-populate last-known price on a real ticker change (stocks & funds), user can modify.
+    if (tickerChanged && price && !window._loadingEditForm) {
+      const lastPx = known && known.price != null ? known.price : null;
+      if (lastPx != null) price.value = lastPx;
+      else if (isFund) price.value = "";
+    }
+    if (total) {
+      if (isFund) {
+        total.style.borderColor = "var(--info)";
+        total.setAttribute(
+          "data-tip",
+          "OPCVM \u2014 enter Quantity + Total TTC; unit price is derived (Total wins over price).",
+        );
+        if (price) {
+          price.placeholder = "(price known \u2014 or leave, Total wins)";
+          price.style.opacity = "1";
+        }
+        pSuggestTotal(tickerChanged);
+      } else {
+        total.style.borderColor = "";
+        if (price) {
+          price.placeholder = "or use Total";
+          price.style.opacity = "1";
+        }
+      }
+    }
+    _lastPTk = curTk;
+  };
+  function pSuggestTotal(force) {
+    if (window._loadingEditForm) return;
+    const isFund =
+      (opc && opc.checked) ||
+      !!(
+        M[(tk.value || "").trim().toUpperCase()] &&
+        M[(tk.value || "").trim().toUpperCase()].cat === "OPCVM"
+      );
+    if (!isFund || !total) return;
+    const q = parseFloat(document.getElementById("pQty").value),
+      px = parseFloat(price.value);
+    if (!isNaN(q) && q > 0 && !isNaN(px) && px > 0) {
+      const sug = +(q * px).toFixed(2);
+      if (total.value === "" || total.dataset.auto === "1" || force) {
+        total.value = sug;
+        total.dataset.auto = "1";
+      }
+    }
+  }
+  if (total)
+    total.addEventListener("input", () => {
+      total.dataset.auto = "";
+    });
+  ["pQty", "pPrice"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => pSuggestTotal(false));
+  });
+  tk.addEventListener("input", () => apply(false));
+  tk.addEventListener("change", () => apply(false));
+  if (opc) opc.addEventListener("change", () => apply(true));
+  apply(false);
+})();
+
+// Register (or update) a manually-entered OPCVM into the master list so the
+// price/fee importer can see it. Matching in the import loops over M and links
+// by fund NAME first, then remembers the ISIN after the first manual match.
+function registerOpcvm(ticker, name) {
+  const tk = (ticker || "").trim().toUpperCase();
+  if (!tk) return;
+  if (!M[tk]) {
+    M[tk] = {
+      name: (name || "").trim() || tk,
+      cat: "OPCVM",
+      cycle: null,
+      style: null,
+      price: null,
+      low: null,
+      high: null,
+      ev: null,
+      netdebt: null,
+      roe: null,
+      pe: null,
+      peg: null,
+      divy: null,
+      pb: null,
+    };
+  } else {
+    // Existing entry: ensure it's flagged OPCVM and refresh the name if provided.
+    M[tk].cat = "OPCVM";
+    if (name && String(name).trim()) M[tk].name = String(name).trim();
+    else if (!M[tk].name) M[tk].name = tk;
+  }
+  safeSetItem("casa_master_v1", JSON.stringify(M));
+}
+document.getElementById("addTxn").onclick = () => {
+  const t = {
+    date: document.getElementById("tDate").value,
+    ticker: document.getElementById("tTicker").value.trim().toUpperCase(),
+    action: document.getElementById("tAction").value,
+    qty: parseFloat(document.getElementById("tQty").value),
+    price: parseFloat(document.getElementById("tPrice").value),
+    pea: document.getElementById("tPea").checked,
+    opcvm: document.getElementById("tOpcvm").checked,
+    broker: document.getElementById("tBroker").value,
+  };
+  const _tot = parseFloat(document.getElementById("tTotal").value);
+  if (!isNaN(_tot) && _tot > 0) t.total = _tot;
+  // OPCVM/fund entries are Total-driven: Total TTC is the source of truth and the unit
+  // price is ALWAYS derived from total/qty \u2014 this prevents a stale price left in the
+  // (dimmed) price box from a previous ticker selection poisoning the fee calc.
+  // Stocks keep legacy behaviour: derive price from total only when price is blank.
+  const _isFundTxn = !!(
+    t.opcvm ||
+    (M[t.ticker] && M[t.ticker].cat === "OPCVM")
+  );
+
+  if (t.total > 0 && t.qty && (_isFundTxn || isNaN(t.price) || !t.price)) {
+    t.price = t.total / t.qty;
+  }
+  if (!t.date || !t.ticker || !t.qty) {
+    toast("Fill date, ticker and quantity.", "warn");
+    return;
+  }
+  if (!t.price && !t.total) {
+    toast("Enter a unit price, or a total (for OPCVM).", "warn");
+    return;
+  }
+  // If flagged OPCVM (and not already a known fund), register it in the master list
+  // so the VL/fee importer can match it \u2014 by the fund name entered here, or later by ISIN.
+  if (t.opcvm && !(M[t.ticker] && M[t.ticker].cat === "OPCVM")) {
+    registerOpcvm(t.ticker, (document.getElementById("tFundName") || {}).value);
+  } else if (t.opcvm && M[t.ticker] && M[t.ticker].cat === "OPCVM") {
+    const _fn = (document.getElementById("tFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      M[t.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  } else {
+    // Stock: persist the typed Name to the master list so tables show it (create entry if new).
+    const _fn = (document.getElementById("tFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      if (!M[t.ticker])
+        M[t.ticker] = {
+          name: _fn.trim(),
+          cat: "STOCK",
+          cycle: null,
+          style: null,
+          price: t.price || null,
+        };
+      else M[t.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  }
+  // Moroccan market lot note: stocks normally trade in whole shares (OPCVM funds are fractional).
+  // The user may legitimately hold a fractional stock (e.g. a partial lot from another portfolio),
+  // so we KEEP the fraction and only show a non-blocking heads-up.
+  let _fracWarn = "";
+  if (!t.opcvm && Math.abs(t.qty - Math.round(t.qty)) > 1e-9) {
+    _fracWarn =
+      "\u26a0\ufe0f Kept fractional stock qty " +
+      t.qty +
+      " for " +
+      t.ticker +
+      " (stocks usually trade in whole shares).";
+  }
+  // --- Tier 2 additive validation: reject malformed values before they
+  // enter TXNS. Guards only; valid input is processed exactly as before. ---
+  if (!validTxnDate(t.date)) {
+    toast("Date must be a real calendar date (YYYY-MM-DD).", "warn");
+    return;
+  }
+  if (!(t.qty > 0) || !isFinite(t.qty)) {
+    toast("Quantity must be a positive number.", "warn");
+    return;
+  }
+  if (t.price != null && (!(t.price > 0) || !isFinite(t.price))) {
+    toast("Unit price must be a positive number.", "warn");
+    return;
+  }
+  if (t.total != null && (!(t.total > 0) || !isFinite(t.total))) {
+    toast("Total must be a positive number.", "warn");
+    return;
+  }
+  // --- end Tier 2 validation ---
+  if (EDIT_IX != null) {
+    TXNS[EDIT_IX] = t;
+    EDIT_IX = null;
+    document.getElementById("addTxn").textContent = "Add";
+    document.getElementById("cancelEdit").style.display = "none";
+    document.getElementById("editHint").textContent = "";
+  } else {
+    TXNS.push(t);
+  }
+  saveTxns(TXNS);
+  document.getElementById("tQty").value = "";
+  document.getElementById("tPrice").value = "";
+  document.getElementById("tTotal").value = "";
+  document.getElementById("tPea").checked = true;
+  document.getElementById("tOpcvm").checked = false;
+  document.getElementById("txnCalc").textContent = "";
+  {
+    const _fn = document.getElementById("tFundName");
+    if (_fn) {
+      _fn.value = "";
+    }
+  }
+  {
+    const _tt = document.getElementById("tTotal");
+    if (_tt) {
+      _tt.dataset.auto = "";
+    }
+  }
+  {
+    const _d = document.getElementById("tDate");
+    if (_d && EDIT_IX == null) _d.value = _qwTodayISO();
+  }
+  render();
+  if (_fracWarn) {
+    const eh = document.getElementById("editHint");
+    if (eh) {
+      eh.style.color = "var(--warn)";
+      eh.textContent = _fracWarn;
+      setTimeout(() => {
+        if (eh.textContent === _fracWarn) {
+          eh.textContent = "";
+          eh.style.color = "";
+        }
+      }, 6000);
+    }
+  }
+};
+document
+  .querySelectorAll("#stocksTable th[data-k], #fundsTable th[data-k]")
+  .forEach(
+    (th) =>
+      (th.onclick = () => {
+        const k = th.dataset.k;
+        POS_SORT.d = POS_SORT.k === k ? -POS_SORT.d : -1;
+        POS_SORT.k = k;
+        const { pos } = runFIFO();
+        const arr = Object.values(pos);
+        const t = arr.reduce(
+          (a, p) => ({
+            inv: a.inv + (p.held > 0 ? p.invested : 0),
+            val: a.val + p.value,
+            net: a.net + (p.netIfSold || 0),
+            unreal: a.unreal + p.unreal,
+            real: a.real + p.realized,
+            div: a.div + p.divs,
+            life: a.life + p.lifetime,
+            cost: a.cost + (p.costBasis || 0),
+          }),
+          {
+            inv: 0,
+            val: 0,
+            net: 0,
+            unreal: 0,
+            real: 0,
+            div: 0,
+            life: 0,
+            cost: 0,
+          },
+        );
+        renderPositions(arr, t);
+      }),
+  );
+// 2) Signals sortable headers
+let SIG_SORT = { k: "score", d: -1, userSet: false };
+document.querySelectorAll("#sigTable th[data-k]").forEach(
+  (th) =>
+    (th.onclick = () => {
+      const k = th.dataset.k;
+      SIG_SORT.d = SIG_SORT.k === k ? -SIG_SORT.d : -1;
+      SIG_SORT.k = k;
+      SIG_SORT.userSet = true;
+      renderSignals();
+    }),
+);
+
+// ---------- price refresh (paste TradingView) ----------
+function cleanNum(s) {
+  if (s == null) return null;
+  if (typeof s === "number") return s;
+  let x = String(s)
+    .replace(/\u00a0/g, "")
+    .replace(/\u202f/g, "")
+    .replace(/\s/g, "")
+    .replace(/MAD/g, "")
+    .replace(/\u2212/g, "-")
+    .replace(/%/g, "");
+  // thousands: "1,260" -> 1260 ; but decimals use "." in this feed
+  if (/,\d{3}(\D|$)/.test(x)) x = x.replace(/,/g, "");
+  else x = x.replace(/,/g, ".");
+  const v = parseFloat(x);
+  return isNaN(v) ? null : v;
+}
+const TICKERS = Object.keys(M).sort((a, b) => b.length - a.length); // longest first for prefix match
+function extractTicker(colA) {
+  if (!colA) return null;
+  const s = String(colA).trim();
+  for (const t of TICKERS) {
+    if (s.toUpperCase().startsWith(t.toUpperCase())) return t;
+  }
+  // fallback: leading capital block
+  const m = s.match(/^([A-Z0-9]{2,5})/);
+  return m ? m[1] : null;
+}
+
+// Multi-line TradingView watchlist parser (ticker / company / "D" / data row / rating / category+metrics)
+const TV_TICKERS = Object.keys(M).sort((a, b) => b.length - a.length);
+// TradingView ticker aliases: maps TV ticker \u2192 master ticker when they differ.
+// Add entries here when a stock's TV symbol doesn't match your master key.
+const TV_TICKER_ALIAS = { SOT: "SSOT" };
+function parseTV(raw) {
+  const lines = raw.split(/\r?\n/).map((l) => l.replace(/\s+$/, ""));
+  const isData = (s) => s.indexOf("\t") >= 0 && /MAD/.test(s);
+  const RATINGS = [
+    "Buy",
+    "Sell",
+    "Neutral",
+    "No rating",
+    "Strong buy",
+    "Strong sell",
+  ];
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = (lines[i] || "").trim();
+    // Only EXACT known tickers (or aliased) anchor a row \u2014 prevents header noise from matching.
+    const _resolved = TV_TICKER_ALIAS[line] || line;
+    const known = M[_resolved] != null;
+    if (line && known) {
+      const tk = _resolved;
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      const comp = j < lines.length ? lines[j].trim() : null;
+      // main data row within a few lines
+      let k = j,
+        main = -1;
+      while (k < Math.min(j + 6, lines.length)) {
+        if (isData(lines[k])) {
+          main = k;
+          break;
+        }
+        k++;
+      }
+      if (main >= 0) {
+        const c = lines[main].split("\t").map((x) => x.trim());
+        const g = (idx) => (idx < c.length ? cleanNum(c[idx]) : null);
+        // divy, pe, pb, peg, dps all now come from the 2nd metrics line
+        // New layout: main line = [Price, Chg%, Vol, 52wLow, 52wHigh, MktCap, Sector]
+        const _sector =
+          c.length >= 7 && c[6] && !/^[\d.,\s%+\-]+$/.test(c[6])
+            ? c[6].trim()
+            : null;
+        const rec = {
+          ticker: tk,
+          company: comp,
+          price: g(0),
+          low: g(3),
+          high: g(4),
+          category: _sector || null,
+        };
+        // second metrics line (category + EV/EBITDA, NetDebt, ROE%)
+        let s = main + 1;
+        while (s < Math.min(main + 5, lines.length)) {
+          const t = lines[s].trim();
+          if (
+            lines[s].indexOf("\t") >= 0 &&
+            !/^\s*[\d.,]+.*MAD/.test(lines[s].split("\t")[0]) &&
+            t &&
+            RATINGS.indexOf(t) < 0
+          ) {
+            const sc = lines[s].split("\t").map((x) => x.trim());
+            // New 2nd metrics line layout (14 columns):
+            // [0]=P/E [1]=P/B [2]=PEG [3]=EPS Growth% [4]=Net Income [5]=Revenue
+            // [6]=Div Yield% [7]=DPS [8]=EV/EBITDA [9]=Debt/EBITDA [10]=ROE% [11]=EPS [12]=BVPS [13]=FCF/Share
+            const _pe2 = cleanNum(sc[0]),
+              _pb2 = cleanNum(sc[1]),
+              _peg2 = cleanNum(sc[2]);
+            const _epsGr = cleanNum(sc[3]); // EPS growth % (e.g. +75.70 from "+75.70%")
+            const _ni = cleanNum(sc[4]); // Net Income (informational)
+            const _rev = cleanNum(sc[5]); // Revenue (TTM)
+            const _divy2 = cleanNum(sc[6]); // Div yield % (e.g. 1.31 from "1.31%")
+            const _dps2 = cleanNum(sc[7]); // DPS
+            const _ev2 = cleanNum(sc[8]),
+              _nd2 = cleanNum(sc[9]);
+            const _roe2 = cleanNum(sc[10]); // ROE %
+            const _eps2 = cleanNum(sc[11]),
+              _bvps2 = cleanNum(sc[12]);
+            const _fcf2 = cleanNum(sc[13]); // Free Cash Flow Per Share
+            if (_pe2 != null) rec.pe = _pe2;
+            if (_pb2 != null) rec.pb = _pb2;
+            if (_peg2 != null) rec.peg = _peg2;
+            if (_epsGr != null) rec.epsGrowth = _epsGr / 100; // store as decimal
+            if (_rev != null) rec.revenue = _rev;
+            if (_divy2 != null) rec.divy = _divy2 / 100; // store as decimal
+            if (_dps2 != null) rec.dps = _dps2;
+            if (_ev2 != null) rec.ev = _ev2;
+            if (_nd2 != null) rec.netdebt = _nd2;
+            if (_roe2 != null) rec.roe = _roe2 / 100;
+            if (_eps2 != null) rec.eps = _eps2;
+            if (_bvps2 != null) rec.bvps = _bvps2;
+            if (_fcf2 != null) rec.fcf = _fcf2;
+            break;
+          }
+          s++;
+        }
+        out.push(rec);
+        i = main + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  return out;
+}
+
+document.getElementById("applyTV").onclick = () => {
+  const raw = document.getElementById("tvPaste").value;
+  if (!raw.trim()) {
+    document.getElementById("tvResult").textContent = "Paste some rows first.";
+    return;
+  }
+  const rows = parseTV(raw);
+  let updated = 0,
+    unmatched = [];
+  for (const r of rows) {
+    const tk = r.ticker;
+    if (!tk || !M[tk]) {
+      if (tk) unmatched.push(tk);
+      continue;
+    }
+    const set = (k, v) => {
+      if (v != null && !isNaN(v)) M[tk][k] = v;
+    };
+    set("price", r.price);
+    set("low", r.low);
+    set("high", r.high);
+    set("pe", r.pe);
+    set("pb", r.pb);
+    set("peg", r.peg);
+    set("divy", r.divy);
+    set("ev", r.ev);
+    set("netdebt", r.netdebt);
+    set("roe", r.roe);
+    // Absolute per-share fundamentals (price-independent) \u2014 used by fairValue to break circularity.
+    set("eps", r.eps);
+    set("bvps", r.bvps);
+    set("dps", r.dps);
+    set("fcf", r.fcf);
+    set("revenue", r.revenue);
+    set("epsGrowth", r.epsGrowth);
+    if (r.category) M[tk].cat = M[tk].cat || r.category;
+    updated++;
+  }
+  safeSetItem("casa_master_v1", JSON.stringify(M));
+  document.getElementById("tvResult").innerHTML =
+    "\u2705 Updated <b>" +
+    updated +
+    "</b> tickers." +
+    (unmatched.length
+      ? ' <span style="color:var(--muted)">Unmatched: ' +
+        [...new Set(unmatched)].slice(0, 8).join(", ") +
+        (unmatched.length > 8 ? "\u2026" : "") +
+        "</span>"
+      : "");
+  render();
+};
+document.getElementById("clearTV").onclick = () => {
+  document.getElementById("tvPaste").value = "";
+  document.getElementById("tvResult").textContent = "";
+};
+
+// ---------- OPCVM performance-file import (native unzip, no libs) ----------
+(function () {
+  const fileInpDaily = document.getElementById("opcvmFileDaily");
+  const fileInpWeekly = document.getElementById("opcvmFileWeekly");
+  const applyBtn = document.getElementById("applyOpcvm");
+  const reviewEl = document.getElementById("opcvmReview");
+  const resEl = document.getElementById("opcvmResult");
+  const nameEl = document.getElementById("opcvmFileName");
+  const stampEl = document.getElementById("opcvmStamp");
+  if (!fileInpDaily && !fileInpWeekly) return;
+  let IMPORT_MODE = "weekly"; // 'daily' = VL only \u00B7 'weekly' = VL + fees
+
+  const MAP_LS = "casa_opcvm_isin_map_v1"; // { ticker: isin }
+  const loadMap = () => {
+    try {
+      return JSON.parse(localStorage.getItem(MAP_LS) || "{}");
+    } catch (e) {
+      return {};
+    }
+  };
+  const saveMap = (m) => {
+    safeSetItem(MAP_LS, JSON.stringify(m));
+  };
+
+  const norm = (s) =>
+    String(s || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  // Fuzzy fund-name matching helpers (accent-insensitive + token overlap).
+  const stripAccents = (s) =>
+    String(s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  const normFuzzy = (s) => norm(stripAccents(s));
+  const _STOP = new Set([
+    "DE",
+    "DU",
+    "DES",
+    "LA",
+    "LE",
+    "LES",
+    "FCP",
+    "SICAV",
+    "OPCVM",
+    "FONDS",
+    "FUND",
+    "R",
+    "C",
+    "D",
+    "I",
+  ]);
+  const toks = (s) =>
+    normFuzzy(s)
+      .split(" ")
+      .filter((w) => w && !_STOP.has(w));
+  // Jaccard-ish token overlap in [0,1]; 1.0 = identical significant tokens.
+  function nameScore(a, b) {
+    const A = toks(a),
+      B = toks(b);
+    if (!A.length || !B.length) return 0;
+    const sa = new Set(A),
+      sb = new Set(B);
+    let inter = 0;
+    sa.forEach((w) => {
+      if (sb.has(w)) inter++;
+    });
+    const union = new Set([...sa, ...sb]).size;
+    return inter / union;
+  }
+  // Best fuzzy match of a held-fund name against the file's FUNDS list.
+  // Returns {idx, score} or {idx:-1}. Threshold 0.5 avoids weak false matches.
+  function bestFuzzy(heldName) {
+    let best = -1,
+      bestS = 0,
+      second = -1,
+      secondS = 0;
+    for (let i = 0; i < FUNDS.length; i++) {
+      const sc = nameScore(heldName, FUNDS[i].name);
+      if (sc > bestS) {
+        second = best;
+        secondS = bestS;
+        bestS = sc;
+        best = i;
+      } else if (sc > secondS) {
+        secondS = sc;
+        second = i;
+      }
+    }
+    if (bestS < 0.5) return { idx: -1, score: bestS };
+    // Ambiguous when the runner-up is within 0.15 of the winner (and non-trivial).
+    const ambiguous = second >= 0 && secondS >= 0.4 && bestS - secondS < 0.15;
+    return {
+      idx: best,
+      score: bestS,
+      ambiguous,
+      secondName: ambiguous ? FUNDS[second].name : null,
+      secondScore: ambiguous ? secondS : null,
+    };
+  }
+
+  // --- minimal ZIP reader: locate a stored entry by name and inflate (deflate-raw) ---
+  async function readXlsxSheet(buf) {
+    const dv = new DataView(buf);
+    const u8 = new Uint8Array(buf);
+    // scan End Of Central Directory to find central dir
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= 0; i--) {
+      if (dv.getUint32(i, true) === 0x06054b50) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw new Error("Not a valid .xlsx (no EOCD)");
+    let cdOff = dv.getUint32(eocd + 16, true);
+    const cdCount = dv.getUint16(eocd + 10, true);
+    const entries = {};
+    let p = cdOff;
+    for (let n = 0; n < cdCount; n++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true);
+      const compSize = dv.getUint32(p + 20, true);
+      const nameLen = dv.getUint16(p + 28, true);
+      const extraLen = dv.getUint16(p + 30, true);
+      const commLen = dv.getUint16(p + 32, true);
+      const lho = dv.getUint32(p + 42, true);
+      const nm = new TextDecoder().decode(
+        u8.subarray(p + 46, p + 46 + nameLen),
+      );
+      entries[nm] = { method, compSize, lho };
+      p += 46 + nameLen + extraLen + commLen;
+    }
+    async function extract(nm) {
+      const e = entries[nm];
+      if (!e) throw new Error("missing " + nm);
+      // parse local header for its own name/extra lengths
+      const lnl = dv.getUint16(e.lho + 26, true),
+        lel = dv.getUint16(e.lho + 28, true);
+      const start = e.lho + 30 + lnl + lel;
+      const comp = u8.subarray(start, start + e.compSize);
+      if (e.method === 0) return new TextDecoder().decode(comp); // stored
+      // deflate-raw via native DecompressionStream
+      const ds = new DecompressionStream("deflate-raw");
+      const stream = new Response(comp).body.pipeThrough(ds);
+      const ab = await new Response(stream).arrayBuffer();
+      return new TextDecoder("utf-8").decode(ab);
+    }
+    // Find first worksheet
+    const sheetName = Object.keys(entries).find((k) =>
+      /^xl\/worksheets\/sheet\d+\.xml$/.test(k),
+    );
+    if (!sheetName) throw new Error("no worksheet found");
+    return await extract(sheetName);
+  }
+
+  function colOf(ref) {
+    // 'A3' -> 0
+    const m = /^([A-Z]+)/.exec(ref);
+    if (!m) return -1;
+    let c = 0;
+    for (const ch of m[1]) c = c * 26 + (ch.charCodeAt(0) - 64);
+    return c - 1;
+  }
+  function parseSheet(xml) {
+    const rows = [];
+    const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g;
+    let rm;
+    while ((rm = rowRe.exec(xml))) {
+      const cells = {};
+      const cRe = /<c\s+([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g;
+      let cm;
+      while ((cm = cRe.exec(rm[1]))) {
+        const attrs = cm[1];
+        const inner = cm[3] || "";
+        const rMatch = /r="([A-Z]+\d+)"/.exec(attrs);
+        if (!rMatch) continue;
+        const ci = colOf(rMatch[1]);
+        const tMatch = /t="([^"]*)"/.exec(attrs);
+        const t = tMatch ? tMatch[1] : null;
+        let val = null;
+        if (t === "inlineStr") {
+          const im = /<t[^>]*>([\s\S]*?)<\/t>/.exec(inner);
+          val = im ? decodeXml(im[1]) : "";
+        } else {
+          const vm = /<v>([\s\S]*?)<\/v>/.exec(inner);
+          val = vm ? vm[1] : null;
+        }
+        cells[ci] = val;
+      }
+      rows.push(cells);
+    }
+    return rows;
+  }
+  function decodeXml(s) {
+    return s
+      .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d))
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'");
+  }
+
+  let FUNDS = []; // parsed file rows: {isin,name,vl,buyFee,sellFee,mgmt}
+  let PLAN = []; // review rows: {ticker,fundName,curPrice, chosenIdx}
+
+  function buildPlan() {
+    const map = loadMap();
+    PLAN = [];
+    const byIsin = {};
+    FUNDS.forEach((f, idx) => {
+      if (f.isin) byIsin[f.isin] = idx;
+    });
+    const byName = {};
+    FUNDS.forEach((f, idx) => {
+      byName[norm(f.name)] = idx;
+    });
+    const byNameFz = {};
+    FUNDS.forEach((f, idx) => {
+      const k = normFuzzy(f.name);
+      if (byNameFz[k] == null) byNameFz[k] = idx;
+    });
+    for (const tk in M) {
+      if (!(M[tk] && M[tk].cat === "OPCVM")) continue;
+      let idx = -1;
+      const savedIsin = map[tk] || M[tk].isin;
+      if (savedIsin && byIsin[savedIsin] != null) idx = byIsin[savedIsin];
+      else if (byName[norm(M[tk].name)] != null) idx = byName[norm(M[tk].name)];
+      else if (byNameFz[normFuzzy(M[tk].name)] != null)
+        idx = byNameFz[normFuzzy(M[tk].name)];
+      let _fuzzyScore = null,
+        _amb = null,
+        _secName = null,
+        _secScore = null;
+      if (idx < 0) {
+        const bf = bestFuzzy(M[tk].name);
+        if (bf.idx >= 0) {
+          idx = bf.idx;
+          _fuzzyScore = bf.score;
+          _amb = bf.ambiguous;
+          _secName = bf.secondName;
+          _secScore = bf.secondScore;
+        }
+      }
+      PLAN.push({
+        ticker: tk,
+        fundName: M[tk].name,
+        curPrice: M[tk].price,
+        chosenIdx: idx,
+        fuzzy: _fuzzyScore,
+        amb: _amb,
+        secName: _secName,
+        secScore: _secScore,
+      });
+    }
+    renderReview();
+  }
+
+  function renderReview() {
+    if (!FUNDS.length) {
+      reviewEl.innerHTML = "";
+      applyBtn.style.display = "none";
+      return;
+    }
+    const weekly = IMPORT_MODE === "weekly";
+    const opts = (sel) =>
+      ['<option value="-1">\u2014 not in file / skip \u2014</option>']
+        .concat(
+          FUNDS.map(
+            (f, i) =>
+              '<option value="' +
+              i +
+              '"' +
+              (i === sel ? " selected" : "") +
+              ">" +
+              f.name +
+              " (" +
+              f.isin +
+              ")</option>",
+          ),
+        )
+        .join("");
+    // Fee columns only shown for the weekly file (the daily file's fees are ignored).
+    const feeHead = weekly
+      ? '<th scope="col" style="text-align:right">Buy fee</th><th scope="col" style="text-align:right">Sell fee</th>'
+      : "";
+    let h =
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--muted)">' +
+      '<th scope="col" style="padding:4px">Held OPCVM</th><th scope="col">Matched fund (from file)</th><th scope="col" style="text-align:right">Old VL</th><th scope="col" style="text-align:right">New VL</th>' +
+      feeHead +
+      "</tr></thead><tbody>";
+    PLAN.forEach((row, ri) => {
+      const f = row.chosenIdx >= 0 ? FUNDS[row.chosenIdx] : null;
+      const pct = (v) => (v == null ? "\u2014" : (v * 100).toFixed(2) + "%");
+      const feeCells = weekly
+        ? '<td style="text-align:right">' +
+          (f ? pct(f.buyFee) : "\u2014") +
+          "</td>" +
+          '<td style="text-align:right">' +
+          (f ? pct(f.sellFee) : "\u2014") +
+          "</td>"
+        : "";
+      h +=
+        '<tr style="border-top:1px solid var(--border)">' +
+        '<td style="padding:5px 4px"><b>' +
+        row.fundName +
+        '</b> <span class="mini" style="color:var(--muted)">' +
+        row.ticker +
+        "</span>" +
+        (row.fuzzy != null && row.chosenIdx >= 0
+          ? ' <span class="mini" title="Matched by name similarity \u2014 please verify" style="color:var(--warn)">~fuzzy ' +
+            Math.round(row.fuzzy * 100) +
+            "%</span>"
+          : "") +
+        (row.amb && row.chosenIdx >= 0
+          ? ' <span class="mini" title="Close runner-up: ' +
+            String(row.secName || "").replace(/"/g, "&quot;") +
+            " (" +
+            Math.round((row.secScore || 0) * 100) +
+            '%). Two funds scored similarly \u2014 verify the right one is selected." style="color:var(--danger,#e5484d);font-weight:600">\u26A0 ambiguous</span>'
+          : "") +
+        "</td>" +
+        '<td><select data-ri="' +
+        ri +
+        '" class="opcvmSel" style="max-width:260px;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 6px;font-size:11px">' +
+        opts(row.chosenIdx) +
+        "</select></td>" +
+        '<td style="text-align:right;font-family:var(--mono)">' +
+        (row.curPrice != null ? row.curPrice : "\u2014") +
+        "</td>" +
+        '<td style="text-align:right;font-family:var(--mono);color:' +
+        (f ? "var(--success)" : "var(--muted)") +
+        '">' +
+        (f ? f.vl : "\u2014") +
+        "</td>" +
+        feeCells +
+        "</tr>";
+    });
+    h += "</tbody></table>";
+    const matched = PLAN.filter((r) => r.chosenIdx >= 0).length;
+    h +=
+      '<div class="mini" style="margin-top:8px">' +
+      matched +
+      " of " +
+      PLAN.length +
+      " held funds matched. " +
+      FUNDS.length +
+      " funds in file \u00B7 <b>" +
+      (weekly ? "weekly (VL + fees)" : "daily (VL only)") +
+      "</b> mode.</div>";
+    reviewEl.innerHTML = h;
+    reviewEl.querySelectorAll(".opcvmSel").forEach((sel) => {
+      sel.onchange = (e) => {
+        const ri = +e.target.dataset.ri;
+        PLAN[ri].chosenIdx = +e.target.value;
+        PLAN[ri].fuzzy = null;
+        renderReview();
+      };
+    });
+    applyBtn.style.display = matched ? "inline-block" : "none";
+  }
+
+  async function handleFile(f, mode) {
+    if (!f) return;
+    IMPORT_MODE = mode;
+    nameEl.textContent =
+      f.name +
+      "  \u00B7  " +
+      (mode === "daily" ? "daily (VL only)" : "weekly (VL + fees)");
+    resEl.textContent = "Reading\u2026";
+    try {
+      const buf = await f.arrayBuffer();
+      const xml = await readXlsxSheet(buf);
+      const rows = parseSheet(xml);
+      // header row: find row containing 'CODE ISIN'
+      let hi = rows.findIndex((r) =>
+        Object.values(r).some((v) =>
+          String(v).toUpperCase().includes("CODE ISIN"),
+        ),
+      );
+      if (hi < 0) hi = 1;
+      const num = (v) => {
+        if (v == null || v === "" || v === "-") return null;
+        const n = parseFloat(v);
+        return isNaN(n) ? null : n;
+      };
+      FUNDS = [];
+      for (let i = hi + 1; i < rows.length; i++) {
+        const r = rows[i];
+        const isin = r[0];
+        const name = r[2];
+        if (!isin || !name) continue;
+        FUNDS.push({
+          isin: String(isin).trim(),
+          name: String(name).trim(),
+          vl: num(r[17]),
+          buyFee: num(r[11]),
+          sellFee: num(r[12]),
+          mgmt: num(r[13]),
+        });
+      }
+      // date from title row (row 1) if present
+      const t0 = rows[0] ? Object.values(rows[0]).join(" ") : "";
+      const dm = /(\d{2})-(\d{2})-(\d{4})/.exec(t0);
+      window.__opcvmFileDate = dm ? dm[3] + "-" + dm[2] + "-" + dm[1] : null;
+      resEl.textContent =
+        "Parsed " +
+        FUNDS.length +
+        " funds" +
+        (mode === "daily"
+          ? " (VL only \u2014 fees ignored in this file)"
+          : "") +
+        ".";
+      buildPlan();
+    } catch (err) {
+      resEl.innerHTML =
+        '<span style="color:var(--error)">Import failed: ' +
+        err.message +
+        "</span>";
+    }
+  }
+  if (fileInpDaily)
+    fileInpDaily.onchange = (e) =>
+      handleFile(e.target.files && e.target.files[0], "daily");
+  if (fileInpWeekly)
+    fileInpWeekly.onchange = (e) =>
+      handleFile(e.target.files && e.target.files[0], "weekly");
+
+  applyBtn.onclick = () => {
+    const map = loadMap();
+    let updated = 0,
+      fees = 0;
+    const weekly = IMPORT_MODE === "weekly";
+    for (const row of PLAN) {
+      if (row.chosenIdx < 0) continue;
+      const f = FUNDS[row.chosenIdx];
+      const tk = row.ticker;
+      if (!M[tk]) continue;
+      if (f.vl != null) {
+        M[tk].price = f.vl;
+        updated++;
+      }
+      M[tk].isin = f.isin;
+      // Fees only come from the WEEKLY (full) file. The daily file's fee columns
+      // are ignored so a daily refresh never overwrites your stored fees.
+      if (weekly) {
+        if (f.buyFee != null) {
+          M[tk].buyFee = f.buyFee;
+          fees++;
+        }
+        if (f.sellFee != null) {
+          M[tk].sellFee = f.sellFee;
+        }
+        if (f.mgmt != null) {
+          M[tk].mgmt = f.mgmt;
+        }
+      }
+      map[tk] = f.isin; // remember mapping for future imports
+    }
+    saveMap(map);
+    safeSetItem("casa_master_v1", JSON.stringify(M));
+    if (window.__opcvmFileDate) {
+      try {
+        localStorage.setItem("casa_opcvm_updated_v1", window.__opcvmFileDate);
+      } catch (e) {}
+      // remember which file kind set the VL date (for the stamp label)
+      try {
+        localStorage.setItem(
+          "casa_opcvm_updated_kind_v1",
+          weekly ? "weekly" : "daily",
+        );
+      } catch (e) {}
+    }
+    resEl.innerHTML = weekly
+      ? "\u2705 Updated <b>" +
+        updated +
+        "</b> prices and stored fees for <b>" +
+        fees +
+        "</b> funds."
+      : "\u2705 Updated <b>" +
+        updated +
+        "</b> prices (VL). Fees left unchanged \u2014 import the weekly file to refresh fees.";
+    showOpcvmStamp();
+    render();
+  };
+
+  function showOpcvmStamp() {
+    let d = null,
+      kind = null;
+    try {
+      d = localStorage.getItem("casa_opcvm_updated_v1");
+      kind = localStorage.getItem("casa_opcvm_updated_kind_v1");
+    } catch (e) {}
+    if (stampEl)
+      stampEl.textContent = d
+        ? "\u00B7 VL as of " + d + (kind ? " (" + kind + ")" : "")
+        : "";
+  }
+  showOpcvmStamp();
+})();
+
+// restore any saved master overrides on load
+try {
+  const sm = localStorage.getItem("casa_master_v1");
+  if (sm) {
+    const o = JSON.parse(sm);
+    for (const k in o) {
+      if (M[k]) Object.assign(M[k], o[k]);
+      else M[k] = o[k];
+    }
+  }
+} catch (e) {}
+
+// ---------- CSV import / export ----------
+document.getElementById("exportCsv").onclick = () => {
+  const rows = [
+    ["date", "ticker", "action", "qty", "price", "pea", "opcvm", "total"],
+    ...TXNS.map((t) => [
+      t.date,
+      t.ticker,
+      t.action,
+      t.qty,
+      t.price,
+      t.pea ? "yes" : "no",
+      t.opcvm ? "yes" : "no",
+      typeof t.total === "number" && t.total > 0 ? t.total : "",
+    ]),
+  ];
+  const csv = rows.map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" }),
+    url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "transactions.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  document.getElementById("csvResult").textContent =
+    `Exported ${TXNS.length} rows.`;
+};
+document.getElementById("importCsv").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = async () => {
+    try {
+      const lines = String(rd.result)
+        .replace(/^\uFEFF/, "")
+        .split(/\r?\n/)
+        .filter((l) => l.trim());
+      const hdr = lines[0]
+        .toLowerCase()
+        .split(",")
+        .map((s) => s.trim());
+      const ix = {
+        date: hdr.indexOf("date"),
+        ticker: hdr.indexOf("ticker"),
+        action: hdr.indexOf("action"),
+        qty: hdr.indexOf("qty"),
+        price: hdr.indexOf("price"),
+        pea: hdr.indexOf("pea"),
+        opcvm: hdr.indexOf("opcvm"),
+        total: hdr.indexOf("total"),
+      };
+      if (
+        [ix.date, ix.ticker, ix.action, ix.qty, ix.price].some((v) => v < 0)
+      ) {
+        document.getElementById("csvResult").textContent =
+          "\u274C CSV needs columns: date,ticker,action,qty,price (pea,total optional)";
+        return;
+      }
+      const out = [];
+      for (let i = 1; i < lines.length; i++) {
+        const c = lines[i].split(",");
+        const o = {
+          date: (c[ix.date] || "").trim(),
+          ticker: (c[ix.ticker] || "").trim().toUpperCase(),
+          action: (c[ix.action] || "").trim().toUpperCase(),
+          qty: parseFloat(c[ix.qty]),
+          price: parseFloat(c[ix.price]),
+        };
+        if (ix.pea >= 0) {
+          const pv = (c[ix.pea] || "").trim().toLowerCase();
+          o.pea = pv === "yes" || pv === "pea" || pv === "true" || pv === "1";
+        }
+        if (ix.opcvm >= 0) {
+          const ov = (c[ix.opcvm] || "").trim().toLowerCase();
+          o.opcvm =
+            ov === "yes" ||
+            ov === "opcvm" ||
+            ov === "fund" ||
+            ov === "true" ||
+            ov === "1";
+        }
+        // If the column is absent, infer from the master list so known funds are still flagged.
+        if (o.opcvm !== true && M[o.ticker] && M[o.ticker].cat === "OPCVM")
+          o.opcvm = true;
+        if (ix.total >= 0) {
+          const tv = parseFloat(c[ix.total]);
+          if (!isNaN(tv) && tv > 0) o.total = tv;
+        }
+        // OPCVM parity with the add-form: if a row has a Total but no unit price
+        // (funds are entered by Quantity + Total TTC), derive the unit price so the
+        // row survives the filter below and stores identically to a UI-entered fund.
+        if ((isNaN(o.price) || !o.price) && o.total > 0 && o.qty) {
+          o.price = o.total / o.qty;
+        }
+        out.push(o);
+      }
+      let clean = out.filter(
+        (t) => t.date && t.ticker && t.qty && (t.price || t.total),
+      );
+      let _rounded = 0,
+        _dropped = 0;
+      clean = clean.filter((t) => {
+        if (!t.opcvm && Math.abs(t.qty - Math.round(t.qty)) > 1e-9) {
+          const wq = Math.floor(t.qty);
+          if (wq < 1) {
+            _dropped++;
+            return false;
+          }
+          t.qty = wq;
+          _rounded++;
+        }
+        return true;
+      });
+      const mode =
+        (document.getElementById("csvMode") || {}).value || "replace";
+      if (mode === "append") {
+        TXNS = TXNS.concat(clean);
+      } else {
+        if (
+          !(await appConfirm(
+            "Replace ALL current transactions with the " +
+              clean.length +
+              " imported row(s)?",
+          ))
+        ) {
+          return;
+        }
+        TXNS = clean;
+      }
+      saveTxns(TXNS);
+      document.getElementById("csvResult").innerHTML =
+        `\u2705 ${mode === "append" ? "Appended" : "Imported"} <b>${clean.length}</b> transaction(s). Ledger now has ${TXNS.length}.` +
+        (_rounded
+          ? ` <span class="mini" style="color:var(--warn)">\u00B7 ${_rounded} stock row(s) rounded to whole shares</span>`
+          : "") +
+        (_dropped
+          ? ` <span class="mini" style="color:var(--neg)">\u00B7 ${_dropped} dropped (fractional <1 share)</span>`
+          : "");
+      render();
+    } catch (err) {
+      document.getElementById("csvResult").textContent =
+        "\u274C Parse error: " + err.message;
+    }
+  };
+  rd.readAsText(f);
+  e.target.value = "";
+};
+
+// ---------- fees explainer values + dividend-tax-by-year editor ----------
+function renderDivTax() {
+  const el = (id) => document.getElementById(id);
+  const yrs = Object.keys(DIVTAX)
+    .map(Number)
+    .sort((a, b) => a - b);
+  document.querySelector("#divTaxTable tbody").innerHTML =
+    yrs
+      .map(
+        (y) => `<tr>
+    <td class="l">${y}</td><td>${(DIVTAX[y] * 100).toFixed(2)}%</td>
+    <td class="center"><button class="chip" style="cursor:pointer;border:none" data-act="delYear" data-args="${y}" aria-label="Delete year" title="Delete year">\u2715</button></td></tr>`,
+      )
+      .join("") +
+    `<tr style="border-top:1px solid var(--border)"><td class="l" style="color:var(--muted)"><i>2028+ \u2192</i></td><td style="color:var(--muted)">${yrs.length ? (DIVTAX[yrs[yrs.length - 1]] * 100).toFixed(2) + "%" : "\u2014"}</td><td></td></tr>`;
+}
+window.delYear = function (y) {
+  delete DIVTAX[String(y)];
+  saveDivTax();
+  renderDivTax();
+  render();
+};
+document.getElementById("addYear").onclick = () => {
+  const y = parseInt(document.getElementById("ntYear").value, 10);
+  const r = parseFloat(document.getElementById("ntRate").value);
+  if (!y || isNaN(r)) {
+    toast("Enter a year and a rate %.", "warn");
+    return;
+  }
+  DIVTAX[String(y)] = r / 100;
+  saveDivTax();
+  document.getElementById("ntYear").value = "";
+  document.getElementById("ntRate").value = "";
+  renderDivTax();
+  render();
+};
+
+// ---------- transaction edit / update ----------
+let EDIT_IX = null;
+window.editTxn = function (i) {
+  const t = TXNS[i];
+  if (!t) return;
+  EDIT_IX = i;
+  window._loadingEditForm = true; // keep stored price/total, don't auto-overwrite
+  document.getElementById("tDate").value = t.date;
+  document.getElementById("tTicker").value = t.ticker;
+  document.getElementById("tAction").value = t.action;
+  document.getElementById("tQty").value = t.qty;
+  document.getElementById("tPrice").value = t.price;
+  document.getElementById("tTotal").value =
+    typeof t.total === "number" && t.total > 0 ? t.total : "";
+  {
+    const _tt = document.getElementById("tTotal");
+    if (_tt) _tt.dataset.auto = "";
+  }
+  {
+    const _nf = document.getElementById("tFundName");
+    if (_nf) _nf.value = (M[t.ticker] && M[t.ticker].name) || "";
+  }
+  document.getElementById("tPea").checked = !!t.pea;
+  document.getElementById("tOpcvm").checked =
+    t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
+  document.getElementById("tOpcvm").dispatchEvent(new Event("change"));
+  window._loadingEditForm = false;
+  document.getElementById("addTxn").textContent = "Update";
+  document.getElementById("cancelEdit").style.display = "";
+  document.getElementById("editHint").textContent =
+    "Editing transaction \u2014 change fields and press Update.";
+  setKindBadge(document.getElementById("tKind"), t.ticker);
+  liveCalc();
+  document.querySelector('.tab[data-view="transactions"]').click();
+  window.scrollTo(0, 0);
+};
+document.getElementById("cancelEdit").onclick = () => {
+  EDIT_IX = null;
+  document.getElementById("addTxn").textContent = "Add";
+  document.getElementById("cancelEdit").style.display = "none";
+  document.getElementById("editHint").textContent = "";
+  document.getElementById("tQty").value = "";
+  document.getElementById("tPrice").value = "";
+  document.getElementById("tTotal").value = "";
+  document.getElementById("txnCalc").textContent = "";
+};
+
+// ---------- light / dark mode toggle ----------
+// NOTE: these MUST mirror the current "THEME REFRESH" :root palette
+// (the purple flat-modern pass), because applyTheme() sets these tokens
+// inline on <html> and would otherwise override the CSS defaults.
+const THEMES = {
+  dark: {
+    "--bg": "#0a0b0f",
+    "--bg2": "#0f1116",
+    "--panel": "#14161c",
+    "--panel2": "#1b1e26",
+    "--border": "#262a33",
+    "--border-l": "#1d2029",
+    "--text": "#eceef2",
+    "--text2": "#9ca3af",
+    "--muted": "#656b76",
+    // subtle dark-purple accent (matches the refreshed :root)
+    "--primary": "#7c5cdd",
+    "--primary2": "#9a7ef0",
+    "--success": "#2dd4a7",
+    "--error": "#f26d6d",
+    "--warn": "#f5b544",
+    "--info": "#8b9cf5",
+  },
+  light: {
+    "--bg": "#f6f6fb",
+    "--bg2": "#ffffff",
+    "--panel": "#ffffff",
+    "--panel2": "#f1f0f8",
+    "--border": "#e4e2ee",
+    "--border-l": "#eeecf5",
+    "--text": "#1a1725",
+    "--text2": "#5a5570",
+    "--muted": "#8b869c",
+    // same purple identity, deepened for contrast on white panels
+    "--primary": "#6d4fd0",
+    "--primary2": "#7c5cdd",
+    "--success": "#0f9d76",
+    "--error": "#e0484d",
+    "--warn": "#c77f00",
+    "--info": "#5b6fd8",
+  },
+};
+function applyTheme(name) {
+  const t = THEMES[name] || THEMES.dark;
+  for (const k in t) document.documentElement.style.setProperty(k, t[k]);
+  // Refresh the cached theme tokens so charts/renders pick up the new palette.
+  if (typeof refreshThemeCache === "function") refreshThemeCache();
+  try {
+    localStorage.setItem("casa_theme_v1", name);
+  } catch (e) {}
+  const btn = document.getElementById("themeToggle");
+  if (btn)
+    btn.textContent =
+      name === "light" ? "\uD83C\uDF19 Dark" : "\u2600\uFE0F Light";
+  // Re-render so charts recolor to the new theme. (Previously gated on the
+  // now-removed allocation pie's CH_alloc, which left charts stale on toggle.)
+  setTimeout(() => {
+    try {
+      if (typeof render === "function") render();
+    } catch (e) {}
+  }, 10);
+}
+document.getElementById("themeToggle").onclick = () => {
+  const cur = (() => {
+    try {
+      return localStorage.getItem("casa_theme_v1") || "dark";
+    } catch (e) {
+      return "dark";
+    }
+  })();
+  applyTheme(cur === "dark" ? "light" : "dark");
+};
+(function () {
+  try {
+    const s = localStorage.getItem("casa_theme_v1");
+    if (s) applyTheme(s);
+  } catch (e) {}
+})();
+
+// ---------- dividend calendar import (replicates Excel date-fix formula) ----------
+let DIVCAL = (() => {
+  const s = localStorage.getItem("casa_divcal_v1");
+  const seed = () => SEED.dividend_calendar.map((d) => ({ ...d }));
+  if (s == null) return seed();
+  const parsed = safeParseLS("casa_divcal_v1", s, null, "Dividend calendar");
+  return Array.isArray(parsed.value) ? parsed.value : seed();
+})();
+function saveDivCal() {
+  if (safeSetItem("casa_divcal_v1", JSON.stringify(DIVCAL))) markSaved();
+}
+function fixDate(raw) {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const dd = m[1].padStart(2, "0"),
+      mm = m[2].padStart(2, "0"),
+      yyyy = m[3];
+    return yyyy + "-" + mm + "-" + dd;
+  }
+  const dt = new Date(s);
+  if (!isNaN(dt)) return dt.toISOString().slice(0, 10);
+  return null;
+}
+function issuerNorm(s) {
+  // Uppercase, strip accents, unify apostrophes/dashes, collapse whitespace, drop trailing legal suffixes.
+  let x = String(s || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .replace(/[\u2019\u2018\u02bc`']/g, " ") // apostrophes -> space
+    .replace(/[\u2010-\u2015\-]/g, " ") // dashes -> space
+    .replace(/[.,]/g, " ")
+    .replace(/\b(S\s*A\s*R\s*L|S\s*A\s*S|S\s*A|SCA|SPA)\b/g, " ") // legal suffixes
+    .replace(/\s+/g, " ")
+    .trim();
+  return x;
+}
+// Common acronym / short-name aliases that aren't the full registered issuer name.
+// User-saved issuer aliases (resolved via the import quick-map). Normalized key -> ticker.
+let USER_ALIASES = (() => {
+  try {
+    const s = localStorage.getItem("casa_issuer_aliases_v1");
+    if (s) return JSON.parse(s);
+  } catch (e) {}
+  return {};
+})();
+function saveUserAliases() {
+  if (
+    safeSetItem("casa_issuer_aliases_v1", JSON.stringify(USER_ALIASES)) &&
+    typeof markSaved === "function"
+  )
+    markSaved();
+}
+const ISSUER_ALIASES = {
+  BMCI: "BCI",
+  CIH: "CIH",
+  "CIH BANK": "CIH",
+  BCP: "BCP",
+  BOA: "BOA",
+  "BANK OF AFRICA BMCE GROUP": "BOA",
+  ATTIJARIWAFA: "ATW",
+  "MARSA MAROC": "MSA",
+  "TOTALENERGIES MAROC": "TMA",
+  "EAUX MINERALES D OULMES": "OUL",
+  OULMES: "OUL",
+  SBM: "SBM",
+  "LAFARGEHOLCIM MAROC": "LHM",
+  "HOLCIM MAROC": "LHM",
+  "LAFARGE HOLCIM MAROC": "LHM",
+};
+function issuerToTicker(name) {
+  if (!name) return null;
+  const rawK = name.trim().toUpperCase();
+  if (ISSUER_TO_TICKER[rawK]) return ISSUER_TO_TICKER[rawK];
+  const nk = issuerNorm(name);
+  // user-saved aliases take priority (resolved via the import quick-map)
+  if (USER_ALIASES[nk] && M[USER_ALIASES[nk]]) return USER_ALIASES[nk];
+  // 0) direct master ticker (issuer text IS a ticker, e.g. "CIH")
+  if (M[rawK]) return rawK;
+  const firstTok = nk.split(" ")[0];
+  if (firstTok && M[firstTok]) return firstTok;
+  // 1) alias table (normalized)
+  if (ISSUER_ALIASES[nk]) return ISSUER_ALIASES[nk];
+  for (const a in ISSUER_ALIASES) {
+    if (nk === a || nk.startsWith(a + " ") || a.startsWith(nk + " "))
+      return ISSUER_ALIASES[a];
+  }
+  // 2) normalized match against the issuer map
+  for (const key in ISSUER_TO_TICKER) {
+    const nkey = issuerNorm(key);
+    if (nkey === nk || nkey.startsWith(nk) || nk.startsWith(nkey))
+      return ISSUER_TO_TICKER[key];
+  }
+  // 3) normalized match against master company names
+  for (const tk in M) {
+    const nm = issuerNorm(M[tk].name || "");
+    if (nm && (nm === nk || nm.startsWith(nk) || nk.startsWith(nm))) return tk;
+  }
+  // 4) last resort: exact-key loose match (legacy behavior)
+  for (const key in ISSUER_TO_TICKER) {
+    if (key.startsWith(rawK) || rawK.startsWith(key))
+      return ISSUER_TO_TICKER[key];
+  }
+  return null;
+}
+function parseCalendar(raw) {
+  // Detect format. If most non-empty lines contain a TAB -> tab-separated. Else -> block/newline format.
+  const rawLines = raw.split(/\r?\n/);
+  const nonEmpty = rawLines.filter((l) => l.trim());
+  const out = [];
+  let bad = 0,
+    unmatched = [];
+  const AMT = /^-?[\d.,\s]+$/,
+    DATE = /\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/;
+  // --- Role-based (column-order-independent) row detector ---------------------
+  // Handles the "Issuer  Ex-date  Payment date  Type  Amount MAD" feed (amount LAST,
+  // with a MAD suffix) as well as any single-line layout, tab- OR space-separated.
+  // A line qualifies when it carries: 2 dates, a dividend-type keyword, and a
+  // <number> MAD amount. Issuer = text before the first date.
+  const DATE_G = /\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}/g;
+  const TYPE_RE =
+    /\b(ordinary|exceptional|special|interim|ordinaire|exceptionnel|exceptionnelle|special dividend)\b/i;
+  const AMT_MAD = /(-?[\d.\s\u00a0\u202f]*,?\d+(?:[.,]\d+)?)\s*MAD\b/i;
+  function parseRoleLine(line) {
+    const dates = line.match(DATE_G);
+    if (!dates || dates.length < 2) return null;
+    const tm = line.match(TYPE_RE);
+    const am = line.match(AMT_MAD);
+    if (!am) return null;
+    const ex = dates[0],
+      pay = dates[1];
+    const amount = cleanNum(am[1]);
+    if (amount == null) return null;
+    // issuer = everything before the first date
+    const firstDateIdx = line.indexOf(dates[0]);
+    let issuer = line.slice(0, firstDateIdx).replace(/[\t]+/g, " ").trim();
+    // strip a possible leading ticker column that duplicates issuer (rare); keep as-is otherwise
+    const typ = tm ? tm[1] : "Ordinary";
+    return { issuer, amount, ex, pay, typ };
+  }
+  const CAL_HEADER =
+    /\b(issuer|ex[-\s]?date|payment\s*date|dividend\s*type|amount)\b/i;
+  const isHeaderLine = (l) =>
+    !DATE.test(l) && !AMT_MAD.test(l) && CAL_HEADER.test(l);
+  const roleHits = nonEmpty.map(parseRoleLine);
+  const roleCount = roleHits.filter(Boolean).length;
+  const roleDenom = nonEmpty.filter((l) => !isHeaderLine(l)).length || 1;
+  if (roleCount > 0 && roleCount >= roleDenom * 0.5) {
+    for (let idx = 0; idx < nonEmpty.length; idx++) {
+      if (isHeaderLine(nonEmpty[idx])) continue;
+      const r = roleHits[idx];
+      if (!r) {
+        bad++;
+        continue;
+      }
+      const ticker = issuerToTicker(r.issuer);
+      const payd = fixDate(r.pay),
+        exd = fixDate(r.ex);
+      if (!ticker) {
+        unmatched.push(r.issuer);
+        bad++;
+        continue;
+      }
+      if (!payd) {
+        bad++;
+        continue;
+      }
+      out.push({
+        ticker,
+        issuer: r.issuer,
+        amount: r.amount,
+        ex_date: exd,
+        pay_date: payd,
+        div_type: r.typ || "Ordinary",
+      });
+    }
+    return { out, bad, unmatched };
+  }
+  const tabbed =
+    nonEmpty.filter((l) => l.indexOf("\t") >= 0).length > nonEmpty.length / 2;
+  if (tabbed) {
+    for (const line of nonEmpty) {
+      const c = line.split("\t").map((x) => x.trim());
+      if (c.length < 5) {
+        bad++;
+        continue;
+      }
+      // support both "Ticker,Issuer,Amount,Ex,Pay,Type" and "Issuer,Amount,Ex,Pay,Type"
+      let ticker, issuer, amount, ex, pay, typ;
+      if (c.length >= 6 && !AMT.test(c[1])) {
+        [ticker, issuer, amount, ex, pay, typ] = [
+          c[0].toUpperCase(),
+          c[1],
+          cleanNum(c[2]),
+          c[3],
+          c[4],
+          c[5],
+        ];
+      } else {
+        issuer = c[0];
+        amount = cleanNum(c[1]);
+        ex = c[2];
+        pay = c[3];
+        typ = c[4];
+        ticker = issuerToTicker(issuer);
+      }
+      const payd = fixDate(pay),
+        exd = fixDate(ex);
+      if (!ticker) {
+        unmatched.push(issuer);
+        bad++;
+        continue;
+      }
+      if (!payd) {
+        bad++;
+        continue;
+      }
+      out.push({
+        ticker,
+        issuer,
+        amount,
+        ex_date: exd,
+        pay_date: payd,
+        div_type: typ || "Ordinary",
+      });
+    }
+  } else {
+    // Block format: fields on separate lines, records separated by blank line(s).
+    // Skip an optional header block (Issuer/Amount/Ex-date/Payment date/Dividend type labels).
+    const HEADERS = new Set([
+      "issuer",
+      "amount",
+      "ex-date",
+      "payment date",
+      "dividend type",
+      "ex date",
+      "paymentdate",
+    ]);
+    const toks = nonEmpty.filter((l) => !HEADERS.has(l.trim().toLowerCase()));
+    // Consume in groups of 5: Issuer, Amount, Ex-date, Payment date, Type
+    for (let i = 0; i + 4 < toks.length || i < toks.length; ) {
+      // find an issuer start: a non-numeric, non-date line
+      const issuer = toks[i];
+      if (issuer === undefined) break;
+      const amount = cleanNum(toks[i + 1]);
+      const ex = toks[i + 2],
+        pay = toks[i + 3],
+        typ = toks[i + 4];
+      // validate shape
+      if (amount == null || !DATE.test(ex || "") || !DATE.test(pay || "")) {
+        i++;
+        bad++;
+        continue;
+      }
+      const ticker = issuerToTicker(issuer);
+      const payd = fixDate(pay),
+        exd = fixDate(ex);
+      if (ticker && payd) {
+        out.push({
+          ticker,
+          issuer,
+          amount,
+          ex_date: exd,
+          pay_date: payd,
+          div_type: typ || "Ordinary",
+        });
+      } else {
+        if (!ticker) unmatched.push(issuer);
+        bad++;
+      }
+      i += 5;
+    }
+  }
+  return { out, bad, unmatched };
+}
+// Collapse exact-duplicate dividend events (same ticker + pay-date + amount) within a batch.
+function dedupeDivcal(list) {
+  const seen = new Set(),
+    out = [];
+  for (const d of list) {
+    const k = d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(d);
+  }
+  return out;
+}
+function calImport() {
+  const raw = document.getElementById("calPaste").value.trim();
+  if (!raw) {
+    document.getElementById("calResult").textContent =
+      "Paste calendar rows first.";
+    return;
+  }
+  const mode = document.getElementById("calMode").value;
+  const { out: out2, bad, unmatched } = parseCalendar(raw);
+  const uniqUnmatched = [...new Set(unmatched)];
+  if (!out2.length && !uniqUnmatched.length) {
+    document.getElementById("calResult").innerHTML =
+      "\u274c Could not parse any rows.";
+    return;
+  }
+  let added = 0,
+    dups = 0;
+  if (out2.length) {
+    if (mode === "replace") {
+      DIVCAL = dedupeDivcal(out2);
+      added = DIVCAL.length;
+    } else {
+      const key = (d) =>
+        d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
+      const have = new Set(DIVCAL.map(key));
+      for (const d of dedupeDivcal(out2)) {
+        if (have.has(key(d))) {
+          dups++;
+          continue;
+        }
+        DIVCAL.push(d);
+        have.add(key(d));
+        added++;
+      }
+    }
+    saveDivCal();
+  }
+  let msg = added
+    ? "\u2705 Imported <b>" +
+      added +
+      "</b> dividend(s)." +
+      (dups
+        ? ' <span style="color:var(--muted)">(' +
+          dups +
+          " duplicate(s) skipped)</span>"
+        : "")
+    : out2.length
+      ? "\u2139 Nothing new \u2014 all " +
+        out2.length +
+        " row(s) already present."
+      : "\u26a0 No rows imported yet.";
+  if (uniqUnmatched.length) {
+    msg +=
+      ' <span style="color:var(--warn)">' +
+      uniqUnmatched.length +
+      " issuer(s) not matched \u2014 pick a ticker below.</span>";
+    msg += calResolverHTML(uniqUnmatched);
+  }
+  document.getElementById("calResult").innerHTML = msg;
+  if (uniqUnmatched.length) wireCalResolver();
+  render();
+}
+// Best-guess ticker for an unmatched issuer: token-overlap against master names + ISSUER_TO_TICKER keys.
+// Returns {ticker, score} or {ticker:null, score:0}. Threshold 0.34 keeps weak guesses out.
+const _ISS_STOP = new Set([
+  "DE",
+  "DU",
+  "DES",
+  "LA",
+  "LE",
+  "LES",
+  "SA",
+  "SARL",
+  "SAS",
+  "SCA",
+  "GROUP",
+  "GROUPE",
+  "HOLDING",
+  "COMPAGNIE",
+  "SOCIETE",
+  "STE",
+  "MAROC",
+  "MAROCAINE",
+  "ET",
+  "AL",
+  "CO",
+  "INC",
+]);
+function issuerTokens(s) {
+  return issuerNorm(s)
+    .split(" ")
+    .filter((w) => w && !_ISS_STOP.has(w));
+}
+function issuerNameScore(a, b) {
+  const A = issuerTokens(a),
+    B = issuerTokens(b);
+  if (!A.length || !B.length) return 0;
+  const sa = new Set(A),
+    sb = new Set(B);
+  let inter = 0;
+  sa.forEach((w) => {
+    if (sb.has(w)) inter++;
+  });
+  return inter / new Set([...sa, ...sb]).size;
+}
+function guessTicker(issuer) {
+  let best = null,
+    bestS = 0;
+  for (const tk in M) {
+    const sc = issuerNameScore(issuer, M[tk].name || "");
+    if (sc > bestS) {
+      bestS = sc;
+      best = tk;
+    }
+  }
+  for (const key in ISSUER_TO_TICKER) {
+    const sc = issuerNameScore(issuer, key);
+    if (sc > bestS) {
+      bestS = sc;
+      best = ISSUER_TO_TICKER[key];
+    }
+  }
+  return bestS >= 0.34 && best
+    ? { ticker: best, score: bestS }
+    : { ticker: null, score: bestS };
+}
+// Build the quick-map resolver: each unmatched issuer + a ticker <select>.
+function calResolverHTML(list) {
+  let h =
+    '<div id="calResolver" style="margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--panel2)">';
+  h +=
+    '<div class="mini" style="margin-bottom:8px;color:var(--text2)">Map each unmatched issuer to a ticker, then re-import. Your choices are remembered for next time.</div>';
+  for (const iss of list) {
+    const esc = String(iss).replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const guess = guessTicker(iss);
+    // build options: blank first, then all tickers; pre-select best guess if confident
+    let opts = '<option value="">\u2014 pick \u2014</option>';
+    opts += Object.keys(M)
+      .sort()
+      .map((tk) => {
+        const nm = (M[tk].name || "").replace(/</g, "&lt;");
+        const sel = guess.ticker === tk ? " selected" : "";
+        return (
+          '<option value="' +
+          tk +
+          '"' +
+          sel +
+          ">" +
+          tk +
+          (nm ? " \u00b7 " + nm : "") +
+          "</option>"
+        );
+      })
+      .join("");
+    const guessHint = guess.ticker
+      ? '<span class="mini" style="color:var(--info);margin-left:4px" title="Best guess based on name similarity (' +
+        Math.round(guess.score * 100) +
+        '% match) \u2014 confirm or change">\u2754 guess</span>'
+      : "";
+    h +=
+      '<div style="display:flex;gap:8px;align-items:center;margin:5px 0">' +
+      '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
+      esc +
+      '">' +
+      esc +
+      "</span>" +
+      '<select class="cal-resolve" data-issuer="' +
+      esc +
+      '" style="max-width:260px">' +
+      opts +
+      "</select>" +
+      guessHint +
+      "</div>";
+  }
+  h +=
+    '<button class="btn" id="calResolveSave" style="margin-top:8px">Save &amp; re-import</button>';
+  h += "</div>";
+  return h;
+}
+function wireCalResolver() {
+  const btn = document.getElementById("calResolveSave");
+  if (!btn) return;
+  btn.onclick = () => {
+    let n = 0;
+    document.querySelectorAll("#calResolver .cal-resolve").forEach((sel) => {
+      const tk = sel.value;
+      if (!tk) return;
+      const iss = sel.getAttribute("data-issuer");
+      const key = issuerNorm(iss);
+      if (key) {
+        USER_ALIASES[key] = tk;
+        n++;
+      }
+    });
+    if (!n) {
+      document
+        .getElementById("calResult")
+        .insertAdjacentHTML(
+          "beforeend",
+          '<div class="mini" style="color:var(--warn);margin-top:6px">Pick at least one ticker first.</div>',
+        );
+      return;
+    }
+    saveUserAliases();
+    calImport(); // re-run with the new aliases in effect
+  };
+}
+document.getElementById("applyCal").onclick = calImport;
+document.getElementById("clearCal").onclick = () => {
+  document.getElementById("calPaste").value = "";
+  document.getElementById("calResult").textContent = "";
+};
+
+document.getElementById("addAllMissing").onclick = async () => {
+  const miss = DIVCAL.filter(
+    (d) => d.pay_date && divStatus(d).t === "\u26a0 Not recorded",
+  );
+  if (!miss.length) {
+    document.getElementById("calResult").textContent =
+      "No missing dividends to add.";
+    return;
+  }
+  if (
+    !(await appConfirm(
+      "Add " +
+        miss.length +
+        " missing dividend(s)? They will be tagged auto for review.",
+    ))
+  )
+    return;
+  let added = 0;
+  for (const d of miss) {
+    const exd = d.ex_date || d.pay_date;
+    const amt = +(+d.amount).toFixed(4);
+    for (const pea of [false, true]) {
+      const sh = heldBefore(d.ticker, pea, exd);
+      if (sh <= 1e-9) continue;
+      const dup = TXNS.some(
+        (t) =>
+          t.action === "DIV" &&
+          t.ticker === d.ticker &&
+          !!t.pea === pea &&
+          +(+t.price).toFixed(4) === amt &&
+          daysBetween(t.date, d.pay_date) <= DIV_MATCH_WINDOW_DAYS,
+      );
+      if (dup) continue;
+      TXNS.push({
+        date: d.pay_date,
+        ticker: d.ticker,
+        action: "DIV",
+        qty: +sh.toFixed(4),
+        price: d.amount,
+        pea: pea,
+        broker: pea ? "attijari" : "saham",
+        auto: true,
+        exDate: exd,
+        eligBasis: sh,
+      });
+      added++;
+    }
+  }
+  if (added) {
+    saveTxns(TXNS);
+    document.getElementById("calResult").innerHTML =
+      "\u2705 Added <b>" +
+      added +
+      "</b> missing dividend(s) \u2014 tagged for review.";
+    render();
+  } else
+    document.getElementById("calResult").textContent =
+      "Nothing added (all already recorded).";
+};
+
+// ---------- downloadable templates ----------
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" }),
+    url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+document.getElementById("dlTxnTemplate").onclick = () => {
+  const t = [
+    "date,ticker,action,qty,price,pea,opcvm,total",
+    "2026-01-15,ATW,BUY,10,680,no,no,",
+    "2026-03-20,ATW,SELL,5,720,no,no,",
+    "2026-06-22,ATW,DIV,10,22,no,no,",
+    "2026-02-04,FCP A,BUY,8.435,831.8,no,yes,7025",
+    "2026-02-04,FCP B,BUY,2.34,,no,yes,2990.35",
+    "# date=YYYY-MM-DD \u00B7 action=BUY/SELL/DIV \u00B7 pea=yes/no \u00B7 opcvm=yes/no (fund? auto-detected for known funds) \u00B7 total=OPCVM total TTC (optional, blank for stocks) \u00B7 qty=shares (or share count for DIV)  price=unit price MAD (or dividend/share for DIV)",
+    "# OPCVM funds: you can leave price BLANK and give total only \u2014 unit price is derived as total/qty on import (see FCP B row above).",
+  ].join("\n");
+  downloadText("transactions_template.csv", t);
+};
+document.getElementById("dlCalTemplate").onclick = () => {
+  const t = [
+    "Ticker\tIssuer\tAmount\tEx-date\tPayment date\tType",
+    "ATW\tAttijariwafa Bank\t22,00\t18/06/2026\t08/07/2026\tOrdinary",
+    "IAM\tMaroc Telecom\t4,00\t04/09/2026\t15/09/2026\tOrdinary",
+    "AFI\tAfric Industries\t20,00\t19/06/2026\t30/06/2026\tOrdinary",
+  ].join("\n");
+  downloadText("dividend_calendar_template.csv", t);
+};
+
+// prices updated stamp
+(function () {
+  const el = document.getElementById("pricesStamp");
+  if (el && SEED.prices_updated)
+    el.textContent = "Prices as of " + SEED.prices_updated;
+})();
+
+// ---------- editable fee panel ----------
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550 BROKER FEE UI \u2550\u2550\u2550\u2550\u2550\u2550\u2550
+let CUR_BROKER = "saham"; // currently selected broker tab
+function parsePct(str) {
+  if (str == null) return null;
+  let s = String(str).replace(",", ".").replace("%", "").trim();
+  if (s === "") return null;
+  let v = parseFloat(s);
+  if (isNaN(v)) return null;
+  return v / 100;
+}
+function fmtPct(dec) {
+  return dec == null ? "" : +(dec * 100).toFixed(4) + "%";
+}
+
+function renderBrokerTabs() {
+  const el = document.getElementById("brokerTabs");
+  if (!el) return;
+  el.innerHTML = Object.keys(BROKERS)
+    .map((id) => {
+      const b = BROKERS[id];
+      const active = id === CUR_BROKER;
+      return `<button class="btn ${active ? "" : "sec2"} bkTab" data-bk="${id}" style="font-size:12px;padding:5px 14px;border-radius:14px">${b.name}</button>`;
+    })
+    .join("");
+  el.querySelectorAll(".bkTab").forEach((btn) => {
+    btn.onclick = () => {
+      CUR_BROKER = btn.dataset.bk;
+      renderBrokerTabs();
+      renderBrokerFeeForm();
+    };
+  });
+}
+
+function renderBrokerFeeForm() {
+  const el = document.getElementById("brokerFeePanel");
+  if (!el) return;
+  const bk = BROKERS[CUR_BROKER];
+  if (!bk) return;
+  const f = bk.fees;
+  let h =
+    '<div class="fee-sub">' +
+    bk.name +
+    ' <span class="mini">\u2014 trading fees</span></div>';
+  h += '<div class="fee-fields" style="margin-top:8px">';
+  h +=
+    '<label>Broker name <input type="text" id="bk_name" value="' +
+    bk.name +
+    '"></label>';
+  h +=
+    '<label>Fee formula <select id="bk_feeType"><option value="regular"' +
+    (bk.feeType === "regular" ? " selected" : "") +
+    '>Rate-based (c.march\u00E9 + c.interm + c.r\u00E8gl + courier)</option><option value="pea"' +
+    (bk.feeType === "pea" ? " selected" : "") +
+    ">Courtage-based (courtage + r\u00E8gl + bourse)</option></select></label>";
+
+  if (bk.feeType === "regular") {
+    h +=
+      '<label>Commission de march\u00E9 (%) <input type="text" id="bk_c_marche" value="' +
+      fmtPct(f.c_marche) +
+      '"></label>';
+    h +=
+      '<label>Commission d\'interm\u00E9diation (%) <input type="text" id="bk_c_interm" value="' +
+      fmtPct(f.c_interm) +
+      '"></label>';
+    h +=
+      '<label>Commission r\u00E8glement/livraison (%) <input type="text" id="bk_c_regl" value="' +
+      fmtPct(f.c_regl) +
+      '"></label>';
+    h +=
+      '<label>VAT on fees (%) <input type="text" id="bk_vat" value="' +
+      fmtPct(f.vat) +
+      '"></label>';
+    h +=
+      '<label>Frais de courrier (fixed, MAD) <input type="text" id="bk_courier" value="' +
+      (f.courier || 0) +
+      '"></label>';
+    h +=
+      '<label>OPCVM order fee (MAD HT) <input type="text" id="bk_opcvmOrder" value="' +
+      (f.opcvmOrder || 0) +
+      '"></label>';
+    h +=
+      '<label>Dividend commission (% HT) <input type="text" id="bk_divComm" value="' +
+      fmtPct(f.divComm) +
+      '"></label>';
+    // Effective rate display
+    const eff =
+      ((f.c_marche || 0) + (f.c_interm || 0) + (f.c_regl || 0)) *
+      (1 + (f.vat || 0.1));
+    const fix = (f.courier || 0) * (1 + (f.vat || 0.1));
+    h +=
+      '</div><div style="margin-top:10px;padding:8px 10px;background:var(--panel2);border-radius:8px;font-size:13px"><b>Effective stock fee:</b> ' +
+      (eff * 100).toFixed(3) +
+      "% + " +
+      fix.toFixed(2) +
+      " MAD fixed" +
+      (f.opcvmOrder
+        ? " \u00b7 OPCVM: " +
+          ((f.opcvmOrder || 0) * (1 + (f.vat || 0.1))).toFixed(2) +
+          " MAD"
+        : "") +
+      "</div>";
+  } else {
+    h +=
+      '<label>Commission de courtage (%) <input type="text" id="bk_courtage" value="' +
+      fmtPct(f.courtage) +
+      '"></label>';
+    h +=
+      '<label>Courtage minimum (MAD) <input type="text" id="bk_courtageMin" value="' +
+      (f.courtageMin || 0) +
+      '"></label>';
+    h +=
+      '<label>Commission r\u00E8glement/livr. (%) <input type="text" id="bk_regl" value="' +
+      fmtPct(f.regl) +
+      '"></label>';
+    h +=
+      '<label>Commission Bourse de Casa (%) <input type="text" id="bk_bourse" value="' +
+      fmtPct(f.bourse) +
+      '"></label>';
+    h +=
+      '<label>TVA on fees (%) <input type="text" id="bk_vat" value="' +
+      fmtPct(f.vat) +
+      '"></label>';
+    h +=
+      '<label>OPCVM order fee (MAD HT) <input type="text" id="bk_opcvmOrder" value="' +
+      (f.opcvmOrder || 0) +
+      '"></label>';
+    h +=
+      '<label>Dividend commission (% HT) <input type="text" id="bk_divComm" value="' +
+      fmtPct(f.divComm) +
+      '"></label>';
+    // Effective rate
+    const eff =
+      ((f.courtage || 0) + (f.regl || 0) + (f.bourse || 0)) *
+      (1 + (f.vat || 0.1));
+    const minFee = (f.courtageMin || 0) * (1 + (f.vat || 0.1));
+    h +=
+      '</div><div style="margin-top:10px;padding:8px 10px;background:var(--panel2);border-radius:8px;font-size:13px"><b>Effective:</b> ' +
+      (eff * 100).toFixed(3) +
+      "% (min " +
+      minFee.toFixed(2) +
+      " MAD) \u00B7 OPCVM " +
+      ((f.opcvmOrder || 0) * (1 + (f.vat || 0.1))).toFixed(2) +
+      " MAD</div>";
+  }
+  el.innerHTML = h;
+  // Re-render form when fee type changes
+  const ftSel = document.getElementById("bk_feeType");
+  if (ftSel)
+    ftSel.onchange = () => {
+      BROKERS[CUR_BROKER].feeType = ftSel.value;
+      // Reset fees to defaults for that type
+      if (ftSel.value === "regular")
+        BROKERS[CUR_BROKER].fees = { ...BROKER_DEFAULTS.saham.fees };
+      else BROKERS[CUR_BROKER].fees = { ...BROKER_DEFAULTS.attijari.fees };
+      saveBrokers();
+      renderBrokerFeeForm();
+    };
+}
+
+// Save current broker's fees from the form
+document.getElementById("saveBrokerFeesBtn").onclick = () => {
+  const bk = BROKERS[CUR_BROKER];
+  if (!bk) return;
+  const nameEl = document.getElementById("bk_name");
+  if (nameEl) bk.name = nameEl.value.trim() || CUR_BROKER;
+  const p = (id) => parsePct(document.getElementById(id)?.value);
+  const num = (id) =>
+    parseFloat(
+      String(document.getElementById(id)?.value || "0").replace(",", "."),
+    );
+  if (bk.feeType === "regular") {
+    bk.fees = {
+      c_marche: p("bk_c_marche"),
+      c_interm: p("bk_c_interm"),
+      c_regl: p("bk_c_regl"),
+      vat: p("bk_vat"),
+      courier: num("bk_courier"),
+      opcvmOrder: num("bk_opcvmOrder"),
+      divComm: p("bk_divComm"),
+    };
+  } else {
+    bk.fees = {
+      courtage: p("bk_courtage"),
+      courtageMin: num("bk_courtageMin"),
+      regl: p("bk_regl"),
+      bourse: p("bk_bourse"),
+      vat: p("bk_vat"),
+      opcvmOrder: num("bk_opcvmOrder"),
+      divComm: p("bk_divComm"),
+    };
+  }
+  for (const k in bk.fees) {
+    if (bk.fees[k] == null || isNaN(bk.fees[k])) {
+      toast("All fee fields must be valid numbers.", "warn");
+      return;
+    }
+  }
+  // Also sync to legacy FP/FP_PEA for backward compat
+  if (CUR_BROKER === "saham") {
+    FP = { ...bk.fees, tpcvm: FP.tpcvm };
+    saveFees();
+  }
+  if (CUR_BROKER === "attijari") {
+    FP_PEA = { ...bk.fees };
+    saveFeesPea();
+  }
+  saveBrokers();
+  document.getElementById("brokerFeeSaved").textContent = "\u2705 Saved.";
+  renderBrokerFeeForm();
+  render();
+};
+
+document.getElementById("resetBrokerFeesBtn").onclick = () => {
+  const def = BROKER_DEFAULTS[CUR_BROKER];
+  if (def) {
+    BROKERS[CUR_BROKER] = { ...def, fees: { ...def.fees } };
+  }
+  saveBrokers();
+  if (CUR_BROKER === "saham") {
+    FP = { ...BROKER_DEFAULTS.saham.fees, tpcvm: FP_DEFAULT.tpcvm };
+    saveFees();
+  }
+  if (CUR_BROKER === "attijari") {
+    FP_PEA = { ...BROKER_DEFAULTS.attijari.fees };
+    saveFeesPea();
+  }
+  renderBrokerFeeForm();
+  document.getElementById("brokerFeeSaved").textContent = "Reset to defaults.";
+  render();
+};
+
+// Add broker
+document.getElementById("addBrokerBtn").onclick = () => {
+  const name = prompt("New broker name:");
+  if (!name) return;
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  if (BROKERS[id]) {
+    toast('Broker "' + name + '" already exists.', "warn");
+    return;
+  }
+  BROKERS[id] = {
+    name: name,
+    feeType: "regular",
+    fees: { ...BROKER_DEFAULTS.saham.fees },
+  };
+  saveBrokers();
+  CUR_BROKER = id;
+  renderBrokerTabs();
+  renderBrokerFeeForm();
+};
+
+// TPCVM save
+document.getElementById("saveTpcvmBtn").onclick = () => {
+  const v = parsePct(document.getElementById("fe_tpcvm").value);
+  if (v == null || isNaN(v)) {
+    toast("TPCVM must be a valid number.", "warn");
+    return;
+  }
+  FP.tpcvm = v;
+  saveFees();
+  toast("TPCVM saved.", "ok");
+  render();
+};
+
+// Init fee UI
+function loadFeeInputs() {
+  const el = document.getElementById("fe_tpcvm");
+  if (el) el.value = fmtPct(FP.tpcvm);
+  renderBrokerTabs();
+  renderBrokerFeeForm();
+}
+loadFeeInputs();
+
+// ---------- Positions: editable price + hide closed ----------
+function rerenderPositions() {
+  const { pos } = runFIFO();
+  const arr = Object.values(pos);
+  const t = arr.reduce(
+    (a, p) => ({
+      inv: a.inv + (p.held > 0 ? p.invested : 0),
+      val: a.val + p.value,
+      net: a.net + (p.netIfSold || 0),
+      unreal: a.unreal + p.unreal,
+      real: a.real + p.realized,
+      div: a.div + p.divs,
+      life: a.life + p.lifetime,
+      cost: a.cost + (p.costBasis || 0),
+    }),
+    {
+      inv: 0,
+      val: 0,
+      net: 0,
+      unreal: 0,
+      real: 0,
+      div: 0,
+      life: 0,
+      cost: 0,
+    },
+  );
+  renderPositions(arr, t);
+  renderCharts(arr, t);
+  renderKPIs(t);
+}
+
+window.addMissingDiv = function (ticker, payDate, amount, exDate) {
+  let added = 0;
+  for (const pea of [false, true]) {
+    const sh = heldBefore(ticker, pea, exDate);
+    if (sh <= 1e-9) continue;
+    // dedupe: same ticker+amount+account within window
+    const amt = +(+amount).toFixed(4);
+    const dup = TXNS.some(
+      (t) =>
+        t.action === "DIV" &&
+        t.ticker === ticker &&
+        !!t.pea === pea &&
+        +(+t.price).toFixed(4) === amt &&
+        daysBetween(t.date, payDate) <= DIV_MATCH_WINDOW_DAYS,
+    );
+    if (dup) continue;
+    TXNS.push({
+      date: payDate,
+      ticker: ticker,
+      action: "DIV",
+      qty: +sh.toFixed(4),
+      price: amount,
+      pea: pea,
+      broker: pea ? "attijari" : "saham",
+      auto: true,
+      exDate: exDate,
+      eligBasis: sh,
+    });
+    added++;
+  }
+  if (added) {
+    saveTxns(TXNS);
+    render();
+  } else toast("Already recorded, or no eligible shares.", "warn");
+};
+
+let CH_wf = null;
+window.togglePosChildren = function (rowId, el) {
+  const kids = document.querySelectorAll("tr.pos-child." + rowId);
+  const show = kids.length && kids[0].style.display === "none";
+  kids.forEach((k) => {
+    k.style.display = show ? "table-row" : "none";
+  });
+  if (el) el.textContent = show ? "\u25be" : "\u25b8"; // \u25BE open / \u25B8 closed
+};
+window.showPosWaterfall = function (key) {
+  const { pos } = runFIFO();
+  let p = pos[key];
+  // Combined parent rows use a synthetic 'TICKER||COMB' key that does NOT exist in the
+  // FIFO map (which is keyed by TICKER||PEA / TICKER||Regular). Aggregate all account
+  // positions for that ticker so the waterfall works on the combined row too \u2014 not just
+  // on the per-account drill-down children.
+  if (!p && typeof key === "string" && key.indexOf("||COMB") >= 0) {
+    const tk = key.slice(0, key.indexOf("||COMB"));
+    const parts = Object.values(pos).filter((x) => x.ticker === tk);
+    if (parts.length) {
+      p = {
+        ticker: tk,
+        account: "Combined",
+        held: 0,
+        unreal: 0,
+        realized: 0,
+        divs: 0,
+      };
+      parts.forEach((x) => {
+        p.held += x.held || 0;
+        p.unreal += x.unreal || 0;
+        p.realized += x.realized || 0;
+        p.divs += x.divs || 0;
+      });
+    }
+  }
+  // Fallback: allow a bare ticker key too (resolve to combined).
+  if (!p && typeof key === "string" && key.indexOf("||") < 0) {
+    const parts = Object.values(pos).filter((x) => x.ticker === key);
+    if (parts.length) {
+      p = {
+        ticker: key,
+        account: "Combined",
+        held: 0,
+        unreal: 0,
+        realized: 0,
+        divs: 0,
+      };
+      parts.forEach((x) => {
+        p.held += x.held || 0;
+        p.unreal += x.unreal || 0;
+        p.realized += x.realized || 0;
+        p.divs += x.divs || 0;
+      });
+    }
+  }
+  if (!p) return;
+  const _acctLbl =
+    p.account === "Combined" ? "Combined (all accounts)" : p.account;
+  document.getElementById("wfTitle").textContent =
+    p.ticker + " \u2014 " + _acctLbl + " \u00B7 Return Waterfall";
+  document.getElementById("wfNote").innerHTML =
+    "Unrealized + Realized + Dividends \u2192 Lifetime. " +
+    (p.held > 0 ? "" : "Position closed \u2014 unrealized is 0.");
+  document.getElementById("wfModal").style.display = "flex";
+  const tx = themeColor("text");
+  const tx2 = themeColor("text2");
+  setTimeout(() => {
+    CH_wf = Highcharts.chart("wfChart", {
+      chart: { type: "waterfall", backgroundColor: "transparent" },
+      title: { text: null },
+      credits: { enabled: false },
+      legend: { enabled: false },
+      xAxis: {
+        categories: ["Unrealized", "Realized", "Dividends", "Lifetime"],
+        labels: { style: { color: tx2 } },
+      },
+      yAxis: {
+        title: { text: null },
+        gridLineColor: "#2c3742",
+        labels: { style: { color: tx2 }, format: "{value:,.0f}" },
+      },
+      tooltip: { pointFormat: "<b>{point.y:,.0f} MAD</b>" },
+      plotOptions: {
+        waterfall: {
+          dataLabels: {
+            enabled: true,
+            style: { color: tx, textOutline: "none", fontWeight: "600" },
+            format: "{point.y:,.0f}",
+          },
+        },
+      },
+      series: [
+        {
+          upColor: themeColor("success"),
+          color: themeColor("error"),
+          lineWidth: 1,
+          dashStyle: "ShortDot",
+          data: [
+            { name: "Unrealized", y: Math.round(p.unreal) },
+            { name: "Realized", y: Math.round(p.realized) },
+            { name: "Dividends", y: Math.round(p.divs) },
+            {
+              name: "Lifetime",
+              isSum: true,
+              color: themeColor("primary"),
+            },
+          ],
+        },
+      ],
+    });
+  }, 20);
+};
+
+window.editPrice = async function (tk) {
+  if (!M[tk]) M[tk] = {};
+  const cur = M[tk].price != null ? M[tk].price : "";
+  const v = await appPrompt(
+    "Set current price for " + dispName(tk) + " (MAD):",
+    cur,
+    { title: "Set price", inputType: "text" },
+  );
+  if (v === null) return;
+  const num = parseFloat(String(v).replace(",", "."));
+  if (isNaN(num)) {
+    toast("Enter a valid number.", "warn");
+    return;
+  }
+  M[tk].price = num;
+  safeSetItem("casa_master_v1", JSON.stringify(M));
+  render();
+};
+document.getElementById("toggleClosed").onclick = () => {
+  HIDE_CLOSED = !HIDE_CLOSED;
+  document.getElementById("toggleClosed").textContent = HIDE_CLOSED
+    ? "Show closed"
+    : "Hide closed";
+  rerenderPositions();
+};
+
+// ---------- full-state backup / restore ----------
+const APP_LS_KEYS = [
+  "casa_portfolio_txns_v1",
+  "casa_fees_v1",
+  "casa_fees_pea_v1",
+  "casa_divtax_v1",
+  "casa_master_v1",
+  "casa_divcal_v1",
+  "casa_theme_v1",
+  "casa_snapshots_v1",
+  "casa_pending_v1",
+  "casa_salary_v1",
+  "casa_expenses_v1",
+  "casa_categories_v1",
+  "casa_opcvm_isin_map_v1",
+  "casa_opcvm_updated_v1",
+  "casa_opcvm_updated_kind_v1",
+  "casa_rebalance_v1",
+  "casa_issuer_aliases_v1",
+  "casa_cash_v1",
+  "casa_brokers_v1",
+];
+let _backupBusy = false;
+document.getElementById("backupAll").onclick = () => {
+  // Guard set synchronously FIRST \u2014 blocks any rapid re-fire before setTimeout runs.
+  if (_backupBusy) return;
+  _backupBusy = true;
+  // Defer the actual download to the next event-loop tick.
+  // This ensures even two synchronous calls to this handler only produce one download:
+  // both pass the guard check in the same tick, but only the first sets the flag and
+  // schedules the work; the second is blocked on the very next line.
+  setTimeout(() => {
+    try {
+      takeSnapshot(true);
+      const dump = {
+        _app: "casa_portfolio_tracker",
+        _version: 2,
+        _exported: new Date().toISOString(),
+        data: {},
+      };
+      for (let n = 0; n < localStorage.length; n++) {
+        const k = localStorage.key(n);
+        if (
+          k &&
+          k.indexOf("casa_") === 0 &&
+          k !== "casa_last_backup_v1" &&
+          k !== "casa_carPlanCollapsed_v1" &&
+          k !== "casa_incCollapsed_v1" &&
+          k !== "casa_last_tab_v1" &&
+          k !== "casa_last_app_v1"
+        ) {
+          const v = localStorage.getItem(k);
+          if (v != null) dump.data[k] = v;
+        }
+      }
+      APP_LS_KEYS.forEach((k) => {
+        if (dump.data[k] == null) {
+          const v = localStorage.getItem(k);
+          if (v != null) dump.data[k] = v;
+        }
+      });
+      // v2: optional password encryption. Leaving the passphrase blank keeps the
+      // plaintext backup (unchanged default). A passphrase produces an encrypted
+      // envelope (AES-GCM) that restore auto-detects. Async, so wrapped in IIFE.
+      (async () => {
+        try {
+          let payloadObj = dump;
+          let suffix = "";
+          const pass = await appPrompt(
+            "Optional: enter a password to ENCRYPT this backup (leave blank for a normal, unencrypted backup).",
+            "",
+            { inputType: "password", title: "Encrypt backup?" },
+          );
+          if (pass && String(pass).length > 0) {
+            payloadObj = await __core.backupCrypto.encryptBackup(
+              dump,
+              String(pass),
+            );
+            suffix = "_encrypted";
+          }
+          const blob = new Blob(
+              [JSON.stringify(payloadObj, null, pass ? 0 : 1)],
+              {
+                type: "application/json",
+              },
+            ),
+            url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download =
+            "portfolio_backup_" +
+            (() => {
+              const d = new Date();
+              const pad = (n) => String(n).padStart(2, "0");
+              return (
+                d.getFullYear() +
+                "-" +
+                pad(d.getMonth() + 1) +
+                "-" +
+                pad(d.getDate()) +
+                "_" +
+                pad(d.getHours()) +
+                pad(d.getMinutes())
+              );
+            })() +
+            suffix +
+            ".json";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          try {
+            localStorage.setItem(
+              "casa_last_backup_v1",
+              new Date().toISOString(),
+            );
+          } catch (e) {}
+          showBackupAge();
+        } catch (err) {
+          toast(
+            "Backup failed: " + (err && err.message ? err.message : err),
+            "err",
+          );
+        }
+      })();
+    } finally {
+      setTimeout(() => {
+        _backupBusy = false;
+      }, 1500);
+    }
+  }, 0);
+};
+document.getElementById("restoreAll").onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = async () => {
+    try {
+      let dump = JSON.parse(rd.result);
+      // v2: if this is an encrypted backup envelope, prompt for the password
+      // and decrypt before proceeding. Plaintext backups skip this untouched.
+      if (__core.backupCrypto.isEncryptedBackup(dump)) {
+        const pass = await appPrompt(
+          "This backup is encrypted. Enter its password to restore.",
+          "",
+          { inputType: "password", title: "Encrypted backup" },
+        );
+        if (pass == null || pass === "")
+          throw new Error("Restore cancelled (no password).");
+        dump = await __core.backupCrypto.decryptBackup(dump, String(pass));
+      }
+      if (!dump || dump._app !== "casa_portfolio_tracker" || !dump.data)
+        throw new Error("Not a valid backup file.");
+      var APP_SCHEMA = 2;
+      var fileV = typeof dump._version === "number" ? dump._version : 1;
+      if (
+        fileV > APP_SCHEMA &&
+        !(await appConfirm(
+          "This backup was made by a NEWER version of the app (schema v" +
+            fileV +
+            " > v" +
+            APP_SCHEMA +
+            "). Some fields may not import correctly. Continue anyway?",
+        ))
+      )
+        return;
+      if (
+        !(await appConfirm(
+          "Restore this backup? It REPLACES current data, but portfolio-value snapshots are MERGED so no history is lost.",
+        ))
+      )
+        return;
+      // Merge snapshots (union by date) so switching browsers/files never loses value history.
+      let mergedSnaps = null;
+      try {
+        const local = JSON.parse(
+          localStorage.getItem("casa_snapshots_v1") || "[]",
+        );
+        const incoming = JSON.parse(dump.data["casa_snapshots_v1"] || "[]");
+        const byDate = {};
+        [...local, ...incoming].forEach((s) => {
+          if (s && s.date) byDate[s.date] = s;
+        });
+        mergedSnaps = Object.values(byDate).sort((a, b) =>
+          a.date < b.date ? -1 : 1,
+        );
+      } catch (e) {}
+      // Restore EVERY key present in the backup (future-proof), not just a fixed list.
+      Object.keys(dump.data).forEach((k) => {
+        if (dump.data[k] != null) localStorage.setItem(k, dump.data[k]);
+      });
+      if (mergedSnaps)
+        localStorage.setItem("casa_snapshots_v1", JSON.stringify(mergedSnaps));
+      toast("Backup restored (value history merged). Reloading.", "ok");
+      setTimeout(() => location.reload(), 200);
+    } catch (err) {
+      toast("Restore failed: " + err.message, "err");
+    }
+  };
+  rd.readAsText(f);
+};
+
+// (removed redundant tipBox engine \u2014 unified #__qtip handles all data-tip)
+
+// ---------- auto-add dividends from calendar (ex-date aware) ----------
+// Eligibility: net shares held STRICTLY BEFORE the ex-date. Sell on/before ex-date => not eligible.
+// Eligibility per user's rule: you receive the dividend on shares held through the day
+// BEFORE the ex-date. So a BUY counts only if strictly before ex-date; a SELL removes
+// shares if it happens ON or BEFORE the ex-date (selling on ex-date = NOT eligible).
+function heldBefore(ticker, pea, exDateISO) {
+  let q = 0;
+  for (const t of TXNS) {
+    if (t.ticker !== ticker) continue;
+    if (!!t.pea !== !!pea) continue;
+    if (t.action === "BUY") {
+      if (t.date < exDateISO) q += t.qty; // bought before ex-date -> eligible
+    } else if (t.action === "SELL") {
+      if (t.date <= exDateISO) q -= t.qty; // sold on/before ex-date -> not eligible
+    }
+  }
+  return q > 1e-9 ? q : 0; // never negative
+}
+const DIV_MATCH_WINDOW_DAYS = 14; // same dividend won't recur at same amount within ~2 weeks
+function daysBetween(a, b) {
+  return Math.abs((new Date(a) - new Date(b)) / 86400000);
+}
+document.getElementById("autoDiv").onclick = () => {
+  const cal = DIVCAL.filter((d) => d.pay_date && (d.ex_date || d.pay_date));
+  const accounts = [false, true]; // Regular, PEA
+  let added = 0,
+    matched = 0,
+    exact = 0,
+    pended = 0;
+  const matchNotes = [];
+  for (const d of cal) {
+    const exd = d.ex_date || d.pay_date;
+    for (const pea of accounts) {
+      const sh = heldBefore(d.ticker, pea, exd);
+      if (sh <= 1e-9) continue;
+      // Look for an EXISTING DIV of same ticker + same amount + same account within a \u00B1window.
+      // This catches a manual entry whose date differs slightly from the official pay date.
+      const amt = +(+d.amount).toFixed(4);
+      let hit = null;
+      for (const t of TXNS) {
+        if (t.action !== "DIV") continue;
+        if (t.ticker !== d.ticker) continue;
+        if (!!t.pea !== !!pea) continue;
+        if (+(+t.price).toFixed(4) !== amt) continue;
+        if (daysBetween(t.date, d.pay_date) <= DIV_MATCH_WINDOW_DAYS) {
+          hit = t;
+          break;
+        }
+      }
+      if (hit) {
+        // Already recorded (possibly with a slightly-off date) -> correct the date, don't duplicate.
+        if (hit.date !== d.pay_date) {
+          matchNotes.push(
+            d.ticker +
+              " " +
+              (pea ? "(PEA) " : "") +
+              hit.date +
+              " \u2192 " +
+              d.pay_date,
+          );
+          hit.date = d.pay_date;
+          matched++;
+        } else {
+          exact++;
+        }
+        // enrich with ex-date/eligibility for the tooltip, and mark reconciled
+        hit.exDate = exd;
+        if (hit.eligBasis == null) hit.eligBasis = sh;
+        hit.reconciled = true;
+        continue;
+      }
+      // Also check PENDING for an already-staged matching dividend (avoid dup there too)
+      const pendHit = PENDING.some(
+        (o) =>
+          o.action === "DIV" &&
+          o.ticker === d.ticker &&
+          !!o.pea === pea &&
+          +(+o.price).toFixed(4) === amt &&
+          daysBetween(o.date, d.pay_date) <= DIV_MATCH_WINDOW_DAYS,
+      );
+      if (pendHit) continue;
+      // Only act once the EX-DATE has PASSED (you've actually qualified). A future ex-date
+      // means you haven't locked in the dividend yet (could still buy/sell) -> skip for now.
+      if (daysUntil(exd) > 0) continue;
+      if (daysUntil(d.pay_date) > 0) {
+        // Ex-date passed but pay date still future -> owed but not received -> stage in PENDING.
+        PENDING.push({
+          date: d.pay_date,
+          ticker: d.ticker,
+          action: "DIV",
+          qty: +sh.toFixed(4),
+          price: d.amount,
+          pea: pea,
+          broker: pea ? "attijari" : "saham",
+          auto: true,
+          exDate: exd,
+          eligBasis: sh,
+        });
+        pended++;
+      } else {
+        // Pay date reached/passed -> record as a real transaction.
+        TXNS.push({
+          date: d.pay_date,
+          ticker: d.ticker,
+          action: "DIV",
+          qty: +sh.toFixed(4),
+          price: d.amount,
+          pea: pea,
+          broker: pea ? "attijari" : "saham",
+          auto: true,
+          exDate: exd,
+          eligBasis: sh,
+        });
+        added++;
+      }
+    }
+  }
+  saveTxns(TXNS);
+  savePending();
+  let msg = "";
+  if (added) msg += "\u2705 Recorded <b>" + added + "</b> paid dividend(s). ";
+  if (pended)
+    msg +=
+      "\u23F3 Staged <b>" +
+      pended +
+      "</b> not-yet-paid dividend(s) in Pending. ";
+  if (matched)
+    msg += "\uD83D\uDD01 Corrected date on <b>" + matched + "</b> existing. ";
+  if (exact) msg += exact + " already matched. ";
+  if (!added && !pended && !matched && !exact)
+    msg = "No eligible dividends found for your holdings.";
+  document.getElementById("editHint").innerHTML = msg;
+  render();
+  renderPending();
+};
+
+document.getElementById("clearAutoDiv").onclick = async () => {
+  const n = TXNS.filter((t) => t.auto).length;
+  if (n === 0) {
+    document.getElementById("editHint").textContent =
+      "No auto-added dividends to clear.";
+    return;
+  }
+  if (
+    !(await appConfirm(
+      "Remove all " +
+        n +
+        " auto-added dividend row(s)? Your manually-entered transactions are kept.",
+    ))
+  )
+    return;
+  TXNS = TXNS.filter((t) => !t.auto);
+  saveTxns(TXNS);
+  document.getElementById("editHint").innerHTML =
+    "\u2705 Cleared <b>" + n + "</b> auto-added dividend(s).";
+  render();
+};
+
+// ---------- portfolio value history (snapshots) ----------
+let CH_history = null;
+function loadSnapshots() {
+  const s = localStorage.getItem("casa_snapshots_v1");
+  if (s == null) return [];
+  const parsed = safeParseLS("casa_snapshots_v1", s, null, "Value history");
+  return Array.isArray(parsed.value) ? parsed.value : [];
+}
+function saveSnapshots(a) {
+  if (safeSetItem("casa_snapshots_v1", JSON.stringify(a))) markSaved();
+}
+function currentTotals() {
+  const { pos } = runFIFO();
+  const arr = Object.values(pos);
+  return arr.reduce(
+    (a, p) => ({
+      val: a.val + p.value,
+      real: a.real + p.realized,
+      div: a.div + p.divs,
+      life: a.life + p.lifetime,
+      inv: a.inv + (p.held > 0 ? p.invested : 0),
+    }),
+    { val: 0, real: 0, div: 0, life: 0, inv: 0 },
+  );
+}
+function takeSnapshot(auto) {
+  const t = currentTotals();
+  const today = new Date().toISOString().slice(0, 10);
+  let snaps = loadSnapshots();
+  // one snapshot per day \u2014 overwrite same-day
+  snaps = snaps.filter((s) => s.date !== today);
+  let bankedTot = 0,
+    netXfer = 0;
+  try {
+    if (typeof eLoad === "function") {
+      eLoad();
+      const bk = eBucketTotals().banked;
+      bankedTot = Object.values(bk).reduce((a, b) => a + b, 0);
+      netXfer = eCompute().netMDtoBT;
+    }
+  } catch (e) {}
+  snaps.push({
+    date: today,
+    value: +t.val.toFixed(2),
+    invested: +t.inv.toFixed(2),
+    realized: +t.real.toFixed(2),
+    dividends: +t.div.toFixed(2),
+    lifetime: +t.life.toFixed(2),
+    banked: +bankedTot.toFixed(2),
+    netXfer: +netXfer.toFixed(2),
+  });
+  snaps.sort((a, b) => (a.date < b.date ? -1 : 1));
+  saveSnapshots(snaps);
+  if (!auto) {
+    document.getElementById("snapNote").textContent =
+      "Snapshot saved for " + today + ".";
+    renderHistory();
+  }
+  return snaps;
+}
+function renderHistory() {
+  let snaps = loadSnapshots();
+  const note = document.getElementById("snapNote");
+  if (snaps.length < 2) {
+    if (note)
+      note.textContent = snaps.length
+        ? "A value-over-time trend appears after 2+ snapshots. Each backup adds one automatically; you can also click \u201CSave snapshot\u201D anytime."
+        : "No snapshots yet. Each time you back up (or click \u201CSave snapshot\u201D) a point is recorded \u2014 the chart builds from there and travels with your backup file.";
+  } else if (note) {
+    note.textContent =
+      snaps.length +
+      " snapshots \u00B7 " +
+      snaps[0].date +
+      " \u2192 " +
+      snaps[snaps.length - 1].date;
+  }
+  const tx2 = themeColor("text2");
+  const cats = snaps.map((s) => s.date);
+  CH_history = Highcharts.chart("historyChart", {
+    chart: { backgroundColor: "transparent" },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { itemStyle: { color: tx2 } },
+    xAxis: { categories: cats, labels: { style: { color: tx2 } } },
+    yAxis: {
+      title: { text: null },
+      gridLineColor: "#2c3742",
+      labels: { style: { color: tx2 }, format: "{value:,.0f}" },
+    },
+    tooltip: { shared: true, valueDecimals: 0, valueSuffix: " MAD" },
+    series: [
+      {
+        name: "Current Value",
+        type: "area",
+        color: themeColor("primary"),
+        fillOpacity: 0.15,
+        data: snaps.map((s) => s.value),
+      },
+      {
+        name: "Lifetime Return",
+        type: "line",
+        color: themeColor("success"),
+        data: snaps.map((s) => s.lifetime),
+      },
+    ],
+  });
+}
+document.getElementById("snapBtn").onclick = () => takeSnapshot(false);
+// Snapshots are captured on BACKUP (reliable & travels with the file), not daily-on-open.
+
+// ---------- Transactions multi-select (bulk delete) ----------
+function updateTxnBulkBar() {
+  const sel = [...document.querySelectorAll(".txnChk:checked")];
+  const bar = document.getElementById("txnBulkBar");
+  if (!bar) return;
+  if (sel.length) {
+    bar.style.display = "flex";
+    document.getElementById("txnSelCount").textContent =
+      sel.length + " selected";
+  } else bar.style.display = "none";
+}
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains("txnChk"))
+    updateTxnBulkBar();
+  if (e.target && e.target.id === "txnSelectAll") {
+    const on = e.target.checked;
+    document.querySelectorAll(".txnChk").forEach((c) => (c.checked = on));
+    updateTxnBulkBar();
+  }
+});
+document.getElementById("txnClearSel").onclick = () => {
+  document
+    .querySelectorAll(".txnChk,#txnSelectAll")
+    .forEach((c) => (c.checked = false));
+  updateTxnBulkBar();
+};
+document.getElementById("txnDelSel").onclick = async () => {
+  const idxs = [...document.querySelectorAll(".txnChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  if (
+    !(await appConfirm(
+      "Delete " +
+        idxs.length +
+        " selected transaction(s)? This cannot be undone (except via a backup).",
+    ))
+  )
+    return;
+  const drop = new Set(idxs);
+  TXNS = TXNS.filter((t, i) => !drop.has(i));
+  saveTxns(TXNS);
+  render();
+};
+document.getElementById("txnToPending").onclick = async () => {
+  const idxs = [...document.querySelectorAll(".txnChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  const sel = idxs.map((i) => TXNS[i]).filter(Boolean);
+  const divs = sel.filter((t) => t.action === "DIV").length;
+  const movable = sel.filter((t) => t.action !== "DIV");
+  if (!movable.length) {
+    toast(
+      "Dividends cannot be moved to pending. Select BUY/SELL transactions.",
+      "warn",
+    );
+    return;
+  }
+  if (
+    !(await appConfirm(
+      "Move " +
+        movable.length +
+        " transaction(s) to Pending" +
+        (divs ? " (" + divs + " dividend(s) skipped)" : "") +
+        "? They will be removed from Transactions until re-validated.",
+    ))
+  )
+    return;
+  movable.forEach((t) => {
+    const o = {
+      date: t.date,
+      ticker: t.ticker,
+      action: t.action,
+      qty: t.qty,
+      price: t.price,
+      pea: !!t.pea,
+      broker: t.broker || txnBroker(t),
+    };
+    if (typeof t.total === "number" && t.total > 0) o.total = t.total;
+    PENDING.push(o);
+  });
+  const drop = new Set(idxs.filter((i) => TXNS[i] && TXNS[i].action !== "DIV"));
+  TXNS = TXNS.filter((t, i) => !drop.has(i));
+  saveTxns(TXNS);
+  savePending();
+  render();
+  renderPending();
+  toast("Moved " + movable.length + " transaction(s) to Pending.", "ok");
+};
+
+// \u2500\u2500 "Apply to all rows" bar for bulk-edit modals (Transactions + Pending) \u2500\u2500
+// Lets you set Action / Account / Broker / OPCVM once and stamp it onto every row
+// currently shown in the modal, instead of editing each row individually.
+function beBulkBarHTML() {
+  const brokerOpts = Object.keys(BROKERS)
+    .map(
+      (id) =>
+        `<option value="${escapeHtml(id)}">${escapeHtml(BROKERS[id].name)}</option>`,
+    )
+    .join("");
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 11px;margin-bottom:12px;background:var(--panel2);border:1px solid var(--border);border-radius:9px">
+      <span class="mini" style="font-weight:700;color:var(--text)">Apply to all rows:</span>
+      <select id="beAllAction" class="mini"><option value="">Action\u2026</option><option>BUY</option><option>SELL</option><option>DIV</option></select>
+      <select id="beAllAccount" class="mini"><option value="">Account\u2026</option><option value="reg">Regular</option><option value="pea">PEA</option></select>
+      <select id="beAllBroker" class="mini"><option value="">Broker\u2026</option>${brokerOpts}</select>
+      <select id="beAllOpcvm" class="mini"><option value="">OPCVM\u2026</option><option value="1">Fund</option><option value="0">Not fund</option></select>
+      <button class="btn sec2" id="beApplyAll" style="font-size:12px">Apply to all</button>
+    </div>`;
+}
+function wireBeBulkBar() {
+  const btn = document.getElementById("beApplyAll");
+  if (!btn) return;
+  btn.onclick = () => {
+    const act = document.getElementById("beAllAction").value;
+    const acct = document.getElementById("beAllAccount").value;
+    const brk = document.getElementById("beAllBroker").value;
+    const opc = document.getElementById("beAllOpcvm").value;
+    document.querySelectorAll("#bulkEditBody .behdr").forEach((row) => {
+      if (act) {
+        const el = row.querySelector(".beAction");
+        if (el) el.value = act;
+      }
+      if (acct) {
+        const el = row.querySelector(".beAccount");
+        if (el) el.value = acct;
+      }
+      if (brk) {
+        const el = row.querySelector(".beBroker");
+        if (el) el.value = brk;
+      }
+      if (opc !== "") {
+        const el = row.querySelector(".beOpcvm");
+        if (el) el.checked = opc === "1";
+      }
+    });
+  };
+}
+
+document.getElementById("txnEditSel").onclick = () => {
+  const idxs = [...document.querySelectorAll(".txnChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  const m = document.getElementById("bulkEditModal"),
+    body = document.getElementById("bulkEditBody");
+  const tickerOpts = Object.keys(M)
+    .sort()
+    .map((t) => `<option value="${t}">`)
+    .join("");
+  const brokerOpts = (cur) =>
+    Object.keys(BROKERS)
+      .map(
+        (id) =>
+          `<option value="${escapeHtml(id)}"${(cur || "") === id ? " selected" : ""}>${escapeHtml(BROKERS[id].name)}</option>`,
+      )
+      .join("");
+  const GRID =
+    "display:grid;grid-template-columns:118px 110px 78px 68px 82px 88px 92px 100px 54px;gap:7px;align-items:center;margin-bottom:6px;min-width:940px";
+  const rows = idxs
+    .map((i) => {
+      const t = TXNS[i];
+      const curBroker = txnBroker(t);
+      const isOpc =
+        t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
+      return `<div class="behdr" data-idx="${i}" style="${GRID}">
+      <input type="date" class="beDate" value="${t.date}" style="width:100%;box-sizing:border-box">
+      <input list="beTickersTxn" class="beTicker" value="${escapeHtml(t.ticker)}" placeholder="ticker" style="width:100%;box-sizing:border-box">
+      <select class="beAction" style="width:100%;box-sizing:border-box"><option${t.action === "BUY" ? " selected" : ""}>BUY</option><option${t.action === "SELL" ? " selected" : ""}>SELL</option><option${t.action === "DIV" ? " selected" : ""}>DIV</option></select>
+      <input type="number" step="any" class="beQty" value="${t.qty}" placeholder="qty" style="width:100%;box-sizing:border-box">
+      <input type="number" step="any" class="bePrice" value="${t.price}" placeholder="price" style="width:100%;box-sizing:border-box">
+      <input type="number" step="any" class="beTotal" value="${typeof t.total === "number" && t.total > 0 ? t.total : ""}" placeholder="auto" data-tip="Manual total (OPCVM) \u2014 blank = auto" style="width:100%;box-sizing:border-box">
+      <select class="beAccount" style="width:100%;box-sizing:border-box"><option value="reg"${!t.pea ? " selected" : ""}>Regular</option><option value="pea"${t.pea ? " selected" : ""}>PEA</option></select>
+      <select class="beBroker" style="width:100%;box-sizing:border-box" data-tip="Broker (fee model)">${brokerOpts(curBroker)}</select>
+      <label class="mini" style="display:flex;align-items:center;justify-content:center;gap:4px" data-tip="OPCVM fund?"><input type="checkbox" class="beOpcvm"${isOpc ? " checked" : ""}>Fund</label>
+    </div>`;
+    })
+    .join("");
+  body.innerHTML = `<h3 style="margin:0 0 4px">Edit ${idxs.length} transaction(s)</h3>
+    <div class="mini" style="margin-bottom:10px">Adjust date, ticker, action, quantity, price, account, broker or OPCVM flag.</div>
+    <datalist id="beTickersTxn">${tickerOpts}</datalist>
+    ${beBulkBarHTML("Txn")}
+    <div style="${GRID};font-size:11px;color:var(--text2);font-weight:600;margin-bottom:4px"><span>Date</span><span>Ticker</span><span>Action</span><span>Qty</span><span>Price</span><span>Total</span><span>Account</span><span>Broker</span><span>OPCVM</span></div>
+    ${rows}
+    <div class="form-row" style="margin-top:14px"><button class="btn" id="beSave">Save changes</button><button class="btn sec2" id="beCancel">Cancel</button></div>`;
+  m.style.display = "flex";
+  wireBeBulkBar();
+  document.getElementById("beCancel").onclick = () => {
+    m.style.display = "none";
+  };
+  document.getElementById("beSave").onclick = () => {
+    document.querySelectorAll("#bulkEditBody .behdr").forEach((row) => {
+      const i = +row.dataset.idx;
+      const t = TXNS[i];
+      if (!t) return;
+      const date = row.querySelector(".beDate").value;
+      const ticker = row.querySelector(".beTicker").value.trim().toUpperCase();
+      const action = row.querySelector(".beAction").value;
+      const qty = parseFloat(row.querySelector(".beQty").value);
+      const price = parseFloat(row.querySelector(".bePrice").value);
+      const acct = row.querySelector(".beAccount")
+        ? row.querySelector(".beAccount").value
+        : null;
+      const brEl = row.querySelector(".beBroker");
+      const opcEl = row.querySelector(".beOpcvm");
+      const totEl = row.querySelector(".beTotal");
+      const totV = totEl ? parseFloat(totEl.value) : NaN;
+      if (date) t.date = date;
+      if (ticker) t.ticker = ticker;
+      if (action) t.action = action;
+      if (!isNaN(qty)) t.qty = qty;
+      if (!isNaN(price)) t.price = price;
+      if (acct) t.pea = acct === "pea";
+      if (brEl && brEl.value) t.broker = brEl.value;
+      if (opcEl) t.opcvm = opcEl.checked;
+      if (totEl) {
+        if (!isNaN(totV) && totV > 0) t.total = totV;
+        else delete t.total;
+      }
+      if (t.auto) delete t.auto; // manual edit -> no longer auto
+    });
+    saveTxns(TXNS);
+    m.style.display = "none";
+    render();
+  };
+};
+
+// ---------- ledger search ----------
+(function () {
+  const el = document.getElementById("txnSearch");
+  if (!el) return;
+  el.addEventListener("input", () => {
+    const { enriched } = runFIFO();
+    renderTxns(enriched);
+  });
+})();
+
+// fee panel collapse toggle
+(function () {
+  const h = document.getElementById("feeToggle");
+  if (!h) return;
+  h.onclick = () => {
+    const b = document.getElementById("feeBody"),
+      ch = document.getElementById("feeChevron");
+    const open = b.style.display !== "none";
+    b.style.display = open ? "none" : "block";
+    if (ch) ch.textContent = open ? "\u25b8 Show" : "\u25be Hide";
+  };
+})();
+
+// ---------- generic collapsible sections ----------
+document.addEventListener("click", function (e) {
+  const h = e.target.closest && e.target.closest("h2.collap");
+  if (!h) return;
+  const body = h.nextElementSibling;
+  if (!body || !body.classList.contains("collap-body")) return;
+  const open = body.style.display !== "none";
+  body.style.display = open ? "none" : "block";
+  const ch = h.querySelector(".collap-ch");
+  if (ch) ch.textContent = open ? "\u25B8 Show" : "\u25BE Hide";
+});
+
+// ---------- pending indicators (dashboard banner + positions) ----------
+function pendingByTicker() {
+  const m = {};
+  PENDING.forEach((o) => {
+    (m[o.ticker] = m[o.ticker] || []).push(o);
+  });
+  return m;
+}
+function renderPendingBanner() {
+  const el = document.getElementById("pendingBanner");
+  if (!el) return;
+  if (!PENDING.length) {
+    el.innerHTML = "";
+    return;
+  }
+  const buys = PENDING.filter((o) => o.action === "BUY").length,
+    sells = PENDING.filter((o) => o.action === "SELL").length,
+    divs = PENDING.filter((o) => o.action === "DIV").length;
+  const parts = [];
+  if (buys) parts.push(buys + " buy");
+  if (sells) parts.push(sells + " sell");
+  if (divs) parts.push(divs + " dividend" + (divs > 1 ? "s" : ""));
+  el.innerHTML = `<div class="sec" style="border-color:var(--warn);cursor:pointer;margin-bottom:14px" data-act="gotoTab" data-args="pending">
+    <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">\u23F3</span>
+    <div><b>${PENDING.length} pending item${PENDING.length > 1 ? "s" : ""}</b> <span class="mini">(${parts.join(" \u00B7 ")})</span> \u2014 not yet executed/received. Click to review in the Pending tab.</div></div></div>`;
+}
+
+// ---------- pending orders ----------
+let PENDING = (() => {
+  const s = localStorage.getItem("casa_pending_v1");
+  if (s == null) return [];
+  const parsed = safeParseLS("casa_pending_v1", s, null, "Pending orders");
+  return Array.isArray(parsed.value) ? parsed.value : [];
+})();
+function savePending() {
+  if (safeSetItem("casa_pending_v1", JSON.stringify(PENDING))) markSaved();
+  else markSaveFailed();
+}
+let PEND_EDIT = null;
+function readPendingForm() {
+  const g = (id) => document.getElementById(id);
+  const o = {
+    date: g("pDate").value,
+    ticker: g("pTicker").value.trim().toUpperCase(),
+    action: g("pAction").value,
+    qty: parseFloat(g("pQty").value),
+    price: parseFloat(g("pPrice").value),
+    pea: g("pPea").checked,
+    opcvm: g("pOpcvm").checked,
+    broker: g("pBroker").value,
+  };
+  const tot = parseFloat(g("pTotal").value);
+  if (!isNaN(tot) && tot > 0) o.total = tot;
+
+  if ((isNaN(o.price) || !o.price) && o.total > 0 && o.qty)
+    o.price = o.total / o.qty;
+  return o;
+}
+
+document.getElementById("clearPendDiv").onclick = async () => {
+  const n = PENDING.filter((o) => o.action === "DIV").length;
+  if (n === 0) {
+    toast("No pending dividends to clear.", "warn");
+    return;
+  }
+  if (
+    !(await appConfirm(
+      "Remove all " +
+        n +
+        " pending dividend(s)? (Pending buy/sell orders are kept.)",
+    ))
+  )
+    return;
+  PENDING = PENDING.filter((o) => o.action !== "DIV");
+  savePending();
+  renderPending();
+};
+
+document.getElementById("addPending").onclick = () => {
+  const o = readPendingForm();
+  if (!o.date || !o.ticker || !o.qty || (!o.price && !o.total)) {
+    toast("Fill date, ticker, quantity and price (or total).", "warn");
+    return;
+  }
+  // --- Tier 2 additive validation (pending orders): reject malformed values. ---
+  if (!validTxnDate(o.date)) {
+    toast("Date must be a real calendar date (YYYY-MM-DD).", "warn");
+    return;
+  }
+  if (!(o.qty > 0) || !isFinite(o.qty)) {
+    toast("Quantity must be a positive number.", "warn");
+    return;
+  }
+  if (
+    o.price != null &&
+    o.price !== "" &&
+    (!(o.price > 0) || !isFinite(o.price))
+  ) {
+    toast("Unit price must be a positive number.", "warn");
+    return;
+  }
+  if (
+    o.total != null &&
+    o.total !== "" &&
+    (!(o.total > 0) || !isFinite(o.total))
+  ) {
+    toast("Total must be a positive number.", "warn");
+    return;
+  }
+  // --- end Tier 2 validation ---
+  if (o.opcvm && !(M[o.ticker] && M[o.ticker].cat === "OPCVM")) {
+    registerOpcvm(o.ticker, (document.getElementById("pFundName") || {}).value);
+  } else if (o.opcvm && M[o.ticker] && M[o.ticker].cat === "OPCVM") {
+    const _fn = (document.getElementById("pFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      M[o.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  } else {
+    const _fn = (document.getElementById("pFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      if (!M[o.ticker])
+        M[o.ticker] = {
+          name: _fn.trim(),
+          cat: "STOCK",
+          cycle: null,
+          style: null,
+          price: o.price || null,
+        };
+      else M[o.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  }
+  let _pFracWarn = "";
+  if (!o.opcvm && Math.abs(o.qty - Math.round(o.qty)) > 1e-9) {
+    _pFracWarn =
+      "\u26a0\ufe0f Kept fractional stock qty " +
+      o.qty +
+      " for " +
+      o.ticker +
+      " (stocks usually trade in whole shares).";
+  }
+  // Off-target sanity check (buy above ideal entry / sell below ideal exit)
+  {
+    const _tf = pendingTargetFlag(o);
+    if (_tf) {
+      _pFracWarn =
+        (_pFracWarn ? _pFracWarn + " " : "") + "\u26a0\ufe0f " + _tf.msg;
+    }
+  }
+  if (PEND_EDIT != null) {
+    PENDING[PEND_EDIT] = o;
+    PEND_EDIT = null;
+    document.getElementById("addPending").textContent = "Add order";
+    document.getElementById("cancelPendingEdit").style.display = "none";
+    document.getElementById("pendHint").textContent = "";
+  } else PENDING.push(o);
+  savePending();
+  ["pQty", "pPrice", "pTotal"].forEach(
+    (id) => (document.getElementById(id).value = ""),
+  );
+  document.getElementById("pPea").checked = true;
+  document.getElementById("pOpcvm").checked = false;
+  {
+    const _d = document.getElementById("pDate");
+    if (_d && PEND_EDIT == null) _d.value = _qwTodayISO();
+  }
+  {
+    const _fn = document.getElementById("pFundName");
+    if (_fn) {
+      _fn.value = "";
+    }
+  }
+  {
+    const _tt = document.getElementById("pTotal");
+    if (_tt) {
+      _tt.dataset.auto = "";
+    }
+  }
+  {
+    const _pc = document.getElementById("pendCalc");
+    if (_pc) _pc.textContent = "";
+  }
+  renderPending();
+  if (_pFracWarn) {
+    const ph = document.getElementById("pendHint");
+    if (ph) {
+      ph.style.color = "var(--warn)";
+      ph.textContent = _pFracWarn;
+      setTimeout(() => {
+        if (ph.textContent === _pFracWarn) {
+          ph.textContent = "";
+          ph.style.color = "";
+        }
+      }, 12000);
+    }
+  }
+};
+document.getElementById("cancelPendingEdit").onclick = () => {
+  PEND_EDIT = null;
+  document.getElementById("addPending").textContent = "Add order";
+  document.getElementById("cancelPendingEdit").style.display = "none";
+  document.getElementById("pendHint").textContent = "";
+  ["pQty", "pPrice", "pTotal"].forEach(
+    (id) => (document.getElementById(id).value = ""),
+  );
+  document.getElementById("pPea").checked = true;
+  document.getElementById("pOpcvm").checked = false;
+  {
+    const _d = document.getElementById("pDate");
+    if (_d && PEND_EDIT == null) _d.value = _qwTodayISO();
+  }
+  {
+    const _fn = document.getElementById("pFundName");
+    if (_fn) {
+      _fn.value = "";
+    }
+  }
+  {
+    const _tt = document.getElementById("pTotal");
+    if (_tt) {
+      _tt.dataset.auto = "";
+    }
+  }
+  {
+    const _pc = document.getElementById("pendCalc");
+    if (_pc) _pc.textContent = "";
+  }
+};
+
+window.prefillDividend = function (tk, amount, payDate, exDate) {
+  // Prefill a DIV transaction in the Transactions Add form. Qty = eligible shares at ex-date.
+  const elig = exDate
+    ? heldBefore(tk, false, exDate) + heldBefore(tk, true, exDate)
+    : 0;
+  gotoTab("transactions");
+  const g = (id) => document.getElementById(id);
+  if (g("tDate")) g("tDate").value = payDate;
+  if (g("tTicker")) g("tTicker").value = tk;
+  setKindBadge(document.getElementById("tKind"), tk);
+  if (g("tAction")) g("tAction").value = "DIV";
+  if (g("tQty")) g("tQty").value = elig || "";
+  if (g("tPrice")) g("tPrice").value = amount;
+  if (g("tTotal")) g("tTotal").value = "";
+  if (g("tPea")) g("tPea").checked = false;
+  if (typeof liveCalc === "function") liveCalc();
+  const hint = g("editHint");
+  if (hint) {
+    hint.style.color = "var(--info)";
+    hint.textContent =
+      "Drafting dividend for " +
+      tk +
+      " \u2014 " +
+      (elig ? money(elig, elig % 1 ? 3 : 0) + " sh" : "set qty") +
+      " @ " +
+      money(amount) +
+      "/sh on " +
+      payDate +
+      ". Review & Add.";
+  }
+  if (g("tQty")) setTimeout(() => g("tQty").focus(), 60);
+};
+
+window.prefillPending = function (tk) {
+  const px = M[tk] && M[tk].price != null ? M[tk].price : "";
+  gotoTab("pending");
+  const g = (id) => document.getElementById(id);
+  if (g("pDate")) g("pDate").value = _qwTodayISO();
+  if (g("pTicker")) g("pTicker").value = tk;
+  setKindBadge(document.getElementById("pKind"), tk);
+  if (g("pAction")) g("pAction").value = "BUY";
+  if (g("pPrice")) g("pPrice").value = px;
+  if (g("pQty")) {
+    g("pQty").value = "";
+    setTimeout(() => g("pQty").focus(), 50);
+  }
+  const hint = g("pendHint");
+  if (hint) {
+    hint.style.color = "var(--info)";
+    hint.textContent =
+      "Drafting order for " +
+      tk +
+      " at " +
+      (px ? money(px) + " MAD" : "(no price)") +
+      " \u2014 set quantity and Add.";
+  }
+};
+
+window.editPending = function (i) {
+  const o = PENDING[i];
+  if (!o) return;
+  PEND_EDIT = i;
+  window._loadingEditForm = true;
+  document.getElementById("pDate").value = o.date;
+  document.getElementById("pTicker").value = o.ticker;
+  setKindBadge(document.getElementById("pKind"), o.ticker);
+  document.getElementById("pAction").value = o.action;
+  document.getElementById("pQty").value = o.qty;
+  document.getElementById("pPrice").value = o.price != null ? o.price : "";
+  document.getElementById("pTotal").value = o.total != null ? o.total : "";
+  {
+    const _tt = document.getElementById("pTotal");
+    if (_tt) _tt.dataset.auto = "";
+  }
+  {
+    const _nf = document.getElementById("pFundName");
+    if (_nf) _nf.value = (M[o.ticker] && M[o.ticker].name) || "";
+  }
+  document.getElementById("pPea").checked = !!o.pea;
+  document.getElementById("pOpcvm").checked =
+    o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
+  document.getElementById("pOpcvm").dispatchEvent(new Event("change"));
+  window._loadingEditForm = false;
+  document.getElementById("addPending").textContent = "Update order";
+  document.getElementById("cancelPendingEdit").style.display = "";
+  document.getElementById("pendHint").textContent =
+    "Editing pending order \u2014 change fields and press Update.";
+  window.scrollTo(0, 0);
+};
+window.delPending = async function (i) {
+  if (!(await appConfirm("Delete (cancel) this pending order?"))) return;
+  PENDING.splice(i, 1);
+  savePending();
+  renderPending();
+};
+window.validatePending = async function (i) {
+  const o = PENDING[i];
+  if (!o) return;
+  const isDiv = o.action === "DIV";
+  const f = await appFillDialog(o, isDiv, money);
+  if (f === null) return;
+  const fillDate = f.date;
+  if (fillDate === null || String(fillDate).trim() === "") {
+    toast("Please enter a date.", "warn");
+    return;
+  }
+  const px = parseFloat(String(f.price).replace(",", "."));
+  if (isNaN(px) || px <= 0) {
+    toast("Invalid amount.", "warn");
+    return;
+  }
+  // --- Partial fill (BUY/SELL only) ---
+  let fillQty = o.qty;
+  if (!isDiv) {
+    const qv = parseFloat(String(f.qty).replace(",", "."));
+    if (isNaN(qv) || qv <= 0) {
+      toast("Invalid quantity.", "warn");
+      return;
+    }
+    if (qv > o.qty + 1e-9) {
+      toast(
+        "Executed quantity (" +
+          money(qv, qv % 1 ? 3 : 0) +
+          ") cannot exceed the pending order (" +
+          money(o.qty, o.qty % 1 ? 3 : 0) +
+          ").",
+        "err",
+      );
+      return;
+    }
+    fillQty = qv;
+  }
+  const partial = !isDiv && fillQty < o.qty - 1e-9;
+  const t = {
+    date: String(fillDate).trim(),
+    ticker: o.ticker,
+    action: o.action,
+    qty: fillQty,
+    price: px,
+    pea: !!o.pea,
+    broker: o.broker || txnBroker(o),
+  };
+  if (o.opcvm === true || (M[o.ticker] && M[o.ticker].cat === "OPCVM"))
+    t.opcvm = true;
+  if (isDiv) {
+    if (o.exDate) t.exDate = o.exDate;
+    if (o.eligBasis != null) t.eligBasis = o.eligBasis;
+    t.auto = true;
+  } else if (o.total != null) {
+    // total from dialog; blank => proportional default (qty\u00D7price implied downstream)
+    const raw = f.total;
+    if (raw != null && String(raw).trim() !== "") {
+      const tv = parseFloat(String(raw).replace(",", "."));
+      if (!isNaN(tv) && tv > 0) t.total = tv;
+    } else {
+      t.total = +(o.total * (fillQty / o.qty)).toFixed(2);
+    }
+  }
+  TXNS.push(t);
+  saveTxns(TXNS);
+  if (partial) {
+    const remQty = +(o.qty - fillQty).toFixed(6);
+    o.qty = remQty;
+    if (o.total != null)
+      o.total = +(o.total * (remQty / (remQty + fillQty))).toFixed(2);
+    PENDING[i] = o;
+    savePending();
+  } else {
+    PENDING.splice(i, 1);
+    savePending();
+  }
+  render();
+  renderPending();
+  toast(
+    isDiv
+      ? "Dividend recorded \u2014 added to Transactions."
+      : partial
+        ? "Partial fill: " +
+          money(fillQty, fillQty % 1 ? 3 : 0) +
+          " added to Transactions. " +
+          money(o.qty, o.qty % 1 ? 3 : 0) +
+          " left pending."
+        : "Order validated \u2014 added to Transactions.",
+    "ok",
+  );
+};
+
+// ---------- Pending multi-select (bulk edit / validate / delete) ----------
+function updatePendBulkBar() {
+  const sel = [...document.querySelectorAll(".pendChk:checked")];
+  const bar = document.getElementById("pendBulkBar");
+  if (!bar) return;
+  if (sel.length) {
+    bar.style.display = "flex";
+    document.getElementById("pendSelCount").textContent =
+      sel.length + " selected";
+  } else bar.style.display = "none";
+}
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.classList && e.target.classList.contains("pendChk"))
+    updatePendBulkBar();
+  if (e.target && e.target.id === "pendSelectAll") {
+    const on = e.target.checked;
+    document.querySelectorAll(".pendChk").forEach((c) => (c.checked = on));
+    updatePendBulkBar();
+  }
+});
+document.getElementById("pendClearSel").onclick = () => {
+  document
+    .querySelectorAll(".pendChk,#pendSelectAll")
+    .forEach((c) => (c.checked = false));
+  updatePendBulkBar();
+};
+
+document.getElementById("pendDelSel").onclick = async () => {
+  const idxs = [...document.querySelectorAll(".pendChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  if (
+    !(await appConfirm(
+      "Delete " +
+        idxs.length +
+        " selected pending order(s)? This cancels them (recoverable only via a backup).",
+    ))
+  )
+    return;
+  const drop = new Set(idxs);
+  PENDING = PENDING.filter((o, i) => !drop.has(i));
+  savePending();
+  renderPending();
+};
+
+document.getElementById("pendValSel").onclick = async () => {
+  // Validate selected BUY/SELL/DIV orders one-by-one, reusing validatePending (per-order fill prompts).
+  // Indices shift as orders are removed/reduced, so resolve each selected order by identity, newest first.
+  const idxs = [...document.querySelectorAll(".pendChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  const targets = idxs.map((i) => PENDING[i]).filter(Boolean);
+  if (
+    !(await appConfirm(
+      "Validate " +
+        targets.length +
+        " selected order(s)? You will be asked for fill details for each \u2014 press Cancel on any prompt to skip that one.",
+    ))
+  )
+    return;
+  targets.forEach((o) => {
+    const cur = PENDING.indexOf(o); // resolve by identity \u2014 indices shift as orders are removed/reduced
+    if (cur < 0) return; // already fully filled/removed
+    validatePending(cur); // handles full or partial fill + its own confirmation
+  });
+  document
+    .querySelectorAll(".pendChk,#pendSelectAll")
+    .forEach((c) => (c.checked = false));
+  updatePendBulkBar();
+  renderPending();
+};
+
+document.getElementById("pendEditSel").onclick = () => {
+  const idxs = [...document.querySelectorAll(".pendChk:checked")].map(
+    (c) => +c.dataset.idx,
+  );
+  if (!idxs.length) return;
+  const m = document.getElementById("bulkEditModal"),
+    body = document.getElementById("bulkEditBody");
+  const tickerOpts = Object.keys(M)
+    .sort()
+    .map((t) => `<option value="${t}">`)
+    .join("");
+  const brokerOpts = (cur) =>
+    Object.keys(BROKERS)
+      .map(
+        (id) =>
+          `<option value="${escapeHtml(id)}"${(cur || "") === id ? " selected" : ""}>${escapeHtml(BROKERS[id].name)}</option>`,
+      )
+      .join("");
+  const GRID =
+    "display:grid;grid-template-columns:118px 110px 78px 68px 82px 88px 92px 100px 54px;gap:7px;align-items:center;margin-bottom:6px;min-width:940px";
+  const rows = idxs
+    .map((i) => {
+      const o = PENDING[i];
+      const curBroker = txnBroker(o);
+      const isOpc =
+        o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
+      return `<div class="behdr" data-idx="${i}" style="${GRID}">
+      <input type="date" class="beDate" value="${o.date}" style="width:100%;box-sizing:border-box">
+      <input list="beTickersPend" class="beTicker" value="${o.ticker}" placeholder="ticker" style="width:100%;box-sizing:border-box">
+      <select class="beAction" style="width:100%;box-sizing:border-box"><option${o.action === "BUY" ? " selected" : ""}>BUY</option><option${o.action === "SELL" ? " selected" : ""}>SELL</option><option${o.action === "DIV" ? " selected" : ""}>DIV</option></select>
+      <input type="number" step="any" class="beQty" value="${o.qty}" placeholder="qty" style="width:100%;box-sizing:border-box">
+      <input type="number" step="any" class="bePrice" value="${o.price != null ? o.price : ""}" placeholder="price" style="width:100%;box-sizing:border-box">
+      <input type="number" step="any" class="beTotal" value="${typeof o.total === "number" && o.total > 0 ? o.total : ""}" placeholder="auto" data-tip="Manual total (OPCVM) \u2014 blank = auto" style="width:100%;box-sizing:border-box">
+      <select class="beAccount" style="width:100%;box-sizing:border-box"><option value="reg"${!o.pea ? " selected" : ""}>Regular</option><option value="pea"${o.pea ? " selected" : ""}>PEA</option></select>
+      <select class="beBroker" style="width:100%;box-sizing:border-box" data-tip="Broker (fee model)">${brokerOpts(curBroker)}</select>
+      <label class="mini" style="display:flex;align-items:center;justify-content:center;gap:4px" data-tip="OPCVM fund?"><input type="checkbox" class="beOpcvm"${isOpc ? " checked" : ""}>Fund</label>
+    </div>`;
+    })
+    .join("");
+  body.innerHTML = `<h3 style="margin:0 0 4px">Edit ${idxs.length} pending order(s)</h3>
+    <div class="mini" style="margin-bottom:10px">Adjust date, ticker, action, quantity, price, total, account, broker or OPCVM flag. These stay in Pending until validated.</div>
+    <datalist id="beTickersPend">${tickerOpts}</datalist>
+    ${beBulkBarHTML("Pend")}
+    <div style="${GRID};font-size:11px;color:var(--text2);font-weight:600;margin-bottom:4px"><span>Date</span><span>Ticker</span><span>Action</span><span>Qty</span><span>Price</span><span>Total</span><span>Account</span><span>Broker</span><span>OPCVM</span></div>
+    ${rows}
+    <div class="form-row" style="margin-top:14px"><button class="btn" id="beSavePend">Save changes</button><button class="btn sec2" id="beCancelPend">Cancel</button></div>`;
+  m.style.display = "flex";
+  wireBeBulkBar();
+  document.getElementById("beCancelPend").onclick = () => {
+    m.style.display = "none";
+  };
+  document.getElementById("beSavePend").onclick = () => {
+    document.querySelectorAll("#bulkEditBody .behdr").forEach((row) => {
+      const i = +row.dataset.idx;
+      const o = PENDING[i];
+      if (!o) return;
+      const date = row.querySelector(".beDate").value;
+      const ticker = row.querySelector(".beTicker").value.trim().toUpperCase();
+      const action = row.querySelector(".beAction").value;
+      const qty = parseFloat(row.querySelector(".beQty").value);
+      const price = parseFloat(row.querySelector(".bePrice").value);
+      const acct = row.querySelector(".beAccount")
+        ? row.querySelector(".beAccount").value
+        : null;
+      const brEl = row.querySelector(".beBroker");
+      const opcEl = row.querySelector(".beOpcvm");
+      const totEl = row.querySelector(".beTotal");
+      const totV = totEl ? parseFloat(totEl.value) : NaN;
+      if (date) o.date = date;
+      if (ticker) o.ticker = ticker;
+      if (action) o.action = action;
+      if (!isNaN(qty) && qty > 0) o.qty = qty;
+      if (!isNaN(price)) o.price = price;
+      if (acct) o.pea = acct === "pea";
+      if (brEl && brEl.value) o.broker = brEl.value;
+      if (opcEl) o.opcvm = opcEl.checked;
+      if (totEl) {
+        if (!isNaN(totV) && totV > 0) o.total = totV;
+        else delete o.total;
+      }
+    });
+    savePending();
+    m.style.display = "none";
+    document
+      .querySelectorAll(".pendChk,#pendSelectAll")
+      .forEach((c) => (c.checked = false));
+    updatePendBulkBar();
+    renderPending();
+  };
+};
+
+// Expected P&L for a pending SELL: net proceeds (at order price) \u2212 FIFO cost of shares sold.
+function pendingSellPnl(o) {
+  if (o.action !== "SELL") return null;
+  const { pos } = runFIFO();
+  const k = o.ticker + "||" + (o.pea ? "PEA" : "REG");
+  const p = pos[k];
+  if (!p || p.held <= 1e-9) return { pnl: null, note: "no holding" };
+  const qty = Math.min(o.qty, p.held); // can only sell what you hold
+  const avg = p.avg; // FIFO avg cost/share (incl. buy fees)
+  // Net proceeds at the order price (or manual total), applying sell fees + TPCVM (0 for PEA)
+  const r = computeRow(
+    {
+      action: "SELL",
+      qty: qty,
+      price: o.price,
+      pea: o.pea,
+      total: o.total,
+    },
+    avg,
+  );
+  const proceeds = r.net; // net cash received
+  const cost = qty * avg;
+  return { pnl: proceeds - cost, qty: qty, capped: o.qty > p.held };
+}
+
+// --- Pending order sanity flag: compare the ORDER price to the ideal target ---
+// BUY  : order price materially ABOVE target buy  -> paying above ideal entry (\u26A0).
+// SELL : order price materially BELOW target sell -> selling below ideal exit (\u26A0).
+// Uses the same 10% threshold as the Signals/Rebalance "above target" flag.
+// Rich hover tooltip for a pending order's ticker: shows the target buy/sell + fair value
+// (mirrors the Signals tab), so the user can judge without switching tabs.
+function pendingSignalTipHTML(o) {
+  const m = M[o.ticker];
+  const row = _tipRow; // shared tooltip row builder (gap:18px)
+  let h =
+    '<div style="font-weight:700;margin-bottom:6px">' +
+    escapeHtml(o.ticker) +
+    ' \u2014 Signal targets <span class="mini">(' +
+    (o.pea ? "PEA" : "Regular") +
+    ")</span></div>";
+  if (!m) {
+    h +=
+      '<div class="mini" style="color:var(--muted)">No master data for this ticker yet \u2014 add it in Signals/Data to see targets.</div>';
+    return h;
+  }
+  if (m.cat === "OPCVM") {
+    h +=
+      '<div class="mini" style="color:var(--muted)">OPCVM fund \u2014 no buy/sell target model (NAV-based).</div>';
+    return h;
+  }
+  const sc = typeof factorScores === "function" ? factorScores(m) : null;
+  const fv = typeof fairValue === "function" ? fairValue(m) : null;
+  const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
+  const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
+  const px = m.price != null ? m.price : o.price;
+  const s = sc && sc.score != null ? sc.score : null;
+  h += row("Fair value", fv != null ? money(fv) + " MAD" : "\u2014");
+  if (s != null) h += row("Signal score", (s * 100).toFixed(0) + "%");
+  h +=
+    '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+  h += row(
+    '<b>Target Buy</b> <span class="mini">(ideal entry)</span>',
+    '<b class="pos">' + (tb != null ? money(tb) + " MAD" : "\u2014") + "</b>",
+  );
+  h += row(
+    '<b>Target Sell</b> <span class="mini">(ideal exit)</span>',
+    '<b class="neg">' + (ts != null ? money(ts) + " MAD" : "\u2014") + "</b>",
+  );
+  h += row("Live price", px != null ? money(px) + " MAD" : "\u2014");
+  // How does THIS order price sit vs the relevant target?
+  if (o.price != null && isFinite(o.price)) {
+    h +=
+      '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
+    if (o.action === "BUY" && tb != null && tb > 0) {
+      const a = (o.price - tb) / tb;
+      const good = a <= 0;
+      h += row(
+        "Your buy vs target",
+        "<b>" + (a >= 0 ? "+" : "") + (a * 100).toFixed(0) + "%</b>",
+        good ? "pos" : "neg",
+      );
+      if (fv != null && isFinite(fv) && fv > 0) {
+        const vf = (o.price - fv) / fv; // + = above fair value
+        h += row(
+          "Your buy vs fair value",
+          "<b>" + (vf >= 0 ? "+" : "") + (vf * 100).toFixed(0) + "%</b>",
+          vf <= 0 ? "pos" : "neg",
+        );
+      }
+      h +=
+        '<div class="mini" style="margin-top:4px">' +
+        (good
+          ? "\u2713 At or below ideal entry \u2014 good."
+          : a <= ABOVE_TGT_THRESH
+            ? "Slightly above ideal entry."
+            : fv != null && o.price > fv
+              ? "\u26A0\uFE0F Above fair value \u2014 overpaying vs intrinsic worth."
+              : "\u26A0\uFE0F Above ideal entry (still below fair value) \u2014 you\u2019re paying up vs the margin-of-safety price.") +
+        "</div>";
+    } else if (o.action === "SELL" && ts != null && ts > 0) {
+      const b = (ts - o.price) / ts;
+      const good = b <= 0;
+      h += row(
+        "Your sell vs target",
+        "<b>" +
+          (b > 0 ? "\u2212" : "+") +
+          Math.abs(b * 100).toFixed(0) +
+          "%</b>",
+        good ? "pos" : "neg",
+      );
+      if (fv != null && isFinite(fv) && fv > 0) {
+        const vf = (o.price - fv) / fv; // + = above fair value (good for a sell)
+        h += row(
+          "Your sell vs fair value",
+          "<b>" + (vf >= 0 ? "+" : "") + (vf * 100).toFixed(0) + "%</b>",
+          vf >= 0 ? "pos" : "neg",
+        );
+      }
+      h +=
+        '<div class="mini" style="margin-top:4px">' +
+        (good
+          ? "\u2713 At or above ideal exit \u2014 good."
+          : b <= ABOVE_TGT_THRESH
+            ? "Slightly below ideal exit."
+            : fv != null && o.price < fv
+              ? "\u26A0\uFE0F Below fair value \u2014 selling under intrinsic worth."
+              : "\u26A0\uFE0F Below ideal exit (still above fair value) \u2014 a decent exit, short of the premium target.") +
+        "</div>";
+    }
+  }
+  return h;
+}
+function pendingTargetFlag(o) {
+  if (!o || o.price == null || !isFinite(o.price)) return null;
+  const m = M[o.ticker];
+  if (!m || m.cat === "OPCVM") return null; // OPCVM has no target model
+  const sc = typeof factorScores === "function" ? factorScores(m) : null;
+  if (o.action === "BUY") {
+    const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
+    if (tb == null || !isFinite(tb) || tb <= 0) return null;
+    const a = (o.price - tb) / tb; // + means above ideal entry
+    if (a <= ABOVE_TGT_THRESH) return null;
+    // Message depends on where the buy price sits RELATIVE TO FAIR VALUE, not just target buy.
+    // Target Buy = fair value MINUS a 10-30% margin of safety, so it sits BELOW fair value.
+    // A price can clear the target-buy+10% flag while still being (a) below fair value
+    // (undervalued, just paying above the ideal discounted entry) OR (b) above fair value
+    // (genuinely overpaying). Word it correctly for each case.
+    const fv = typeof fairValue === "function" ? fairValue(m) : null;
+    let msg;
+    if (fv != null && isFinite(fv) && fv > 0 && o.price > fv) {
+      const over = (o.price - fv) / fv;
+      msg =
+        "Buy price " +
+        money(o.price) +
+        " is " +
+        (a * 100).toFixed(0) +
+        "% above the ideal entry (target buy " +
+        money(tb) +
+        " MAD) AND " +
+        (over * 100).toFixed(0) +
+        "% ABOVE fair value (" +
+        money(fv) +
+        " MAD) \u2014 you\u2019d be overpaying vs intrinsic worth. Reconsider before executing.";
+    } else if (fv != null && isFinite(fv) && fv > 0) {
+      const disc = (fv - o.price) / fv;
+      msg =
+        "Buy price " +
+        money(o.price) +
+        " is " +
+        (a * 100).toFixed(0) +
+        "% above the ideal entry (target buy " +
+        money(tb) +
+        " MAD). It is still " +
+        (disc * 100).toFixed(0) +
+        "% below fair value (" +
+        money(fv) +
+        " MAD) \u2014 undervalued vs intrinsic worth, but above the discounted entry the model prefers as a margin of safety. Target buy = fair value \u2212 margin of safety, so it sits below fair value by design.";
+    } else {
+      msg =
+        "Buy price " +
+        money(o.price) +
+        " is " +
+        (a * 100).toFixed(0) +
+        "% above the ideal entry (target buy " +
+        money(tb) +
+        " MAD) \u2014 double-check before executing.";
+    }
+    return { kind: "buy", pct: a, ref: tb, msg: msg };
+  }
+  if (o.action === "SELL") {
+    const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
+    if (ts == null || !isFinite(ts) || ts <= 0) return null;
+    const b = (ts - o.price) / ts; // + means below ideal exit
+    if (b <= ABOVE_TGT_THRESH) return null;
+    // Message depends on where the sell price sits RELATIVE TO FAIR VALUE, not just target sell.
+    // Target Sell = fair value PLUS a 12-40% premium, so it sits ABOVE fair value. A sell price
+    // can trip the (>10% below target-sell) flag while still being (a) above fair value (a decent
+    // exit, just short of the ideal premium) OR (b) below fair value (selling under intrinsic
+    // worth \u2014 a stronger warning). Word it correctly for each case.
+    const fv = typeof fairValue === "function" ? fairValue(m) : null;
+    let msg;
+    if (fv != null && isFinite(fv) && fv > 0 && o.price < fv) {
+      const under = (fv - o.price) / fv;
+      msg =
+        "Sell price " +
+        money(o.price) +
+        " is " +
+        (b * 100).toFixed(0) +
+        "% below the ideal exit (target sell " +
+        money(ts) +
+        " MAD) AND " +
+        (under * 100).toFixed(0) +
+        "% BELOW fair value (" +
+        money(fv) +
+        " MAD) \u2014 you\u2019d be selling under intrinsic worth. Reconsider before executing.";
+    } else if (fv != null && isFinite(fv) && fv > 0) {
+      const prem = (o.price - fv) / fv;
+      msg =
+        "Sell price " +
+        money(o.price) +
+        " is " +
+        (b * 100).toFixed(0) +
+        "% below the ideal exit (target sell " +
+        money(ts) +
+        " MAD). It is still " +
+        (prem * 100).toFixed(0) +
+        "% above fair value (" +
+        money(fv) +
+        " MAD) \u2014 a decent exit above intrinsic worth, just short of the premium the model targets. Target sell = fair value + premium, so it sits above fair value by design.";
+    } else {
+      msg =
+        "Sell price " +
+        money(o.price) +
+        " is " +
+        (b * 100).toFixed(0) +
+        "% below the ideal exit (target sell " +
+        money(ts) +
+        " MAD). You may be leaving money on the table \u2014 double-check before executing.";
+    }
+    return { kind: "sell", pct: b, ref: ts, msg: msg };
+  }
+  return null;
+}
+function pendingFlagBadge(o) {
+  const f = pendingTargetFlag(o);
+  if (!f) return "";
+  const label =
+    f.kind === "buy"
+      ? "\u26a0 +" + (f.pct * 100).toFixed(0) + "% vs tgt buy"
+      : "\u26a0 \u2212" + (f.pct * 100).toFixed(0) + "% vs tgt sell";
+  return (
+    ' <span class="badge b-abovetgt" style="cursor:help" data-tip="' +
+    encodeURIComponent(f.msg) +
+    '">' +
+    label +
+    "</span>"
+  );
+}
+// Ticker color verdict for the Pending tab: green if buying at/below target buy
+// or selling at/above target sell; red if buying above target buy or selling
+// below target sell; neutral if no target model (OPCVM / missing data / no price).
+function pendingPriceVerdict(o) {
+  if (!o || o.price == null || !isFinite(o.price)) return null;
+  const m = M[o.ticker];
+  if (!m || m.cat === "OPCVM") return null;
+  const sc = typeof factorScores === "function" ? factorScores(m) : null;
+  if (o.action === "BUY") {
+    const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
+    if (tb == null || !isFinite(tb) || tb <= 0) return null;
+    const d = (o.price - tb) / tb; // <=0 good (at/below ideal entry)
+    return { good: d <= 0, action: "BUY", pct: d, ref: tb };
+  }
+  if (o.action === "SELL") {
+    const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
+    if (ts == null || !isFinite(ts) || ts <= 0) return null;
+    const d = (o.price - ts) / ts; // >=0 good (at/above ideal exit)
+    return { good: d >= 0, action: "SELL", pct: d, ref: ts };
+  }
+  return null;
+}
+// Reusable 52-week range bar (used by the Unit Px tooltip AND the Pending "Range" column).
+// Returns { bar, hasRange, pos, live, lo, hi } \u2014 `bar` is HTML, empty string if no range.
+// Pass compact=true for the small in-table version (no low/high captions).
+function pendingRangeBar(o, barW, compact) {
+  const m = M[o.ticker];
+  const px = o.price;
+  const out = { bar: "", hasRange: false, lo: null, hi: null };
+  if (!m || px == null || !isFinite(px)) return out;
+  const lo = m.low,
+    hi = m.high,
+    live = m.price;
+  if (!(lo != null && isFinite(lo) && hi != null && isFinite(hi) && hi > lo))
+    return out;
+  out.hasRange = true;
+  out.lo = lo;
+  out.hi = hi;
+  out.live = live;
+  const pos = Math.max(-0.05, Math.min(1.05, (px - lo) / (hi - lo)));
+  const livePos =
+    live != null ? Math.max(0, Math.min(1, (live - lo) / (hi - lo))) : null;
+  const dotX = Math.round(5 + Math.max(0, Math.min(1, pos)) * (barW - 10));
+  const liveX =
+    livePos != null
+      ? Math.round(5 + Math.max(0, Math.min(1, livePos)) * (barW - 10))
+      : null;
+  const outLeft = px < lo,
+    outRight = px > hi;
+  let bar = '<div style="position:relative;height:18px;width:' + barW + 'px">';
+  bar +=
+    '<div style="position:absolute;top:7px;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--success),var(--warn),var(--error));border-radius:2px"></div>';
+  if (liveX != null)
+    bar +=
+      '<div title="Live price" style="position:absolute;top:2px;left:' +
+      (liveX - 1) +
+      'px;width:2px;height:14px;background:var(--text2);border-radius:1px"></div>';
+  bar +=
+    '<div title="Your order" style="position:absolute;top:0;left:' +
+    (dotX - 5) +
+    'px;width:10px;height:18px;background:var(--primary);border-radius:3px;opacity:.9"></div>';
+  if (outLeft)
+    bar +=
+      '<div style="position:absolute;top:3px;left:-2px;font-size:9px;color:var(--warn)" title="Below 52-wk low">\u25C0</div>';
+  if (outRight)
+    bar +=
+      '<div style="position:absolute;top:3px;right:-2px;font-size:9px;color:var(--warn)" title="Above 52-wk high">\u25B6</div>';
+  bar += "</div>";
+  out.bar = bar;
+  return out;
+}
+function pendingUnitPxTipHTML(o) {
+  const row = _tipRow; // shared tooltip row builder (gap:18px)
+  const m = M[o.ticker];
+  const px = o.price;
+  let h =
+    '<div style="font-weight:700;margin-bottom:6px">' +
+    escapeHtml(o.ticker) +
+    " \u2014 Price sanity check</div>";
+  if (px == null || !isFinite(px)) {
+    h += '<div class="mini" style="color:var(--muted)">No price entered.</div>';
+    return h;
+  }
+  if (!m) {
+    h +=
+      '<div class="mini" style="color:var(--muted)">No master data \u2014 add ticker in Signals/Data to see 52-wk range.</div>';
+    return h;
+  }
+  const lo = m.low,
+    hi = m.high,
+    live = m.price;
+  const hasRange =
+    lo != null && isFinite(lo) && hi != null && isFinite(hi) && hi > lo;
+  if (!hasRange) {
+    h += row("Your order price", money(px) + " MAD");
+    if (live != null) h += row("Live price", money(live) + " MAD");
+    h +=
+      '<div class="mini" style="color:var(--muted);margin-top:4px">52-wk range not available \u2014 refresh prices from TradingView.</div>';
+    return h;
+  }
+  // Position in range [0,1]; can be outside [0,1] for out-of-range prices
+  const pos = Math.max(-0.05, Math.min(1.05, (px - lo) / (hi - lo)));
+  const livePosRaw = live != null ? (live - lo) / (hi - lo) : null;
+  const livePos =
+    livePosRaw != null ? Math.max(0, Math.min(1, livePosRaw)) : null;
+  // Verdict
+  let verdict, vCol;
+  if (px < lo) {
+    verdict =
+      o.action === "BUY"
+        ? "\u26a0\ufe0f Below 52-wk low \u2014 unlikely to fill unless price falls further."
+        : "\u2705 Far below 52-wk low \u2014 great sell price if it reaches it.";
+    vCol = o.action === "BUY" ? "var(--warn)" : "var(--success)";
+  } else if (px > hi) {
+    verdict =
+      o.action === "SELL"
+        ? "\u26a0\ufe0f Above 52-wk high \u2014 unlikely to fill unless price breaks out."
+        : "\u2705 Far above 52-wk high \u2014 great buy price if it falls to it.";
+    vCol = o.action === "SELL" ? "var(--warn)" : "var(--success)";
+  } else {
+    const pct = Math.round(((px - lo) / (hi - lo)) * 100);
+    verdict =
+      o.action === "BUY"
+        ? pct <= 35
+          ? "\u2705 In the lower third of the range \u2014 realistic entry."
+          : pct <= 65
+            ? "\u2139\ufe0f Mid-range \u2014 reasonable."
+            : "\ud83d\udcc8 In the upper third \u2014 buying near the high."
+        : pct >= 65
+          ? "\u2705 In the upper third of the range \u2014 realistic exit."
+          : pct >= 35
+            ? "\u2139\ufe0f Mid-range \u2014 reasonable."
+            : "\ud83d\udcc8 In the lower third \u2014 selling near the low.";
+    vCol =
+      o.action === "BUY"
+        ? pct <= 65
+          ? "var(--success)"
+          : "var(--warn)"
+        : pct >= 35
+          ? "var(--success)"
+          : "var(--warn)";
+  }
+  // Mini range bar (shared with the Pending "Range" column via pendingRangeBar)
+  const barW = 180;
+  const liveX = livePos != null ? 1 : null; // presence flag for the caption below
+  let bar =
+    '<div style="margin:8px 0 4px">' +
+    pendingRangeBar(o, barW, false).bar +
+    "</div>";
+  bar +=
+    '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);width:' +
+    barW +
+    'px">' +
+    "<span>\u2193 " +
+    money(lo) +
+    "</span>" +
+    (liveX != null
+      ? '<span style="color:var(--text2)">Live: ' + money(live) + "</span>"
+      : "") +
+    "<span>" +
+    money(hi) +
+    " \u2191</span></div>";
+  h += row("Your order", money(px) + " MAD");
+  if (live != null)
+    h += row(
+      "Live price",
+      money(live) + " MAD",
+      livePosRaw != null && livePosRaw >= 0 && livePosRaw <= 1 ? "" : "",
+    );
+  h += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  h += row("52-wk low", money(lo) + " MAD");
+  h += row("52-wk high", money(hi) + " MAD");
+  const pctInRange = hasRange
+    ? Math.round(((px - lo) / (hi - lo)) * 100)
+    : null;
+  if (pctInRange != null) h += row("Position in range", pctInRange + "%");
+  h += bar;
+  h += '<div style="margin-top:6px;color:' + vCol + '">' + verdict + "</div>";
+  // Merge in the full signal targets (fair value, target buy/sell, vs fair, etc.)
+  // so the Unit Px tooltip is the single place to judge the order.
+  h +=
+    '<div style="border-top:1px solid var(--border);margin:8px 0 6px"></div>';
+  h += pendingSignalTipHTML(o);
+  return h;
+}
+function renderPending() {
+  const trades = PENDING.map((o, i) => ({ o, i })).filter(
+    (x) => x.o.action === "BUY" || x.o.action === "SELL",
+  );
+  const divs = PENDING.map((o, i) => ({ o, i })).filter(
+    (x) => x.o.action === "DIV",
+  );
+  // --- Buy/Sell box ---
+  const cc = document.getElementById("pendCount");
+  if (cc) cc.textContent = trades.length + " pending";
+  const tb = document.querySelector("#pendTable tbody");
+  if (tb) {
+    if (!trades.length) {
+      tb.innerHTML =
+        '<tr><td colspan="16" class="l" style="color:var(--muted)">No pending buy/sell orders.</td></tr>';
+    } else {
+      const rows = trades.sort((a, b) => (a.o.date < b.o.date ? 1 : -1));
+      tb.innerHTML = rows
+        .map(({ o, i }) => {
+          const ac = o.action === "BUY" ? "b-buy" : "b-sell";
+          return `<tr><td class="center"><input type="checkbox" class="pendChk" data-idx="${i}"></td><td class="l">${o.date}</td><td class="l">${(function () {
+            // Ticker keeps its on/off-target colour, but the tooltip now lives
+            // on the Unit Px cell (which includes these signal targets), so no
+            // duplicate hover here.
+            const _v = pendingPriceVerdict(o);
+            const _col = _v
+              ? _v.good
+                ? "var(--success)"
+                : "var(--error)"
+              : "";
+            const _cs = _col ? "color:" + _col + ";" : "";
+            return '<b style="' + _cs + '">' + escapeHtml(o.ticker) + "</b>";
+          })()}</td>
+          ${(function () {
+            const _m = M[o.ticker];
+            const _nm = (_m && _m.name) || "";
+            // Clickable \u2192 full company detail overlay (same as Signals tab), but only
+            // when master data exists (showCompanyDetail returns early otherwise).
+            if (_m) {
+              return (
+                '<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-tip="Click for full company details" data-act="showCompanyDetail" data-stop="true" data-args="' +
+                o.ticker +
+                '">' +
+                escapeHtml(_nm || o.ticker) +
+                ' <span style="color:var(--muted)">\ud83d\udcca</span></td>'
+              );
+            }
+            return (
+              '<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' +
+              escapeHtml(_nm) +
+              '">' +
+              escapeHtml(_nm || "\u2014") +
+              "</td>"
+            );
+          })()}
+          <td class="l"><span class="badge ${ac}">${o.action}</span></td><td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td>
+          ${(function () {
+            const _m = M[o.ticker];
+            const _lp = _m && _m.price != null ? _m.price : null;
+            return (
+              "<td>" +
+              (_lp != null
+                ? money(_lp)
+                : "<span style='color:var(--muted)'>\u2014</span>") +
+              "</td>"
+            );
+          })()}
+          ${(function () {
+            if (o.price == null)
+              return '<td style="color:var(--muted)">\u2014</td>';
+            const _tip = pendingUnitPxTipHTML(o);
+            return (
+              '<td style="cursor:help;border-bottom:1px dotted var(--border-l)" data-tip="' +
+              encodeURIComponent(_tip) +
+              '">' +
+              money(o.price) +
+              ' <span style="color:var(--muted)">\u24d8</span></td>'
+            );
+          })()}
+          ${(function () {
+            // Range column: compact 52-wk range bar mirroring the Unit Px tooltip.
+            const rb = pendingRangeBar(o, 88, true);
+            if (!rb.hasRange)
+              return '<td class="center" style="color:var(--muted)">\u2014</td>';
+            const _tip = pendingUnitPxTipHTML(o);
+            return (
+              '<td class="center" style="cursor:help" data-tip="' +
+              encodeURIComponent(_tip) +
+              '"><div style="display:inline-block;vertical-align:middle">' +
+              rb.bar +
+              "</div></td>"
+            );
+          })()}
+          ${(function () {
+            const _b = pendingFlagBadge(o).trim();
+            return (
+              '<td class="center">' +
+              (_b ? _b : '<span style="color:var(--muted)">\u2014</span>') +
+              "</td>"
+            );
+          })()}
+          ${(function () {
+            // Expected total WITH fees. For BUY: gross+fees (=\u2212net). For SELL: net proceeds after fees & tax.
+            if (o.price == null || o.qty == null) {
+              return o.total != null
+                ? "<td>" + money(o.total) + "</td>"
+                : '<td style="color:var(--muted)">\u2014</td>';
+            }
+            const rr = computeRow({
+              action: o.action,
+              ticker: o.ticker,
+              qty: o.qty,
+              price: o.price,
+              date: o.date,
+              pea: o.pea,
+              opcvm: o.opcvm,
+              total: o.total,
+            });
+            const gross = o.price * o.qty;
+            const expTot =
+              o.action === "BUY"
+                ? gross + rr.fees
+                : o.action === "SELL"
+                  ? rr.net
+                  : o.total != null
+                    ? o.total
+                    : gross;
+            const row = _tipRow; // shared tooltip row builder (gap:18px)
+            let h =
+              '<div style="font-weight:700;margin-bottom:6px">Expected ' +
+              (o.action === "BUY" ? "cost" : "proceeds") +
+              " \u00B7 " +
+              o.ticker +
+              " (" +
+              (o.pea ? "PEA" : "Regular") +
+              ")</div>";
+            h += row(
+              "Unit \u00D7 Qty",
+              money(o.price) + " \u00D7 " + money(o.qty, o.qty % 1 ? 3 : 0),
+            );
+            h += row("Gross", money(gross) + " MAD");
+            if (rr.fees > 0)
+              h += row(
+                (o.action === "BUY" ? "+ " : "\u2212 ") + "Fees",
+                (o.action === "BUY" ? "+" : "\u2212") + money(rr.fees),
+              );
+            if (o.action === "SELL" && rr.tax > 0)
+              h += row("\u2212 Capital-gains tax", "\u2212" + money(rr.tax));
+            h +=
+              '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>';
+            h += row(
+              "<b>Expected total</b>",
+              "<b>" + money(expTot) + " MAD</b>",
+            );
+            if (rr.manual)
+              h +=
+                '<div class="mini" style="margin-top:4px;color:var(--muted)">Manual total entered \u2014 fees implied.</div>';
+            return (
+              '<td style="cursor:help" data-tip="' +
+              encodeURIComponent(h) +
+              '">' +
+              money(expTot) +
+              ' <span style="color:var(--muted)">\u24D8</span></td>'
+            );
+          })()}
+          ${(function () {
+            // Div Yield \u2014 from the master list (same figure as the Signals tab).
+            const _m = M[o.ticker];
+            const dy =
+              _m && _m.divy != null && isFinite(_m.divy) ? _m.divy : null;
+            if (dy == null) return '<td style="color:var(--muted)">\u2014</td>';
+            const _tip =
+              typeof divyTipHTML === "function"
+                ? ' data-tip="' +
+                  encodeURIComponent(
+                    divyTipHTML({
+                      ticker: o.ticker,
+                      m: _m,
+                      divy: dy,
+                      price: _m.price,
+                    }),
+                  ) +
+                  '" style="cursor:help"'
+                : "";
+            return (
+              '<td class="' +
+              (dy > 0 ? "pos" : "") +
+              '"' +
+              _tip +
+              ">" +
+              pct(dy) +
+              "</td>"
+            );
+          })()}
+          ${(function () {
+            if (o.action !== "SELL")
+              return '<td style="color:var(--muted)">\u2014</td>';
+            const ep = pendingSellPnl(o);
+            if (!ep || ep.pnl == null)
+              return '<td style="color:var(--muted)" data-tip="You do not currently hold this in this account">\u2014</td>';
+            return (
+              '<td class="' +
+              cls(ep.pnl) +
+              '" data-tip="If executed: expected realized ' +
+              (ep.pnl >= 0 ? "gain" : "loss") +
+              (ep.capped
+                ? " (capped to shares held: " +
+                  money(ep.qty, ep.qty % 1 ? 3 : 0) +
+                  ")"
+                : "") +
+              '">' +
+              (ep.pnl >= 0 ? "+" : "") +
+              money(ep.pnl) +
+              (ep.capped ? " *" : "") +
+              "</td>"
+            );
+          })()}
+          <td class="center">${o.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "REG"}</td>
+          <td class="center" style="font-size:10px">${escapeHtml((BROKERS[txnBroker(o)] || {}).name || txnBroker(o))}</td>
+          <td class="center" style="white-space:nowrap">
+            <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark executed \u2192 add to Transactions">\u2713</button>
+            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" title="Edit order">\u270E</button>
+            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" title="Delete pending order">\u2715</button>
+          </td></tr>`;
+        })
+        .join("");
+    }
+  }
+  let totPnl = 0,
+    nSell = 0,
+    totBuy = 0,
+    nBuy = 0,
+    totSellProceeds = 0,
+    nSellPriced = 0;
+  trades.forEach(({ o }) => {
+    if (o.action === "SELL") {
+      const ep = pendingSellPnl(o);
+      if (ep && ep.pnl != null) {
+        totPnl += ep.pnl;
+        nSell++;
+      }
+    }
+    if (o.price != null && o.qty != null) {
+      const rr = computeRow({
+        action: o.action,
+        ticker: o.ticker,
+        qty: o.qty,
+        price: o.price,
+        date: o.date,
+        pea: o.pea,
+        opcvm: o.opcvm,
+        total: o.total,
+      });
+      const gross = o.price * o.qty;
+      if (o.action === "BUY") {
+        totBuy += gross + rr.fees;
+        nBuy++;
+      } else if (o.action === "SELL") {
+        totSellProceeds += rr.net;
+        nSellPriced++;
+      }
+    }
+  });
+  const el = document.getElementById("pendSellSummary");
+  if (el) {
+    let parts = [];
+    if (nBuy)
+      parts.push(
+        `Total expected cost of ${nBuy} pending buy${nBuy > 1 ? "s" : ""} (incl. fees): <b>${money(totBuy)} MAD</b>`,
+      );
+    if (nSellPriced)
+      parts.push(
+        `Total expected proceeds of ${nSellPriced} pending sell${nSellPriced > 1 ? "s" : ""} (net of fees &amp; tax): <b>${money(totSellProceeds)} MAD</b>`,
+      );
+    if (nSell)
+      parts.push(
+        `Expected P&L if those sells execute: <b class="${cls(totPnl)}">${totPnl >= 0 ? "+" : ""}${money(totPnl)} MAD</b>`,
+      );
+    el.innerHTML = parts.length
+      ? parts.map((s) => "<div>" + s + "</div>").join("") +
+        '<div class="mini">At order prices. Buy total = gross + brokerage fees; sell proceeds = gross \u2212 fees \u2212 tax.</div>'
+      : '<span class="mini">No priced pending orders.</span>';
+  }
+  // --- Dividends box ---
+  const dc = document.getElementById("pendDivCount");
+  if (dc) dc.textContent = divs.length + " pending";
+  const dtb = document.querySelector("#pendDivTable tbody");
+  if (dtb) {
+    if (!divs.length) {
+      dtb.innerHTML =
+        '<tr><td colspan="8" class="l" style="color:var(--muted)">No pending dividends.</td></tr>';
+      const ds0 = document.getElementById("pendDivSummary");
+      if (ds0) ds0.innerHTML = "";
+    } else {
+      let totNet = 0;
+      const rows = divs.sort((a, b) => (a.o.date < b.o.date ? 1 : -1));
+      dtb.innerHTML = rows
+        .map(({ o, i }) => {
+          const r = computeRow({
+            action: "DIV",
+            qty: o.qty,
+            price: o.price,
+            date: o.date,
+            pea: o.pea,
+          });
+          const net = r.net;
+          totNet += net;
+          const tip = (function () {
+            const row = _tipRow; // shared tooltip row builder (gap:18px)
+            const gross = o.price * o.qty;
+            const yr = new Date(o.date).getFullYear();
+            let h =
+              '<div style="font-weight:700;margin-bottom:6px">Pending dividend \u00B7 ' +
+              o.ticker +
+              " (" +
+              (o.pea ? "PEA" : "Regular") +
+              ")</div>";
+            h += row(
+              "Amount/share \u00D7 qty",
+              money(o.price) + " \u00D7 " + money(o.qty, o.qty % 1 ? 3 : 0),
+            );
+            h += row("Gross", money(gross) + " MAD");
+            if (r.fees > 0) h += row("\u2212 Fees", "\u2212" + money(r.fees));
+            h += o.pea
+              ? row("Dividend tax", "0 (PEA exempt)", "pos")
+              : row(
+                  '\u2212 Dividend tax <span class="mini">(' +
+                    (divRate(yr) * 100).toFixed(2) +
+                    "% incl VAT, " +
+                    yr +
+                    ")</span>",
+                  "\u2212" + money(r.tax),
+                );
+            h +=
+              '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>';
+            h += row("<b>Est. net</b>", "<b>" + money(net) + " MAD</b>", "pos");
+            h += row(
+              "Ex-date / Pay date",
+              (o.exDate || "\u2014") + " \u2192 " + o.date,
+            );
+            return h;
+          })();
+          const _tkCell = M[o.ticker]
+            ? '<b style="cursor:pointer;color:var(--primary2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="' +
+              o.ticker +
+              '">' +
+              escapeHtml(o.ticker) +
+              "</b>"
+            : "<b>" + escapeHtml(o.ticker) + "</b>";
+          return `<tr><td class="l">${o.date}</td><td class="l" style="color:var(--text2)">${o.exDate || "\u2014"}</td><td class="l">${_tkCell}${o.pea ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : ""}</td>
+          <td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td><td>${money(o.price)}</td><td class="pos nis-cell" style="cursor:help" data-tip="${encodeURIComponent(tip)}">${money(net)} <span style="color:var(--muted)">\u24D8</span></td>
+          <td class="center" style="font-size:11px">${(BROKERS[o.broker] || {}).name || (o.pea ? "PEA" : "REG")}<br><span class="mini">${o.pea ? "PEA" : "Reg"}</span></td>
+          <td class="center" style="white-space:nowrap">
+            <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark received \u2192 add to Transactions">\u2713</button>
+            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" title="Edit order">\u270E</button>
+            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" title="Delete pending order">\u2715</button>
+          </td></tr>`;
+        })
+        .join("");
+      const ds = document.getElementById("pendDivSummary");
+      if (ds)
+        ds.innerHTML = `Total expected net dividends pending: <b class="pos">${money(totNet)} MAD</b>`;
+    }
+  }
+}
+
+// ---------- recently sold summary (30/90 days) ----------
+
+// ---------- recently bought summary (30/90 days) ----------
+function renderRecentlyBought() {
+  // Buys straight from TXNS (cost incl. fees via computeRow, or manual total)
+  const buys = [];
+  TXNS.filter((t) => t.action === "BUY").forEach((t) => {
+    const r = computeRow(t, 0);
+    buys.push({
+      ticker: t.ticker,
+      date: t.date,
+      qty: t.qty,
+      cost: Math.abs(r.net),
+      pea: !!t.pea,
+    });
+  });
+  function win(days) {
+    const rows = buys.filter((s) => {
+      const du = daysUntil(s.date);
+      return du <= 0 && du >= -days;
+    });
+    return {
+      n: rows.length,
+      cost: rows.reduce((a, s) => a + s.cost, 0),
+      rows,
+    };
+  }
+  const tip = (title, st) => {
+    let h = `<div style="font-weight:700;margin-bottom:6px">${title}</div>`;
+    if (!st.rows.length)
+      return h + '<div class="mini">No buys in this window.</div>';
+    h += `<div class="mini" style="margin-bottom:2px">ticker \u00B7 date \u00B7 cost (incl. fees)</div>`;
+    [...st.rows]
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .forEach((s) => {
+        h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${s.ticker} <span class="mini">${s.date} \u00B7 ${money(s.qty, s.qty % 1 ? 3 : 0)}sh</span></span><span style="font-family:var(--mono)">${money(s.cost)}</span></div>`;
+      });
+    h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+    h += `<div style="display:flex;justify-content:space-between;gap:16px"><span><b>Total invested</b></span><span style="font-family:var(--mono)"><b>${money(st.cost)} MAD</b></span></div>`;
+    return h;
+  };
+  const b30 = win(30),
+    b90 = win(90);
+  const kr = document.getElementById("boughtKpiRow");
+  if (!kr) return;
+  kr.innerHTML =
+    kpi(
+      "Bought \u00B7 last 30d",
+      b30.n + " trade" + (b30.n === 1 ? "" : "s"),
+      "",
+      tip("Bought in last 30 days", b30),
+    ) +
+    kpi(
+      "Invested \u00B7 30d",
+      money(b30.cost, 0) + " MAD",
+      "",
+      tip("Cash deployed \u2014 last 30 days", b30),
+    ) +
+    kpi(
+      "Bought \u00B7 last 90d",
+      b90.n + " trade" + (b90.n === 1 ? "" : "s"),
+      "",
+      tip("Bought in last 90 days", b90),
+    ) +
+    kpi(
+      "Invested \u00B7 90d",
+      money(b90.cost, 0) + " MAD",
+      "",
+      tip("Cash deployed \u2014 last 90 days", b90),
+    );
+}
+
+function renderRecentlySold() {
+  const { pos } = runFIFO();
+  // Gather all sells with their ticker/account from realizedDetail
+  const sells = [];
+  Object.values(pos).forEach((p) => {
+    (p.realizedDetail || []).forEach((d) => {
+      sells.push({ ticker: p.ticker, account: p.account, ...d });
+    });
+  });
+  function windowStats(days) {
+    const rows = sells.filter((s) => {
+      const du = daysUntil(s.date);
+      return du <= 0 && du >= -days;
+    });
+    const proceeds = rows.reduce((a, s) => a + s.proceeds, 0);
+    const gain = rows.reduce((a, s) => a + s.gain, 0);
+    return { n: rows.length, proceeds, gain, rows };
+  }
+  const tip = (title, st) => {
+    let h = `<div style="font-weight:700;margin-bottom:6px">${title}</div>`;
+    if (!st.rows.length)
+      return h + '<div class="mini">No sells in this window.</div>';
+    h += `<div class="mini" style="margin-bottom:2px">ticker \u00B7 date \u00B7 proceeds \u00B7 (gain)</div>`;
+    [...st.rows]
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .forEach((s) => {
+        h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${s.ticker} <span class="mini">${s.date} \u00B7 ${money(s.qty, s.qty % 1 ? 3 : 0)}sh</span></span><span style="font-family:var(--mono)">${money(s.proceeds)} <span class="${cls(s.gain)}">(${s.gain >= 0 ? "+" : ""}${money(s.gain)})</span></span></div>`;
+      });
+    h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+    h += `<div style="display:flex;justify-content:space-between;gap:16px"><span><b>Total proceeds</b></span><span style="font-family:var(--mono)"><b>${money(st.proceeds)} MAD</b></span></div>`;
+    h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>Total realized gain</span><span class="${cls(st.gain)}" style="font-family:var(--mono)">${money(st.gain)}</span></div>`;
+    return h;
+  };
+  const s30 = windowStats(30),
+    s90 = windowStats(90);
+  const kr = document.getElementById("soldKpiRow");
+  if (!kr) return;
+  kr.innerHTML =
+    kpi(
+      "Sold \u00B7 30d",
+      s30.n + " trade" + (s30.n === 1 ? "" : "s"),
+      "",
+      tip("Sold in last 30 days", s30),
+    ) +
+    kpi(
+      "Proceeds \u00B7 30d",
+      money(s30.proceeds, 0) + " MAD",
+      "pos",
+      tip("Sold in last 30 days \u2014 " + s30.n + " trade(s)", s30),
+    ) +
+    kpi(
+      "Sold \u00B7 90d",
+      s90.n + " trade" + (s90.n === 1 ? "" : "s"),
+      "",
+      tip("Sold in last 90 days", s90),
+    ) +
+    kpi(
+      "Proceeds \u00B7 90d",
+      money(s90.proceeds, 0) + " MAD",
+      "pos",
+      tip("Sold in last 90 days \u2014 " + s90.n + " trade(s)", s90),
+    );
+}
+
+// ---------- top-level app switcher (placeholders) ----------
+document.querySelectorAll(".app-btn").forEach(
+  (b) =>
+    (b.onclick = () => {
+      document
+        .querySelectorAll(".app-btn")
+        .forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      const app = b.dataset.app;
+      try {
+        localStorage.setItem("casa_last_app_v1", app);
+      } catch (e) {}
+      const tabsRow = document.querySelector(".tabs");
+      const views = document.querySelectorAll(".view");
+      const pTabs = document.getElementById("portfolioTabs");
+      const eTabs = document.getElementById("expensesTabs");
+      if (app === "portfolio") {
+        // top-bar tabs stay in place; show the portfolio tab group
+        if (tabsRow) tabsRow.style.display = "";
+        if (pTabs) pTabs.style.display = "contents";
+        if (eTabs) eTabs.style.display = "none";
+        {
+          const sv0 = document.getElementById("salaryView");
+          if (sv0) sv0.style.display = "none";
+        }
+        {
+          const ev0 = document.getElementById("expensesView");
+          if (ev0) ev0.style.display = "none";
+        }
+        const active = document.querySelector("#portfolioTabs .tab.active");
+        const v = active ? active.dataset.view : "dashboard";
+        views.forEach((x) => x.classList.remove("active"));
+        const vd = document.getElementById(v);
+        if (vd) vd.classList.add("active");
+        const ph = document.getElementById("appPlaceholder");
+        if (ph) ph.style.display = "none";
+      } else {
+        views.forEach((x) => x.classList.remove("active"));
+        const sv = document.getElementById("salaryView");
+        let ph = document.getElementById("appPlaceholder");
+        if (app === "salary") {
+          // Salary has no sub-tabs \u2014 hide the tab groups but keep the row height consistent by hiding the whole row
+          if (tabsRow) tabsRow.style.display = "none";
+          if (ph) ph.style.display = "none";
+          {
+            const ev0 = document.getElementById("expensesView");
+            if (ev0) ev0.style.display = "none";
+          }
+          if (sv) {
+            sv.style.display = "block";
+            renderSalary();
+          }
+        } else {
+          if (sv) sv.style.display = "none";
+          const ev = document.getElementById("expensesView");
+          if (app === "expenses") {
+            // top-bar tabs stay in place; swap to the expenses tab group
+            if (tabsRow) tabsRow.style.display = "";
+            if (pTabs) pTabs.style.display = "none";
+            if (eTabs) eTabs.style.display = "contents";
+            if (ph) ph.style.display = "none";
+            if (ev) {
+              ev.style.display = "block";
+              renderExpenses();
+            }
+            return;
+          }
+          if (tabsRow) tabsRow.style.display = "none";
+          if (ev) ev.style.display = "none";
+          if (!ph) {
+            ph = document.createElement("div");
+            ph.id = "appPlaceholder";
+            document.querySelector(".app").appendChild(ph);
+          }
+          ph.style.display = "block";
+          ph.innerHTML =
+            '<div class="sec" style="text-align:center;padding:48px 20px"><div style="font-size:40px;margin-bottom:10px">\uD83D\uDCB8</div><h2 style="justify-content:center;border:none">\uD83D\uDCB8 Monthly Expenses</h2><div class="mini" style="margin-top:8px">Coming soon \u2014 this module is a placeholder for now.</div></div>';
+        }
+      }
+    }),
+);
+
+
+// ===== 07-expenses.js =====
+// ============================================================
+// 07-expenses.js
+// expenses: the full e* Monthly Expenses module
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+      // ---------- Monthly Expenses module ----------
+      const E_LS = "casa_expenses_v1";
+      // Seed data intentionally empty \u2014 real data lives in localStorage / backup.
+      // A fresh browser starts blank by design. Restore from backup to load data.
+      const E_SEED_LOG = [];
+      const E_BILL_CATS = [
+        { key: "loans", label: "Loans", color: "#38bdf8" }, // sky \u2014 high contrast on dark
+        { key: "living", label: "Living & family", color: "#34d399" }, // emerald
+        { key: "fixed", label: "Fixed / annualized", color: "#a78bfa" }, // violet
+      ];
+      // Seed empty by design \u2014 user's bills come from localStorage / backup.
+      const E_DEFAULT_BILLS = [];
+      // Recompute a bill's monthly amt from its components (yearly => /12).
+      function eBillAmt(b) {
+        if (b && Array.isArray(b.components) && b.components.length) {
+          return b.components.reduce(
+            (a, c) => a + (+c.amt || 0) * (c.freq === "yearly" ? 1 / 12 : 1),
+            0,
+          );
+        }
+        return +b.amt || 0;
+      }
+      const E_BUCKETS = [
+        { key: "btOther", label: "BT Other" },
+        { key: "mt", label: "MT" },
+        { key: "car", label: "Car" },
+        { key: "toMd", label: "To MD" },
+      ];
+      // Recurring Car costs: each = {name, amt (positive $ that gets WITHDRAWN), months:[1..12]}.
+      // Seed empty by design \u2014 user's car plan comes from localStorage / backup.
+      const E_CARPLAN_SEED = [];
+      const E_CARPLAN_VER = 1;
+      let E_STATE = null;
+      const E_COMP_OPEN = new Set(); // bill indices whose component editor is expanded
+      // Re-seed version. The migration in eLoad is gated on E_DEFAULT_BILLS.length,
+      // so bumping this only re-seeds when there is real seed data \u2014 it can never wipe
+      // a user's saved bills when the seed is empty.
+      const E_BILLS_SEED_VER = 2;
+      function eFreshState() {
+        // Fresh browser starts blank by design \u2014 real data comes from localStorage/backup.
+        return {
+          inc1: 0,
+          inc2: 0,
+          btToMd: 0,
+          floatTarget: 0,
+          startCash: 0,
+          logYear: "all",
+          billsSeedVer: E_BILLS_SEED_VER,
+          bills: JSON.parse(JSON.stringify(E_DEFAULT_BILLS)),
+          carPlan: JSON.parse(JSON.stringify(E_CARPLAN_SEED)),
+          carPlanVer: E_CARPLAN_VER,
+          log: JSON.parse(JSON.stringify(E_SEED_LOG)),
+        };
+      }
+      function eLoad() {
+        const raw = localStorage.getItem(E_LS);
+        if (raw != null) {
+          const parsed = safeParseLS(E_LS, raw, null, "Expenses");
+          if (parsed.ok && parsed.value && typeof parsed.value === "object") {
+            E_STATE = parsed.value;
+            // Loan-draws panel is a transient UI state \u2014 always start collapsed on load.
+            E_STATE._loanDrawsOpen = false;
+            // Re-seed migration: only meaningful when there is actual seed data to apply.
+            // With an empty E_DEFAULT_BILLS this must NOT run, or it would wipe the user's
+            // saved bills. Gate on seed length so bumping the version can never destroy data.
+            if (
+              E_DEFAULT_BILLS.length &&
+              (E_STATE.billsSeedVer || 0) < E_BILLS_SEED_VER
+            ) {
+              E_STATE.bills = JSON.parse(JSON.stringify(E_DEFAULT_BILLS));
+              E_STATE.billsSeedVer = E_BILLS_SEED_VER;
+              safeSetItem(E_LS, JSON.stringify(E_STATE));
+            }
+            // Shape guards: make sure the arrays every renderer dereferences actually exist,
+            // so a hand-edited or older backup can't crash the Expenses tab with a TypeError.
+            let _needSave = false;
+            if (!Array.isArray(E_STATE.carPlan)) {
+              E_STATE.carPlan = JSON.parse(JSON.stringify(E_CARPLAN_SEED));
+              _needSave = true;
+            }
+            if (!Array.isArray(E_STATE.log)) {
+              E_STATE.log = JSON.parse(JSON.stringify(E_SEED_LOG));
+              _needSave = true;
+            }
+            if (!Array.isArray(E_STATE.bills)) {
+              E_STATE.bills = JSON.parse(JSON.stringify(E_DEFAULT_BILLS));
+              _needSave = true;
+            }
+            if (_needSave) safeSetItem(E_LS, JSON.stringify(E_STATE));
+            return;
+          }
+          // parsed but not a usable object (corrupt or null) \u2014 fall through to a fresh state.
+        }
+        E_STATE = eFreshState();
+      }
+      function eSave() {
+        safeSetItem(E_LS, JSON.stringify(E_STATE));
+      }
+      // ---- Per-bucket realized flags (per month, per bucket) ----
+      // Legacy data has a single row-wide r.realized boolean. We now support r.rz =
+      // {btOther,mt,car,toMd}. eRz reads the per-bucket flag, falling back to the legacy
+      // row flag so old data (and untouched rows) behave exactly as before.
+      function eRz(r, key) {
+        if (r && r.rz && Object.prototype.hasOwnProperty.call(r.rz, key))
+          return !!r.rz[key];
+        return !!(r && r.realized);
+      }
+      // Set one bucket's realized flag. On first touch we seed r.rz for EVERY bucket from
+      // the legacy row flag, so toggling one bucket never silently changes the others.
+      function eSetRz(r, key, val) {
+        if (!r) return;
+        if (!r.rz) {
+          r.rz = {};
+          E_BUCKETS.forEach((b) => {
+            r.rz[b.key] = !!r.realized;
+          });
+        }
+        r.rz[key] = !!val;
+        // Keep the legacy flag in sync (true if ANY bucket is realized) for code that still reads it.
+        r.realized = E_BUCKETS.some((b) => !!r.rz[b.key]);
+      }
+      // Set every bucket at once (used by "Mark realized through this month").
+      function eSetRzAll(r, val) {
+        if (!r) return;
+        r.rz = r.rz || {};
+        E_BUCKETS.forEach((b) => {
+          r.rz[b.key] = !!val;
+        });
+        r.realized = !!val;
+      }
+      function eFmt(n) {
+        return (Math.round(n * 100) / 100).toLocaleString("en-US", {
+          maximumFractionDigits: 0,
+        });
+      }
+
+      function eCompute() {
+        // Faithful reproduction of the Excel settlement:
+        //   pool      = (inc1+inc2) - totalSharedBills           (leftover both keep, split evenly)
+        //   totalMD   = inc1 - pool/2 ;  totalBT = inc2 - pool/2  (each gets income minus half the pool)
+        //   toPayMD   = totalMD - (bills MD is assigned to pay)   (>0 => MD transfers to BT)
+        //   toPayBT   = totalBT - (bills BT is assigned to pay)   (mirror)
+        //   netMDtoBT = toPayMD - btToMd                          (BT's monthly payment nets against it)
+        const s = E_STATE;
+        const bills = Array.isArray(arguments[0]) ? arguments[0] : s.bills; // optional per-month bill set
+        const inc1 = +s.inc1 || 0,
+          inc2 = +s.inc2 || 0,
+          btToMd = +s.btToMd || 0;
+        const billsTot = bills.reduce((a, b) => a + eBillAmt(b), 0);
+        const paidMD = bills
+          .filter((b) => b.by === "MD")
+          .reduce((a, b) => a + eBillAmt(b), 0);
+        const paidBT = bills
+          .filter((b) => b.by === "BT")
+          .reduce((a, b) => a + eBillAmt(b), 0);
+        const pool = inc1 + inc2 - billsTot;
+        const totalMD = inc1 - pool / 2;
+        const totalBT = inc2 - pool / 2;
+        const toPayMD = totalMD - paidMD; // sheet C26 = 1240 with defaults
+        const toPayBT = totalBT - paidBT; // sheet C27 = -1240
+        const netMDtoBT = toPayMD - btToMd; // sheet D26 = 1185: MD -> BT after BT's monthly payment
+        const share = billsTot / 2; // shown as "each partner's 50% of bills"
+        const discMD = inc1 - totalMD; // = pool/2, the leftover each keeps
+        const discBT = inc2 - totalBT;
+        const ratio1 = inc1 / (inc1 + inc2 || 1),
+          ratio2 = inc2 / (inc1 + inc2 || 1);
+        return {
+          inc1,
+          inc2,
+          btToMd,
+          billsTot,
+          paidMD,
+          paidBT,
+          share,
+          pool,
+          totalMD,
+          totalBT,
+          toPayMD,
+          toPayBT,
+          netMDtoBT,
+          discMD,
+          discBT,
+          ratio1,
+          ratio2,
+        };
+      }
+
+      function eBucketTotals() {
+        const s = E_STATE;
+        const banked = {},
+          proj = {};
+        E_BUCKETS.forEach((b) => {
+          banked[b.key] = 0;
+          proj[b.key] = 0;
+        });
+        s.log.forEach((r) => {
+          E_BUCKETS.forEach((b) => {
+            const v = +r[b.key] || 0;
+            proj[b.key] += v;
+            if (eRz(r, b.key)) banked[b.key] += v;
+          });
+        });
+        return { banked, proj };
+      }
+
+      // ===================== Sub-tabs =====================
+      function eShowTab(name) {
+        E_STATE = E_STATE || null;
+        if (!E_STATE) eLoad();
+        E_STATE.uiTab = name;
+        eSave();
+        ["pots", "setup"].forEach((t) => {
+          const p = document.getElementById("etab_" + t);
+          if (p) p.style.display = t === name ? "block" : "none";
+        });
+        document
+          .querySelectorAll("#expensesTabs .tab[data-etab]")
+          .forEach((b) => {
+            const on = b.dataset.etab === name;
+            b.classList.toggle("active", on);
+            b.setAttribute("aria-selected", on ? "true" : "false");
+          });
+      }
+
+      // ===================== Per-month bills =====================
+      // Current viewing month for the "This Month" tab. Defaults to the latest realized
+      // month, else current calendar month.
+      function eCurMonth() {
+        if (E_STATE.viewMonth && /^\d{4}-\d{2}$/.test(E_STATE.viewMonth))
+          return E_STATE.viewMonth;
+        const now = new Date();
+        return (
+          now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0")
+        );
+      }
+      // List of months to offer in the nav: unique months from the log, plus current month.
+      function eMonthOptions() {
+        const set = new Set();
+        (E_STATE.log || []).forEach((r) => {
+          if (/^\d{4}-\d{2}$/.test(r.month || "")) set.add(r.month);
+        });
+        const now = new Date();
+        set.add(
+          now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0"),
+        );
+        return [...set].sort();
+      }
+      // Effective bills for a given month = defaults, with any per-month override applied.
+      // Override shape: E_STATE.monthBills[month] = { [billIndex]: {off?, amt?, by?, note?} }
+      function eMonthBills(month) {
+        const ov = (E_STATE.monthBills || {})[month] || {};
+        const out = [];
+        (E_STATE.bills || []).forEach((b, idx) => {
+          const o = ov[idx] || {};
+          if (o.off) return; // toggled off this month
+          const amt = o.amt != null && o.amt !== "" ? +o.amt || 0 : eBillAmt(b);
+          const by = o.by || b.by;
+          out.push({
+            name: b.name,
+            amt,
+            by,
+            cat: b.cat,
+            note: o.note || "",
+            _idx: idx,
+            _overridden: o.amt != null || o.by || o.off,
+          });
+        });
+        return out;
+      }
+      function eMonthHasOverride(month) {
+        const ov = (E_STATE.monthBills || {})[month];
+        if (!ov) return false;
+        return Object.keys(ov).length > 0;
+      }
+      function eSetMonthOverride(month, idx, patch) {
+        E_STATE.monthBills = E_STATE.monthBills || {};
+        E_STATE.monthBills[month] = E_STATE.monthBills[month] || {};
+        const cur = E_STATE.monthBills[month][idx] || {};
+        E_STATE.monthBills[month][idx] = { ...cur, ...patch };
+        // prune empty override objects
+        const o = E_STATE.monthBills[month][idx];
+        if (!o.off && (o.amt == null || o.amt === "") && !o.by && !o.note) {
+          delete E_STATE.monthBills[month][idx];
+        }
+        if (Object.keys(E_STATE.monthBills[month]).length === 0)
+          delete E_STATE.monthBills[month];
+      }
+      function eClearMonth(month) {
+        if (E_STATE.monthBills) delete E_STATE.monthBills[month];
+      }
+
+      function eMonthLabel(m) {
+        const mm = /^(\d{4})-(\d{2})$/.exec(m);
+        if (!mm) return m;
+        const names = [
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec",
+        ];
+        return names[+mm[2] - 1] + " " + mm[1];
+      }
+
+      function eRenderMonthNav() {
+        const box = document.getElementById("e_monthNav");
+        if (!box) return;
+        const cur = eCurMonth();
+        box.innerHTML = `<div style="font-size:15px;font-weight:800;color:var(--text)">${eMonthLabel(cur)}</div>`;
+      }
+
+      function eRenderSettleBanner() {
+        const el = document.getElementById("e_settleBanner");
+        if (!el) return;
+        const cur = eCurMonth();
+        const bills = eMonthBills(cur);
+        const c = eCompute(bills);
+        const net = c.netMDtoBT; // >0 => MD sends to BT ; <0 => BT sends to MD
+        const amt = Math.abs(Math.round(net));
+        const mdToBt = net >= 0;
+        const dirTxt =
+          amt === 0
+            ? "Nothing to settle this month"
+            : "This month you " + (mdToBt ? "send" : "receive");
+        const whoHTML =
+          amt === 0
+            ? '<span class="paypill md">MD</span> <span class="settle-arrow">=</span> <span class="paypill bt">BT</span>'
+            : mdToBt
+              ? '<span class="paypill md">MD</span> <span class="settle-arrow">\u2192</span> <span class="paypill bt">BT</span>'
+              : '<span class="paypill bt">BT</span> <span class="settle-arrow">\u2192</span> <span class="paypill md">MD</span>';
+        const col =
+          amt === 0
+            ? "var(--text2)"
+            : mdToBt
+              ? "var(--primary2)"
+              : "var(--success)";
+        el.className = "settle-banner";
+        el.innerHTML = `
+    <div>
+      <div class="dir">${dirTxt}${amt ? " to " + (mdToBt ? "BT" : "MD") : ""}</div>
+      <div class="big" style="color:${col}">${money(amt, 0)} <span style="font-size:15px;color:var(--text2)">MAD</span></div>
+      <div class="dir">to keep the 50/50 split even \u00b7 <b>${eMonthLabel(cur)}</b></div>
+    </div>
+    <div class="settle-who">${whoHTML}</div>`;
+      }
+
+      // Cards: how much each partner keeps this month (discretionary leftover = pool/2 each),
+      // plus the settlement transfer as a third card so the key numbers are scannable.
+      function eRenderKeepCards() {
+        const el = document.getElementById("e_keepCards");
+        if (!el) return;
+        const c = eCompute(E_STATE.bills); // straight from Monthly bills (payer/amount edits flow through immediately)
+        const net = c.netMDtoBT;
+        const amt = Math.abs(Math.round(net));
+        const mdToBt = net >= 0;
+        const settleLabel =
+          amt === 0
+            ? "Settled \u2014 nothing to send"
+            : mdToBt
+              ? "MD sends BT"
+              : "BT sends MD";
+        const settleCol =
+          amt === 0
+            ? "var(--text2)"
+            : mdToBt
+              ? "var(--primary2)"
+              : "var(--success)";
+        el.innerHTML = `
+    <div class="card"><div class="label">MD keeps</div><div class="value pos">${money(c.discMD, 0)}<span style="font-size:13px;color:var(--text2);font-weight:600"> MAD</span></div><div class="mini" style="margin-top:2px">after bills &amp; settle-up</div></div>
+    <div class="card"><div class="label">BT keeps</div><div class="value pos">${money(c.discBT, 0)}<span style="font-size:13px;color:var(--text2);font-weight:600"> MAD</span></div><div class="mini" style="margin-top:2px">after bills &amp; settle-up</div></div>
+    <div class="card"><div class="label">${settleLabel}</div><div class="value" style="color:${settleCol}">${money(amt, 0)}<span style="font-size:13px;color:var(--text2);font-weight:600"> MAD</span></div><div class="mini" style="margin-top:2px">to keep the 50/50 split even</div></div>`;
+      }
+
+      function eRenderMonthBills() {
+        const body = document.getElementById("e_mBillsBody");
+        if (!body) return;
+        const cur = eCurMonth();
+        const ov = (E_STATE.monthBills || {})[cur] || {};
+        const catOf = (k) => {
+          const c = E_BILL_CATS.find((x) => x.key === k);
+          return c ? c.label : k || "";
+        };
+        let rows = "";
+        (E_STATE.bills || []).forEach((b, idx) => {
+          const o = ov[idx] || {};
+          const off = !!o.off;
+          const amt = o.amt != null && o.amt !== "" ? +o.amt || 0 : eBillAmt(b);
+          const by = o.by || b.by;
+          const note = o.note || "";
+          const edited = (o.amt != null && o.amt !== "") || o.by;
+          rows += `<tr class="${off ? "mbill-off" : ""}">
+      <td style="text-align:center"><span class="sw ${off ? "" : "on"}" data-mtoggle="${idx}" role="switch" aria-checked="${off ? "false" : "true"}"><i></i></span></td>
+      <td>${escapeHtml(b.name)} ${edited ? '<span class="mini" style="color:var(--primary2)" data-tip="Changed for this month">\u270e</span>' : ""}<div class="mini" style="color:var(--muted)">${catOf(b.cat)}</div></td>
+      <td style="text-align:right;font-family:var(--mono)${off ? ";opacity:.4" : ""}">${money(amt, 0)}</td>
+      <td style="text-align:center"><span class="paypill ${by === "BT" ? "bt" : "md"}" data-mby="${idx}" data-tip="Click to switch payer">${by}</span></td>
+      <td><input class="mbill-note" value="${escapeHtml(note)}" placeholder="\u2014" data-mnote="${idx}"></td>
+    </tr>`;
+        });
+        body.innerHTML =
+          rows ||
+          '<tr><td colspan="5" class="mini" style="padding:14px;text-align:center">No bills yet \u2014 add them under Bills Setup.</td></tr>';
+
+        // totals for the month
+        const bills = eMonthBills(cur);
+        const tot = bills.reduce((a, b) => a + (+b.amt || 0), 0);
+        const paidMD = bills
+          .filter((b) => b.by === "MD")
+          .reduce((a, b) => a + (+b.amt || 0), 0);
+        const paidBT = bills
+          .filter((b) => b.by === "BT")
+          .reduce((a, b) => a + (+b.amt || 0), 0);
+        const totEl = document.getElementById("e_mBillsTot");
+        if (totEl) totEl.textContent = money(tot, 0);
+        const foot = document.getElementById("e_mBillsFoot");
+        if (foot)
+          foot.innerHTML =
+            `<span>Total shared <b class="mono">${money(tot, 0)}</b></span>` +
+            `<span>MD pays <b class="mono">${money(paidMD, 0)}</b></span>` +
+            `<span>BT pays <b class="mono">${money(paidBT, 0)}</b></span>` +
+            `<span>Each owes <b class="mono">${money(tot / 2, 0)}</b></span>`;
+
+        // reset link
+        const rw = document.getElementById("e_mResetWrap");
+        if (rw)
+          rw.innerHTML = eMonthHasOverride(cur)
+            ? `<button class="btn sec2" id="e_mReset" data-tip="Revert this month back to your default bills">\u21ba Reset ${eMonthLabel(cur)} to defaults</button>`
+            : `<span class="mini" style="color:var(--muted)">Using your default bills for ${eMonthLabel(cur)}.</span>`;
+
+        // wire handlers
+        body.querySelectorAll("[data-mtoggle]").forEach(
+          (el) =>
+            (el.onclick = () => {
+              const i = +el.dataset.mtoggle;
+              const isOn = el.classList.contains("on"); // currently on => user wants to turn it OFF
+              eSetMonthOverride(cur, i, { off: isOn });
+              eSave();
+              eRenderMonthTab();
+            }),
+        );
+        body.querySelectorAll("[data-mby]").forEach(
+          (el) =>
+            (el.onclick = () => {
+              const i = +el.dataset.mby;
+              const b = E_STATE.bills[i];
+              const o =
+                ((E_STATE.monthBills || {})[cur] &&
+                  E_STATE.monthBills[cur][i]) ||
+                {};
+              const curBy = o.by || b.by;
+              eSetMonthOverride(cur, i, { by: curBy === "MD" ? "BT" : "MD" });
+              eSave();
+              eRenderMonthTab();
+            }),
+        );
+        body.querySelectorAll("[data-mnote]").forEach(
+          (el) =>
+            (el.onchange = () => {
+              const i = +el.dataset.mnote;
+              eSetMonthOverride(cur, i, { note: el.value });
+              eSave();
+              eRenderMonthBills();
+            }),
+        );
+        const rb = document.getElementById("e_mReset");
+        if (rb)
+          rb.onclick = () => {
+            eClearMonth(cur);
+            eSave();
+            eRenderMonthTab();
+          };
+      }
+
+      function eRenderMonthTab() {
+        eRenderMonthNav();
+        eRenderKeepCards();
+        eRenderMonthBills();
+      }
+
+      // Net monthly income: collapsible, collapsed by default.
+      function eIncCollapsed() {
+        try {
+          const v = localStorage.getItem("casa_incCollapsed_v1");
+          return v === null ? true : v === "1";
+        } catch (e) {
+          return true;
+        }
+      }
+      function eApplyIncCollapsed() {
+        const body = document.getElementById("e_incBody");
+        const tog = document.getElementById("e_incToggle");
+        const sum = document.getElementById("e_incSummary");
+        const collapsed = eIncCollapsed();
+        if (body) body.style.display = collapsed ? "none" : "";
+        if (tog) tog.textContent = collapsed ? "\u25b8" : "\u25be";
+        if (sum) {
+          const inc1 = +E_STATE.inc1 || 0,
+            inc2 = +E_STATE.inc2 || 0;
+          sum.textContent = collapsed
+            ? "MD " + money(inc1, 0) + " \u00b7 BT " + money(inc2, 0)
+            : "";
+        }
+      }
+      function eWireIncToggle() {
+        const h = document.getElementById("e_incHead");
+        if (!h || h._wired) return;
+        h._wired = true;
+        h.onclick = () => {
+          const now = eIncCollapsed();
+          try {
+            localStorage.setItem("casa_incCollapsed_v1", now ? "0" : "1");
+          } catch (e) {}
+          eApplyIncCollapsed();
+        };
+      }
+
+      function renderExpenses() {
+        eLoad();
+        // seed defaults for new fields
+        eSeedExpenseDefaults();
+        // sync top inputs (Setup tab)
+        const setv = (id, v) => {
+          const el = document.getElementById(id);
+          if (el && document.activeElement !== el) el.value = v;
+        };
+        setv("e_inc1", E_STATE.inc1);
+        setv("e_inc2", E_STATE.inc2);
+        setv("e_btToMd", E_STATE.btToMd);
+        // wire sub-tab buttons (idempotent)
+        document
+          .querySelectorAll("#expensesTabs .tab[data-etab]")
+          .forEach((b) => {
+            b.onclick = () => eShowTab(b.dataset.etab);
+          });
+        eWireIncToggle();
+        eApplyIncCollapsed();
+        // Setup tab renders
+        eRenderBills();
+        eRenderBillWarn();
+        eRenderCatDonut();
+        eRenderSettle();
+        // Pots tab renders
+        eRenderBuckets();
+        eRenderCarPlan();
+        eRenderLog();
+        // This-month tab
+        eRenderMonthTab();
+        // restore last tab (default: This Month)
+        const _ut = E_STATE.uiTab === "pots" ? "pots" : "setup"; // 'month' tab removed -> default to Monthly bills
+        eShowTab(_ut);
+      }
+      // Seed targets / loan principal / month-override map on first run (all editable later).
+      function eSeedExpenseDefaults() {
+        if (!E_STATE.potTargets) {
+          E_STATE.potTargets = { mt: 0, car: 0, btOther: 0, toMd: 0 };
+        }
+        if (!("loanPrincipal" in E_STATE)) {
+          E_STATE.loanPrincipal = "";
+        } // '' => auto = full planned schedule
+        // Extra loan draws taken from MT over time (each adds to the principal).
+        // [{ id, when:'YYYY-Www', amount:Number, note:String }]
+        if (!Array.isArray(E_STATE.loanDraws)) {
+          E_STATE.loanDraws = [];
+        }
+        // Loan-draws panel starts collapsed each session (hidden by default).
+        E_STATE._loanDrawsOpen = false;
+        // The "This Month" tab was removed \u2014 drop any stale per-month bill overrides so they
+        // can't shadow payer/amount edits made in Monthly bills. Settlement now derives
+        // straight from the default bills.
+        if (E_STATE.monthBills && Object.keys(E_STATE.monthBills).length) {
+          E_STATE.monthBills = {};
+        }
+        if (!E_STATE.monthBills) {
+          E_STATE.monthBills = {};
+        }
+        eSave();
+      }
+
+      function eRenderBills() {
+        const body = document.getElementById("e_billsBody");
+        if (!body) return;
+        const s = E_STATE;
+        s.bills.forEach((b) => {
+          if (!b.cat) {
+            const n = (b.name || "").toLowerCase();
+            if (/loan/.test(n)) b.cat = "loans";
+            else if (/car|house|other|redal|iam/.test(n)) b.cat = "fixed";
+            else b.cat = "living";
+          }
+        });
+        const inp =
+          "width:100%;padding:6px 9px;background:transparent;border:1px solid transparent;border-radius:7px;color:var(--text);font-size:13px;transition:border-color .12s ease";
+        const inpN =
+          "width:96px;padding:6px 9px;text-align:right;background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:13px;font-family:var(--mono)";
+        const catSel =
+          "padding:4px 7px;background:var(--panel2);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-size:11.5px";
+        let out = "";
+        E_BILL_CATS.forEach((cat) => {
+          const idxs = s.bills
+            .map((b, i) => ({ b, i }))
+            .filter((x) => (x.b.cat || "living") === cat.key);
+          if (!idxs.length) return;
+          const sub = idxs.reduce((a, x) => a + eBillAmt(x.b), 0);
+          const n = idxs.length;
+          const mdSum = idxs
+            .filter((x) => x.b.by !== "BT")
+            .reduce((a, x) => a + eBillAmt(x.b), 0);
+          const btSum = idxs
+            .filter((x) => x.b.by === "BT")
+            .reduce((a, x) => a + eBillAmt(x.b), 0);
+          const payer = btSum > mdSum ? "BT" : "MD";
+          // ---- category SECTION HEADER row (full-width, tinted) ----
+          out += `<tr class="e-cathead" style="background:${cat.color}14">
+      <td colspan="4" style="padding:9px 12px;border-bottom:1px solid ${cat.color}33">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:9px;height:9px;border-radius:50%;background:${cat.color};flex:none"></span>
+          <span style="font-weight:800;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:${cat.color}">${cat.label}</span>
+          <span class="mini" style="color:var(--muted)">${n} bill${n > 1 ? "s" : ""}</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+            <span class="paypill ${payer === "BT" ? "bt" : "md"}" data-tip="Most of this group is paid by ${payer}">${payer}</span>
+            <span style="font-family:var(--mono);font-weight:800;font-size:14px;color:var(--text)">${eFmt(sub)}</span>
+          </span>
+        </div>
+      </td>
+    </tr>`;
+          // ---- bill rows ----
+          idxs.forEach(({ b, i }, k) => {
+            const first = k === 0,
+              last = k === n - 1;
+            const hasComp = Array.isArray(b.components) && b.components.length;
+            const open = E_COMP_OPEN.has(i);
+            const arrows = `<span style="display:inline-flex;flex-direction:column;gap:2px;margin-right:2px;opacity:0;transition:opacity .12s ease" class="e-reord">
+          <span data-bmove="${i}:up" data-tip="Move up" style="cursor:${first ? "default" : "pointer"};opacity:${first ? 0.2 : 0.6};font-size:9px;line-height:1">\u25B2</span>
+          <span data-bmove="${i}:dn" data-tip="Move down" style="cursor:${last ? "default" : "pointer"};opacity:${last ? 0.2 : 0.6};font-size:9px;line-height:1">\u25BC</span>
+        </span>`;
+            const nameCell = `<div style="display:flex;align-items:center;gap:6px">${arrows}
+          <input data-bi="${i}" data-bk="name" value="${escapeHtml(b.name || "")}" style="${inp}" class="e-billname"></div>`;
+            const amtCell = hasComp
+              ? `<div style="display:flex;align-items:center;justify-content:flex-end;gap:7px">
+             <span style="font-family:var(--mono);font-weight:700;font-size:13px">${eFmt(eBillAmt(b))}</span>
+             <span data-comp="${i}" data-tip="Edit monthly/yearly breakdown" style="cursor:pointer;opacity:${open ? 0.95 : 0.55};font-size:13px">\u2699</span>
+           </div>`
+              : `<div style="display:flex;align-items:center;justify-content:flex-end;gap:7px">
+             <input data-bi="${i}" data-bk="amt" type="number" step="1" value="${b.amt}" style="${inpN}">
+             <span data-comp="${i}" data-tip="Break into monthly/yearly items" style="cursor:pointer;opacity:.4;font-size:13px">\u2699</span>
+           </div>`;
+            const payCell = `<span class="e-payseg" role="group" aria-label="Paid by">
+          <button type="button" data-bpay="${i}:MD" class="${b.by !== "BT" ? "on" : ""}">MD</button>
+          <button type="button" data-bpay="${i}:BT" class="${b.by === "BT" ? "on" : ""}">BT</button>
+        </span>`;
+            const catCell = `<select data-bi="${i}" data-bk="cat" style="${catSel}" data-tip="Move to another group">${E_BILL_CATS.map((c) => `<option value="${c.key}"${(b.cat || "living") === c.key ? " selected" : ""}>${c.label}</option>`).join("")}</select>`;
+            out += `<tr class="e-billrow${last && !(hasComp && open) ? " e-lastincat" : ""}">
+        <td style="padding:5px 8px 5px 20px">${nameCell}</td>
+        <td style="text-align:right;padding:5px 8px">${amtCell}</td>
+        <td style="text-align:center;padding:5px 8px"><div style="display:flex;align-items:center;justify-content:center;gap:8px">${payCell}${catCell}</div></td>
+        <td style="text-align:center;padding:5px 8px"><span data-del="${i}" data-tip="Remove" style="cursor:pointer;color:var(--text2);opacity:.45;font-size:14px">\u2715</span></td>
+      </tr>`;
+            if (hasComp && open) {
+              const cinp =
+                "padding:4px 7px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px";
+              let crows = "";
+              b.components.forEach((cp, ci) => {
+                crows += `<tr>
+            <td style="padding:2px 6px"><input data-ci="${i}" data-cj="${ci}" data-ck="name" value="${escapeHtml(cp.name || "")}" style="${cinp};width:150px"></td>
+            <td style="padding:2px 6px;text-align:right"><input data-ci="${i}" data-cj="${ci}" data-ck="amt" type="number" step="1" value="${cp.amt}" style="${cinp};width:92px;text-align:right"></td>
+            <td style="padding:2px 6px;text-align:center"><select data-ci="${i}" data-cj="${ci}" data-ck="freq" style="${cinp};background:var(--panel2);color:var(--text)"><option value="yearly" style="background:var(--panel2);color:var(--text)"${cp.freq === "yearly" ? " selected" : ""}>/yr \u2192 \u00F712</option><option value="monthly" style="background:var(--panel2);color:var(--text)"${cp.freq !== "yearly" ? " selected" : ""}>/mo</option></select></td>
+            <td style="padding:2px 6px;text-align:right;font-family:var(--mono);color:var(--text2);font-size:12px">${eFmt((+cp.amt || 0) * (cp.freq === "yearly" ? 1 / 12 : 1))}/mo</td>
+            <td style="padding:2px 6px;text-align:center"><span data-cdel="${i}:${ci}" data-tip="Remove item" style="cursor:pointer;color:var(--text2);opacity:.5;font-size:13px">\u2715</span></td>
+          </tr>`;
+              });
+              out += `<tr class="e-comp-row${last ? " e-lastincat" : ""}"><td colspan="4" style="padding:6px 8px 12px 40px;background:var(--panel2);border-bottom:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text2);margin-bottom:5px">Breakdown for <b>${escapeHtml(b.name || "")}</b> \u2014 monthly total <b style="font-family:var(--mono)">${eFmt(eBillAmt(b))}</b></div>
+          <table style="border-collapse:collapse"><thead><tr style="color:var(--text2);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em">
+            <th scope="col" style="text-align:left;padding:0 6px">Item</th><th scope="col" style="text-align:right;padding:0 6px">Amount</th><th scope="col" style="padding:0 6px">Frequency</th><th scope="col" style="text-align:right;padding:0 6px">Monthly</th><th scope="col"></th></tr></thead>
+            <tbody>${crows}</tbody></table>
+          <span data-cadd="${i}" style="cursor:pointer;color:var(--primary2);font-size:11px;display:inline-block;margin-top:5px">+ add item</span>
+        </td></tr>`;
+            }
+          });
+          out += `<tr class="e-catspacer"><td colspan="4"></td></tr>`;
+        });
+        body.innerHTML = out;
+        const tot = s.bills.reduce((a, b) => a + eBillAmt(b), 0);
+        document.getElementById("e_billsTot").textContent = eFmt(tot);
+        const eRefresh = () => {
+          eSave();
+          eRenderBills();
+          eRenderBillWarn();
+          eRenderCatDonut();
+          eRenderSettle();
+          eRenderMonthTab();
+          eRenderCarPlan();
+        };
+        body
+          .querySelectorAll("input[data-bi],select[data-bi]")
+          .forEach((el) => {
+            el.onchange = () => {
+              const i = +el.dataset.bi,
+                k = el.dataset.bk;
+              E_STATE.bills[i][k] = k === "amt" ? +el.value || 0 : el.value;
+              eRefresh();
+            };
+          });
+        body.querySelectorAll("[data-bpay]").forEach((el) => {
+          el.onclick = () => {
+            const [ix, who] = el.dataset.bpay.split(":");
+            E_STATE.bills[+ix].by = who;
+            eRefresh();
+          };
+        });
+        body.querySelectorAll("[data-del]").forEach((el) => {
+          el.onclick = () => {
+            const i = +el.dataset.del;
+            E_STATE.bills.splice(i, 1);
+            E_COMP_OPEN.delete(i);
+            eRefresh();
+          };
+        });
+        body.querySelectorAll("[data-bmove]").forEach((el) => {
+          el.onclick = () => {
+            const [ix, dir] = el.dataset.bmove.split(":");
+            eMoveBill(+ix, dir === "up" ? "up" : "down");
+          };
+        });
+        body.querySelectorAll("[data-comp]").forEach((el) => {
+          el.onclick = () => {
+            const i = +el.dataset.comp;
+            const bill = E_STATE.bills[i];
+            if (E_COMP_OPEN.has(i)) {
+              E_COMP_OPEN.delete(i);
+            } else {
+              if (!Array.isArray(bill.components) || !bill.components.length) {
+                bill.components = [
+                  {
+                    name: bill.name || "Amount",
+                    amt: +bill.amt || 0,
+                    freq: "monthly",
+                  },
+                ];
+                bill.amt = eBillAmt(bill);
+                eSave();
+              }
+              E_COMP_OPEN.add(i);
+            }
+            eRenderBills();
+          };
+        });
+        body
+          .querySelectorAll("input[data-ci],select[data-ci]")
+          .forEach((el) => {
+            el.onchange = () => {
+              const i = +el.dataset.ci,
+                j = +el.dataset.cj,
+                k = el.dataset.ck;
+              const cp = E_STATE.bills[i].components[j];
+              cp[k] = k === "amt" ? +el.value || 0 : el.value;
+              E_STATE.bills[i].amt = eBillAmt(E_STATE.bills[i]);
+              eRefresh();
+            };
+          });
+        body.querySelectorAll("[data-cadd]").forEach((el) => {
+          el.onclick = () => {
+            const i = +el.dataset.cadd;
+            (E_STATE.bills[i].components =
+              E_STATE.bills[i].components || []).push({
+              name: "New item",
+              amt: 0,
+              freq: "yearly",
+            });
+            E_STATE.bills[i].amt = eBillAmt(E_STATE.bills[i]);
+            eRefresh();
+          };
+        });
+        body.querySelectorAll("[data-cdel]").forEach((el) => {
+          el.onclick = () => {
+            const [i, j] = el.dataset.cdel.split(":").map(Number);
+            E_STATE.bills[i].components.splice(j, 1);
+            E_STATE.bills[i].amt = eBillAmt(E_STATE.bills[i]);
+            eRefresh();
+          };
+        });
+      }
+
+      // ---- Untagged-bill validation: MD + BT tagged must cover the shared total ----
+      function eRenderBillWarn() {
+        const el = document.getElementById("e_billWarn");
+        if (!el) return;
+        const s = E_STATE;
+        const tot = s.bills.reduce((a, b) => a + eBillAmt(b), 0);
+        const untagged = s.bills.filter((b) => b.by !== "MD" && b.by !== "BT");
+        const untaggedAmt = untagged.reduce((a, b) => a + eBillAmt(b), 0);
+        if (untaggedAmt < 1) {
+          el.innerHTML = "";
+          return;
+        }
+        const names = untagged
+          .filter((b) => eBillAmt(b) > 0)
+          .map((b) => b.name || "(unnamed)")
+          .join(", ");
+        el.innerHTML = `<div style="border:1px solid var(--warn);border-left:4px solid var(--warn);border-radius:10px;padding:9px 13px;background:color-mix(in srgb,var(--warn) 10%,transparent);font-size:13px">
+    \u26A0\uFE0F <b>${eFmt(untaggedAmt)} MAD of shared bills isn't tagged to a payer</b> (MD / BT).
+    The settlement only splits tagged bills, so this amount is currently ignored.
+    <span class="mini" style="display:block;margin-top:3px;opacity:.85">Untagged: ${names}</span></div>`;
+      }
+
+      // ---- Category breakdown donut: shared bills by category ----
+      let E_CH_cat = null;
+      function eRenderCatDonut() {
+        const el = document.getElementById("e_catDonut");
+        const leg = document.getElementById("e_catLegend");
+        if (!el || typeof Highcharts === "undefined") return;
+        const s = E_STATE;
+        const c = eThemeColors();
+        const data = E_BILL_CATS.map((cat) => {
+          const amt = s.bills
+            .filter((b) => (b.cat || "living") === cat.key)
+            .reduce((a, b) => a + eBillAmt(b), 0);
+          return { name: cat.label, y: Math.round(amt), color: cat.color };
+        }).filter((d) => d.y > 0);
+        const tot = data.reduce((a, d) => a + d.y, 0);
+        if (!data.length) {
+          el.innerHTML = "";
+          if (leg) leg.innerHTML = "";
+          const _cc0 = document.getElementById("e_catDonutCenter");
+          if (_cc0) _cc0.innerHTML = "";
+          return;
+        }
+        E_CH_cat = Highcharts.chart("e_catDonut", {
+          chart: {
+            type: "pie",
+            backgroundColor: "transparent",
+            margin: [4, 4, 4, 4],
+          },
+          title: { text: null },
+          credits: { enabled: false },
+          tooltip: {
+            pointFormat: "<b>{point.y:,.0f} MAD</b> ({point.percentage:.0f}%)",
+          },
+          plotOptions: {
+            pie: {
+              innerSize: "62%",
+              size: "100%",
+              center: ["50%", "50%"],
+              borderWidth: 0,
+              dataLabels: { enabled: false },
+            },
+          },
+          series: [{ name: "Shared bills", data: data }],
+        });
+        const _cc = document.getElementById("e_catDonutCenter");
+        if (_cc) {
+          _cc.innerHTML = tot
+            ? `<div style="font-family:var(--mono);font-weight:800;font-size:17px;color:var(--text)">${eFmt(tot)}</div><div style="font-size:10px;color:var(--text2);letter-spacing:.04em">MAD/mo</div>`
+            : "";
+        }
+        if (leg) {
+          leg.innerHTML = data
+            .map(
+              (
+                d,
+              ) => `<div style="display:flex;align-items:center;gap:7px;margin:3px 0">
+      <span style="width:10px;height:10px;border-radius:2px;background:${d.color};flex:none"></span>
+      <span style="flex:1">${escapeHtml(d.name)}</span>
+      <b style="font-family:var(--mono)">${eFmt(d.y)}</b>
+      <span style="opacity:.6;width:42px;text-align:right">${tot ? Math.round((d.y / tot) * 100) : 0}%</span></div>`,
+            )
+            .join("");
+        }
+      }
+
+      function eMoveBill(i, dir) {
+        const bills = E_STATE.bills;
+        if (i < 0 || i >= bills.length) return;
+        const cat = bills[i].cat || "living";
+        // find nearest sibling index in the SAME category, in the move direction
+        let j = -1;
+        if (dir === "up") {
+          for (let k = i - 1; k >= 0; k--) {
+            if ((bills[k].cat || "living") === cat) {
+              j = k;
+              break;
+            }
+          }
+        } else {
+          for (let k = i + 1; k < bills.length; k++) {
+            if ((bills[k].cat || "living") === cat) {
+              j = k;
+              break;
+            }
+          }
+        }
+        if (j < 0) return; // already at the group edge
+        [bills[i], bills[j]] = [bills[j], bills[i]]; // swap positions
+        // keep expanded-editor state attached to the bills as they move
+        const iOpen = E_COMP_OPEN.has(i),
+          jOpen = E_COMP_OPEN.has(j);
+        E_COMP_OPEN.delete(i);
+        E_COMP_OPEN.delete(j);
+        if (iOpen) E_COMP_OPEN.add(j);
+        if (jOpen) E_COMP_OPEN.add(i);
+        eSave();
+        eRenderBills();
+      }
+      function eRenderSettle() {
+        const c = eCompute();
+        document.getElementById("e_splitLine").innerHTML =
+          `Income split: <b>MD ${(c.ratio1 * 100).toFixed(1)}%</b> / <b>BT ${(c.ratio2 * 100).toFixed(1)}%</b> \u00B7 Total shared bills <b>${eFmt(c.billsTot)}</b> (MD pays ${eFmt(c.paidMD)}, BT pays ${eFmt(c.paidBT)})`;
+        const q = document.getElementById("e_q35hint");
+        if (q) q.textContent = " (she sends you this)";
+        const arrow = c.netMDtoBT >= 0 ? "MD \u2192 BT" : "BT \u2192 MD";
+        const amt = Math.abs(c.netMDtoBT);
+        const cards = document.getElementById("e_settle");
+        // ---- hover tooltips: full numeric derivation of each figure ----
+        const tipMD = [
+          'How "To Pay MD" is derived:',
+          "  Pool (leftover both keep) = (MD income " +
+            eFmt(c.inc1) +
+            " + BT income " +
+            eFmt(c.inc2) +
+            ") \u2212 shared bills " +
+            eFmt(c.billsTot) +
+            " = " +
+            eFmt(c.pool),
+          "  MD's target total = MD income " +
+            eFmt(c.inc1) +
+            " \u2212 pool/2 " +
+            eFmt(c.pool / 2) +
+            " = " +
+            eFmt(c.totalMD),
+          "  To Pay MD = MD's target " +
+            eFmt(c.totalMD) +
+            " \u2212 bills MD already pays " +
+            eFmt(c.paidMD) +
+            " = " +
+            eFmt(c.toPayMD),
+          c.toPayMD < 0
+            ? "  (negative \u2192 MD owes nothing; the excess is settled via the net transfer)"
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const tipBT = [
+          'How "To Pay BT" is derived:',
+          "  Pool (leftover both keep) = (MD income " +
+            eFmt(c.inc1) +
+            " + BT income " +
+            eFmt(c.inc2) +
+            ") \u2212 shared bills " +
+            eFmt(c.billsTot) +
+            " = " +
+            eFmt(c.pool),
+          "  BT's target total = BT income " +
+            eFmt(c.inc2) +
+            " \u2212 pool/2 " +
+            eFmt(c.pool / 2) +
+            " = " +
+            eFmt(c.totalBT),
+          "  To Pay BT = BT's target " +
+            eFmt(c.totalBT) +
+            " \u2212 bills BT already pays " +
+            eFmt(c.paidBT) +
+            " = " +
+            eFmt(c.toPayBT),
+          c.toPayBT < 0
+            ? "  (negative \u2192 BT owes nothing; the excess is settled via the net transfer)"
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        const tipNet = [
+          "How the net transfer is derived:",
+          "  To Pay MD " +
+            eFmt(c.toPayMD) +
+            " \u2212 BT's monthly payment to MD " +
+            eFmt(c.btToMd) +
+            " = " +
+            eFmt(c.netMDtoBT),
+          "  Result " +
+            (c.netMDtoBT >= 0
+              ? "positive \u2192 MD sends BT"
+              : "negative \u2192 BT sends MD") +
+            " " +
+            eFmt(amt) +
+            ".",
+          "  (BT's standing " +
+            eFmt(c.btToMd) +
+            " payment nets against what MD would otherwise transfer.)",
+        ].join("\n");
+        const esc = (t) => t.replace(/"/g, "&quot;");
+        cards.innerHTML = `
+   <div class="card" data-tip="${esc(tipMD)}" style="cursor:help"><div class="mini">To Pay MD <span style="opacity:.7">(before BT's payment)</span></div><div style="font-size:22px;font-weight:800">${c.toPayMD < 0 ? "\u2014" : eFmt(c.toPayMD)}</div><div class="mini">${c.toPayMD < 0 ? "nothing owed by MD" : "MD's total " + eFmt(c.totalMD) + " \u2212 MD's bills " + eFmt(c.paidMD)} \u24D8</div></div>
+   <div class="card" data-tip="${esc(tipBT)}" style="cursor:help"><div class="mini">To Pay BT</div><div style="font-size:22px;font-weight:800">${c.toPayBT < 0 ? "\u2014" : eFmt(c.toPayBT)}</div><div class="mini">${c.toPayBT < 0 ? "nothing owed by BT" : "BT's total " + eFmt(c.totalBT) + " \u2212 BT's bills " + eFmt(c.paidBT)} \u24D8</div></div>
+   <div class="card" data-tip="${esc(tipNet)}" style="border-color:var(--primary);cursor:help"><div class="mini">\uD83D\uDCB8 Net transfer to settle 50/50</div><div style="font-size:24px;font-weight:800;color:var(--primary2)">${eFmt(amt)}</div><div class="mini"><b>${arrow}</b> \u00B7 ${eFmt(c.toPayMD)} \u2212 ${eFmt(c.btToMd)} (BT\u2192MD) \u24D8</div></div>
+   <div class="card"><div class="mini">Leftover each keeps</div><div style="font-size:20px;font-weight:800">${eFmt(c.discMD)}</div><div class="mini">pool ${eFmt(c.pool)} \u00F7 2 \u00B7 same for both</div></div>`;
+
+        // ---- Plain-language headline: the one number you glance at ----
+        const hEl = document.getElementById("e_settleHeadline");
+        if (hEl) {
+          if (Math.abs(amt) < 1) {
+            hEl.innerHTML = `<div style="border:1px solid var(--border);border-left:4px solid var(--success);border-radius:10px;padding:10px 14px;background:var(--panel2);font-size:14px">\u2705 <b>All settled this month</b> \u2014 no transfer needed.</div>`;
+          } else {
+            const from = c.netMDtoBT >= 0 ? "you (MD)" : "BT";
+            const to = c.netMDtoBT >= 0 ? "BT" : "you (MD)";
+            hEl.innerHTML = `<div style="border:1px solid var(--primary2);border-left:4px solid var(--primary2);border-radius:10px;padding:10px 14px;background:color-mix(in srgb,var(--primary2) 10%,transparent);font-size:15px">\uD83D\uDCB8 <b>This month: ${from} send ${to} <span style="font-family:var(--mono);color:var(--primary2)">${eFmt(amt)} MAD</span></b> to keep the 50/50 even.</div>`;
+          }
+        }
+      }
+
+      const E_MONTH_ABBR = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+
+      function eCarPlanYearlyTotal() {
+        return (E_STATE.carPlan || []).reduce(
+          (a, c) => a + Math.abs(+c.amt || 0) * (c.months || []).length,
+          0,
+        );
+      }
+      // How much the user sets aside for the car each month. This is an EXPLICIT number the
+      // user enters (E_STATE.carMonthlySave) \u2014 not inferred from the log, to avoid confusion.
+      function eCarMonthlySave() {
+        return Math.max(0, +(E_STATE && E_STATE.carMonthlySave) || 0);
+      }
+      // Actual car costs paid this year: sum of the recurring-plan cost for each
+      // REALIZED car month in the current calendar year. Uses the plan (which knows
+      // each cost + the months it hits) so gross garage payments show even when a
+      // month's net set-aside stayed positive.
+      function eCarPaidOutYTD() {
+        const plan = (E_STATE && E_STATE.carPlan) || [];
+        if (!plan.length) return 0;
+        const byMonth = {};
+        plan.forEach((c) => {
+          (c.months || []).forEach((mo) => {
+            byMonth[mo] = (byMonth[mo] || 0) + Math.abs(+c.amt || 0);
+          });
+        });
+        const nowY = new Date().getFullYear();
+        let total = 0;
+        (E_STATE.log || []).forEach((r) => {
+          const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+          if (!mm) return;
+          if (+mm[1] !== nowY) return; // this year only
+          if (!eRz(r, "car")) return; // realized car months only
+          total += byMonth[+mm[2]] || 0;
+        });
+        return total;
+      }
+      // For each plan month, list the cost names that hit it (used for auto-filled notes).
+      function eCarNoteForMonth(mo) {
+        const names = (E_STATE.carPlan || [])
+          .filter(
+            (c) => Math.abs(+c.amt || 0) > 0 && (c.months || []).includes(mo),
+          )
+          .map((c) => c.name || "Car cost");
+        return names.join(" + ");
+      }
+
+      function eRenderCarPlan() {
+        const body = document.getElementById("e_carPlanBody");
+        if (!body) return;
+        const plan = E_STATE.carPlan || [];
+        body.innerHTML =
+          plan
+            .map((c, i) => {
+              const yr = Math.abs(+c.amt || 0) * (c.months || []).length;
+              const monthChips = E_MONTH_ABBR.map((mn, mi) => {
+                const on = (c.months || []).includes(mi + 1);
+                return `<span data-cm="${i}:${mi + 1}" data-tip="${mn}" style="cursor:pointer;user-select:none;display:inline-block;width:30px;text-align:center;margin:1px;padding:2px 0;border-radius:6px;font-size:11px;font-weight:600;
+        border:1px solid ${on ? "var(--primary2)" : "var(--border)"};background:${on ? "var(--primary2)" : "transparent"};color:${on ? "#fff" : "var(--text2)"}">${mn}</span>`;
+              }).join("");
+              return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 6px"><input data-cname="${i}" value="${escapeHtml(c.name || "")}" style="width:100%;min-width:150px;padding:4px 6px"></td>
+      <td style="padding:5px 6px;text-align:right"><input data-camt="${i}" type="number" step="50" value="${+c.amt || 0}" style="width:90px;padding:4px 6px;text-align:right"></td>
+      <td style="padding:5px 6px">${monthChips}</td>
+      <td data-cyr="${i}" style="padding:5px 6px;text-align:right;font-family:var(--mono);font-weight:700">${eFmt(yr)}</td>
+      <td style="padding:5px 6px;text-align:right"><span data-cdel="${i}" data-tip="Remove" style="cursor:pointer;color:var(--error);font-weight:700;padding:0 6px">\u2715</span></td>
+    </tr>`;
+            })
+            .join("") ||
+          `<tr><td colspan="5" class="mini" style="padding:8px 6px">No recurring costs yet \u2014 add one below.</td></tr>`;
+
+        // Wire inputs. IMPORTANT: never call eRenderCarPlan() on oninput \u2014 rebuilding the
+        // table mid-typing destroys the focused input (keyboard "blocks" after 1 char).
+        // Update state + live cells only on input; do the full re-render on blur.
+        body.querySelectorAll("[data-cname]").forEach((el) => {
+          el.oninput = () => {
+            E_STATE.carPlan[+el.dataset.cname].name = el.value;
+            eSave();
+          };
+        });
+        body.querySelectorAll("[data-camt]").forEach((el) => {
+          el.oninput = () => {
+            const i = +el.dataset.camt,
+              c = E_STATE.carPlan[i];
+            c.amt = +el.value || 0;
+            eSave();
+            // update this row's "per year" cell + the banner live, without re-rendering the table
+            const yrCell = body.querySelector(`[data-cyr="${i}"]`);
+            if (yrCell)
+              yrCell.textContent = eFmt(
+                Math.abs(c.amt) * (c.months || []).length,
+              );
+            eRenderCarPlanBanner();
+            const note = document.getElementById("e_carPlanNote");
+            if (note) {
+              note.innerHTML = `Total <b>${eFmt(eCarPlanYearlyTotal())}</b>/yr`;
+            }
+          };
+          el.onblur = () => {
+            eRenderCarPlan();
+            eRenderLog();
+          }; // full refresh once editing is done (also updates log locks)
+        });
+        body.querySelectorAll("[data-cm]").forEach((el) => {
+          el.onclick = () => {
+            const [i, m] = el.dataset.cm.split(":").map(Number);
+            const c = E_STATE.carPlan[i];
+            c.months = c.months || [];
+            if (c.months.includes(m))
+              c.months = c.months.filter((x) => x !== m);
+            else c.months.push(m);
+            c.months.sort((a, b) => a - b);
+            eSave();
+            eRenderCarPlan();
+            eRenderLog();
+          };
+        });
+        body.querySelectorAll("[data-cdel]").forEach((el) => {
+          el.onclick = () => {
+            E_STATE.carPlan.splice(+el.dataset.cdel, 1);
+            eSave();
+            eRenderCarPlan();
+            eRenderLog();
+          };
+        });
+
+        eRenderCarPlanBanner();
+        const note = document.getElementById("e_carPlanNote");
+        if (note) {
+          const yt = eCarPlanYearlyTotal();
+          note.innerHTML = `Total <b>${eFmt(yt)}</b>/yr`;
+        }
+        eApplyCarPlanCollapsed();
+      }
+
+      function eCarPlanCollapsed() {
+        try {
+          const v = localStorage.getItem("casa_carPlanCollapsed_v1");
+          return v === null ? true : v === "1";
+        } catch (e) {
+          return true;
+        }
+      }
+      function eApplyCarPlanCollapsed() {
+        const det = document.getElementById("e_carPlanDetails");
+        const tog = document.getElementById("e_carPlanToggle");
+        const collapsed = eCarPlanCollapsed();
+        if (det) det.style.display = collapsed ? "none" : "";
+        if (tog) {
+          tog.textContent = collapsed ? "\u25B8" : "\u25BE";
+          tog.title = collapsed
+            ? "Show car cost details"
+            : "Hide car cost details";
+        }
+      }
+
+      function eRenderCarPlanBanner() {
+        const b = document.getElementById("e_carPlanBanner");
+        if (!b) return;
+        const yearly = eCarPlanYearlyTotal();
+        const need = yearly / 12; // even monthly set-aside required to cover the year
+        const have = eCarMonthlySave(); // what the user says they set aside each month
+        const gap = have - need;
+        const ok = have > 0 ? gap >= -1 : false;
+        const col =
+          have <= 0 ? "var(--warn)" : ok ? "var(--success)" : "var(--error)";
+        const icon = have <= 0 ? "\u2022" : ok ? "\u2713" : "\u25BC";
+        let verdict;
+        if (have <= 0) {
+          verdict = `Enter how much you set aside for the car each month to see if you're on track. You need <b>${eFmt(need)}</b>/mo to cover <b>${eFmt(yearly)}</b>/yr.`;
+        } else if (ok) {
+          verdict = `On track \u2014 you set aside <b>${eFmt(have)}</b>/mo, covering the <b>${eFmt(need)}</b>/mo needed (<b>${eFmt(have - need)}</b>/mo buffer).`;
+        } else {
+          verdict = `Short by <b>${eFmt(need - have)}</b>/mo \u2014 you set aside <b>${eFmt(have)}</b>/mo but need <b>${eFmt(need)}</b>/mo.`;
+        }
+        b.innerHTML = `<div style="border:1px solid ${col}55;background:${col}14;border-radius:10px;padding:10px 12px;font-size:13px">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+      <span style="display:flex;align-items:center;gap:6px"><span class="mini">I set aside</span>
+        <input id="e_carSaveInp" type="number" step="50" value="${have || ""}" placeholder="0"
+          style="width:90px;padding:4px 6px;text-align:right;font-family:var(--mono);font-weight:700">
+        <span class="mini">/mo</span></span>
+      <span><span class="mini">Need to save</span> <b style="font-family:var(--mono)">${eFmt(need)}</b>/mo</span>
+      <span><span class="mini">Recurring/yr</span> <b style="font-family:var(--mono)">${eFmt(yearly)}</b></span>
+    </div>
+    <div style="margin-top:6px;color:${col}">${icon} ${verdict}</div>
+  </div>`;
+        const inp = document.getElementById("e_carSaveInp");
+        if (inp) {
+          inp.oninput = () => {
+            E_STATE.carMonthlySave = +inp.value || 0;
+            eSave();
+            // live-update only the verdict text/colors; don't rebuild input (keeps focus)
+            const yl = eCarPlanYearlyTotal(),
+              nd = yl / 12,
+              hv = eCarMonthlySave(),
+              okk = hv > 0 && hv - nd >= -1;
+            const cc =
+              hv <= 0 ? "var(--warn)" : okk ? "var(--success)" : "var(--error)";
+            const ic = hv <= 0 ? "\u2022" : okk ? "\u2713" : "\u25BC";
+            let vt;
+            if (hv <= 0)
+              vt = `Enter how much you set aside for the car each month to see if you're on track. You need <b>${eFmt(nd)}</b>/mo to cover <b>${eFmt(yl)}</b>/yr.`;
+            else if (okk)
+              vt = `On track \u2014 you set aside <b>${eFmt(hv)}</b>/mo, covering the <b>${eFmt(nd)}</b>/mo needed (<b>${eFmt(hv - nd)}</b>/mo buffer).`;
+            else
+              vt = `Short by <b>${eFmt(nd - hv)}</b>/mo \u2014 you set aside <b>${eFmt(hv)}</b>/mo but need <b>${eFmt(nd)}</b>/mo.`;
+            const box = inp.closest("div").parentElement;
+            const vd = box.lastElementChild;
+            if (vd) {
+              vd.style.color = cc;
+              vd.innerHTML = `${ic} ${vt}`;
+            }
+            box.style.borderColor = cc + "55";
+            box.style.background = cc + "14";
+          };
+        }
+      }
+
+      // Write each recurring cost as a NEGATIVE withdrawal into matching future (non-realized) months.
+      // Only touches non-realized rows so history is never overwritten. Overwrites the car value of
+      // a month only if that month is targeted by the plan (keeps other months' deposits intact).
+      function eApplyCarPlan() {
+        const plan = E_STATE.carPlan || [];
+        // month(1-12) -> total cost withdrawn that month
+        const byMonth = {};
+        plan.forEach((c) => {
+          (c.months || []).forEach((m) => {
+            byMonth[m] = (byMonth[m] || 0) + Math.abs(+c.amt || 0);
+          });
+        });
+        const save = eCarMonthlySave(); // monthly set-aside (0 if not entered)
+        const nowYM = (() => {
+          const d = new Date();
+          return d.getFullYear() * 100 + (d.getMonth() + 1);
+        })();
+        let applied = 0;
+        E_STATE.log.forEach((r) => {
+          const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+          if (!mm) return;
+          const ym = +mm[1] * 100 + +mm[2];
+          if (ym < nowYM) return; // only today or future \u2014 never rewrite the past
+          const mo = +mm[2];
+          const cost = byMonth[mo] || 0;
+          if (cost > 0) {
+            // payment month: you set aside `save`, then the cost comes out \u2192 net = save - cost
+            r.car = save - cost;
+            r.note = eCarNoteForMonth(mo);
+            applied++;
+          } else if (save > 0) {
+            // non-payment future month: reflect the monthly set-aside as a deposit
+            r.car = save;
+          }
+        });
+        eSave();
+        eRenderLog();
+        eRenderBuckets();
+        eRenderSavingsChart();
+        eRenderForward();
+        eRenderCarPlan();
+        return applied;
+      }
+
+      // Per-pot stats from the REALIZED log rows:
+      //   accumulated = sum of realized amounts (running balance in the pot)
+      //   savedIn     = sum of positive realized amounts (money put in)
+      //   paidOut     = sum of |negative realized amounts| (money spent out)
+      //   monthlySave = the most recent positive contribution (typical monthly deposit)
+      //   paidOutYTD  = |negatives| within the current calendar year
+      function ePotStats(key) {
+        const nowY = new Date().getFullYear();
+        let acc = 0,
+          savedIn = 0,
+          paidOut = 0,
+          paidOutYTD = 0,
+          monthlySave = 0,
+          lastMonth = "";
+        (E_STATE.log || [])
+          .slice()
+          .sort((a, b) => (a.month || "").localeCompare(b.month || ""))
+          .forEach((r) => {
+            if (!eRz(r, key)) return; // realized only
+            const v = +r[key] || 0;
+            acc += v;
+            if (v > 0) {
+              savedIn += v;
+              monthlySave = v;
+              lastMonth = r.month;
+            } else if (v < 0) {
+              paidOut += -v;
+              const y = +(/^(\d{4})/.exec(r.month || "") || [])[1];
+              if (y === nowY) paidOutYTD += -v;
+            }
+          });
+        return { acc, savedIn, paidOut, paidOutYTD, monthlySave, lastMonth };
+      }
+      // To MD loan: principal (editable, default = full planned To MD schedule), repaid = realized To MD deposits.
+      function eLoanState() {
+        let repaid = 0,
+          plannedTotal = 0;
+        (E_STATE.log || []).forEach((r) => {
+          const v = +r.toMd || 0;
+          if (v > 0) {
+            plannedTotal += v;
+            if (eRz(r, "toMd")) repaid += v;
+          }
+        });
+        const basePrincipal =
+          E_STATE.loanPrincipal != null && E_STATE.loanPrincipal !== ""
+            ? +E_STATE.loanPrincipal || 0
+            : plannedTotal;
+        // Extra draws taken from MT over time add to the principal.
+        const draws = Array.isArray(E_STATE.loanDraws) ? E_STATE.loanDraws : [];
+        const drawsTotal = draws.reduce((s, d) => s + (+d.amount || 0), 0);
+        const principal = basePrincipal + drawsTotal;
+        const remaining = Math.max(0, principal - repaid);
+        const pct =
+          principal > 0 ? Math.min(100, (repaid / principal) * 100) : 0;
+        return {
+          principal,
+          basePrincipal,
+          drawsTotal,
+          repaid,
+          remaining,
+          plannedTotal,
+          pct,
+        };
+      }
+      function eRenderBuckets() {
+        const el = document.getElementById("e_bucketCards");
+        if (!el) return;
+        E_STATE.potTargets = E_STATE.potTargets || {};
+        const T = E_STATE.potTargets;
+        const meta = {
+          mt: {
+            icon: "\u{1f476}",
+            label: "MT",
+            owner: "both save",
+            kind: "save",
+          },
+          car: {
+            icon: "\u{1f697}",
+            label: "Car",
+            owner: "MD saves",
+            kind: "save",
+          },
+          btOther: {
+            icon: "\u{1f3e6}",
+            label: "BT Other",
+            owner: "BT saves",
+            kind: "save",
+          },
+          toMd: {
+            icon: "\u27a1\ufe0f",
+            label: "To MD",
+            owner: "loan repay",
+            kind: "loan",
+          },
+        };
+        const order = ["mt", "car", "btOther", "toMd"];
+        let cards = "";
+        order.forEach((key) => {
+          const m = meta[key];
+          const s = ePotStats(key);
+          if (m.kind === "loan") {
+            const L = eLoanState();
+            const draws = Array.isArray(E_STATE.loanDraws)
+              ? E_STATE.loanDraws
+              : [];
+            const drawsOpen = !!E_STATE._loanDrawsOpen;
+            const drawRows =
+              draws.length === 0
+                ? '<div class="mini" style="color:var(--muted);padding:4px 0">No extra draws yet.</div>'
+                : draws
+                    .slice()
+                    .sort((a, b) => (a.when < b.when ? 1 : -1))
+                    .map(
+                      (
+                        d,
+                      ) => `<div class="loan-draw-row" style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border-l)">
+          <span class="mono mini" style="width:66px;flex:none;color:var(--text2)">${escapeHtml(d.when || "\u2014")}</span>
+          <span class="mono" style="width:66px;flex:none;text-align:right;color:var(--warn)">${money(+d.amount || 0, 0)}</span>
+          <span class="mini" style="flex:1;min-width:0;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(d.note || "")}">${escapeHtml(d.note || "")}</span>
+          <button class="chip" style="cursor:pointer;border:none;flex:none" title="Delete draw" data-act="eDelLoanDraw" data-args="${d.id}">\u2715</button>
+        </div>`,
+                    )
+                    .join("");
+            cards += `<div class="pot card">
+        <h3 style="font-size:15px;margin:0 0 1px;display:flex;align-items:center;gap:8px">${m.icon} ${m.label} <span class="mini" style="font-weight:600;color:var(--muted)">\u00b7 ${m.owner}</span></h3>
+        <div style="font-family:var(--mono);font-weight:800;font-size:24px;margin:9px 0 1px;color:var(--success)">${money(L.repaid, 0)}</div>
+        <div class="mini">repaid to MD so far</div>
+        <div class="pot-bar"><i style="width:${L.pct.toFixed(0)}%"></i></div>
+        <div class="potrow"><span>Base principal</span><span><input class="principal-inp" type="number" step="500" value="${E_STATE.loanPrincipal === "" || E_STATE.loanPrincipal == null ? "" : L.basePrincipal}" placeholder="auto (${money(L.plannedTotal, 0)})" data-loanp="1" data-tip="Base loan amount. Leave blank to auto-use the planned To MD schedule (${money(L.plannedTotal, 0)}). Extra draws below add on top."></span></div>
+        ${L.drawsTotal > 0 ? `<div class="potrow"><span>Extra draws</span><span class="mono" style="color:var(--warn)">+${money(L.drawsTotal, 0)}</span></div>` : ""}
+        <div class="potrow" style="font-weight:700"><span>Total principal</span><span class="mono">${money(L.principal, 0)}</span></div>
+        <div class="potrow"><span>Repaid</span><span class="mono" style="color:var(--success)">${money(L.repaid, 0)}</span></div>
+        <div class="potrow" style="font-weight:700"><span>Remaining</span><span class="mono" style="color:${L.remaining > 0 ? "var(--warn)" : "var(--success)"}">${money(L.remaining, 0)}</span></div>
+        <div style="border-top:1px solid var(--border-l);margin-top:8px;padding-top:6px">
+          <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none" data-act="eToggleLoanDraws">
+            <span class="mini" style="font-weight:700;color:var(--text)">\u{1f4dd} Loan draws${draws.length ? " (" + draws.length + ")" : ""}</span>
+            <span class="mini" style="color:var(--text2)">${drawsOpen ? "\u25be Hide" : "\u25b8 Add / view"}</span>
+          </div>
+          <div style="display:${drawsOpen ? "block" : "none"};margin-top:6px">
+            ${drawRows}
+            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:flex-end">
+              <label class="mini" style="display:flex;flex-direction:column;gap:2px;color:var(--text2)">Week-year<input id="ld_when" type="week" class="principal-inp" style="width:120px" data-tip="Week the draw was taken"></label>
+              <label class="mini" style="display:flex;flex-direction:column;gap:2px;color:var(--text2)">Amount<input id="ld_amt" type="number" step="100" class="principal-inp" style="width:80px" placeholder="MAD"></label>
+              <label class="mini" style="display:flex;flex-direction:column;gap:2px;color:var(--text2);flex:1;min-width:120px">Note<input id="ld_note" type="text" class="principal-inp" style="width:100%" placeholder="what it's for"></label>
+              <button class="btn sec2" style="font-size:12px" data-act="eAddLoanDraw">+ Add draw</button>
+            </div>
+          </div>
+        </div>
+        <div class="mini" style="margin-top:6px;color:var(--muted)">${L.pct >= 100 ? "\u2713 Fully repaid" : "Planned installments total " + money(L.plannedTotal, 0)}</div>
+      </div>`;
+          } else {
+            // Target source per pot:
+            //  - car: AUTO from the recurring car costs (read-only, updates with the planner)
+            //  - mt : NO yearly target (loan-driven pot; we show in-account instead)
+            //  - others (btOther): user-editable yearly target
+            const autoTarget = key === "car";
+            const noTarget = key === "mt";
+            const target = noTarget
+              ? 0
+              : autoTarget
+                ? eCarPlanYearlyTotal()
+                : +T[key] || 0;
+            const basis =
+              target > 0
+                ? Math.min(100, Math.max(0, (s.acc / target) * 100))
+                : 0;
+            const over = target > 0 && s.acc > target;
+            cards += `<div class="pot card">
+        <h3 style="font-size:15px;margin:0 0 1px;display:flex;align-items:center;gap:8px">${m.icon} ${m.label} <span class="mini" style="font-weight:600;color:var(--muted)">\u00b7 ${m.owner}</span></h3>
+        <div style="font-family:var(--mono);font-weight:800;font-size:24px;margin:9px 0 1px">${money(s.acc, 0)}</div>
+        <div class="mini">accumulated so far ${s.lastMonth ? "\u00b7 as of " + eMonthLabel(s.lastMonth) : ""}</div>
+        ${
+          key === "mt"
+            ? (() => {
+                const L = eLoanState();
+                const inAcc = s.acc - L.remaining;
+                return `<div class="potrow" style="margin-top:6px"><span>Loan outstanding</span><span class="mono" style="color:${L.remaining > 0 ? "var(--warn)" : "var(--success)"}">${L.remaining > 0 ? "\u2212" + money(L.remaining, 0) : "\u2014"}</span></div>
+        <div class="potrow" style="font-weight:700;border-top:1px solid var(--border-l);padding-top:7px;margin-top:2px"><span>In account now</span><span class="mono" style="color:${inAcc >= 0 ? "var(--success)" : "var(--error)"}">${money(inAcc, 0)}</span></div>`;
+              })()
+            : ""
+        }
+        ${
+          noTarget
+            ? ""
+            : autoTarget
+              ? `<div class="pot-bar ${over ? "over" : ""}"><i style="width:${basis.toFixed(0)}%"></i></div>
+        <div class="potrow"><span>Yearly target</span><span class="mono">${money(target, 0)}</span></div>
+        <div class="mini" style="color:var(--muted);margin-top:-2px">from recurring car costs</div>`
+              : target > 0
+                ? `<div class="pot-bar ${over ? "over" : ""}"><i style="width:${basis.toFixed(0)}%"></i></div>
+        <div class="potrow"><span>Yearly target</span><span><input class="target-inp" type="number" step="100" value="${target}" data-pottgt="${key}"></span></div>`
+                : `<div class="potrow" style="margin-top:8px"><span>Yearly target</span><span><input class="target-inp" type="number" step="100" value="" placeholder="set\u2026" data-pottgt="${key}"></span></div>`
+        }
+        ${(() => {
+          // Car pot: "Need / mo" = the same monthly set-aside shown under Recurring
+          // car costs (yearly plan total \u00F7 12 = target \u00F7 12, single source). "Paid out"
+          // = actual plan cost for realized months this year.
+          const saveMo = key === "car" ? target / 12 : s.monthlySave;
+          const paidYTD = key === "car" ? eCarPaidOutYTD() : s.paidOutYTD;
+          const saveLabel =
+            key === "car" ? "Need / mo (target \u00F7 12)" : "Saving / mo";
+          return (
+            '<div class="potrow"><span>' +
+            saveLabel +
+            '</span><span class="mono" style="color:var(--success)">+' +
+            money(saveMo, 0) +
+            "</span></div>" +
+            '<div class="potrow"><span>Paid out (this year)</span><span class="mono" style="color:' +
+            (paidYTD ? "var(--error)" : "var(--text2)") +
+            '">' +
+            (paidYTD ? "\u2212" + money(paidYTD, 0) : "\u2014") +
+            "</span></div>"
+          );
+        })()}
+      </div>`;
+          }
+        });
+        el.innerHTML = cards;
+
+        // wire target + principal inputs
+        el.querySelectorAll("[data-pottgt]").forEach(
+          (inp) =>
+            (inp.onchange = () => {
+              const k = inp.dataset.pottgt;
+              E_STATE.potTargets = E_STATE.potTargets || {};
+              E_STATE.potTargets[k] = inp.value === "" ? 0 : +inp.value || 0;
+              eSave();
+              eRenderBuckets();
+            }),
+        );
+        const lp = el.querySelector("[data-loanp]");
+        if (lp)
+          lp.onchange = () => {
+            E_STATE.loanPrincipal = lp.value === "" ? "" : +lp.value || 0;
+            eSave();
+            eRenderBuckets();
+          };
+      }
+
+      // ---- To MD loan draws (extra principal taken from MT over time) ----
+      function eToggleLoanDraws() {
+        E_STATE._loanDrawsOpen = !E_STATE._loanDrawsOpen;
+        eRenderBuckets();
+      }
+      function eAddLoanDraw() {
+        const w = document.getElementById("ld_when");
+        const a = document.getElementById("ld_amt");
+        const n = document.getElementById("ld_note");
+        const amount = +(a && a.value) || 0;
+        if (!(amount > 0)) {
+          toast("Enter a draw amount greater than 0.", "warn");
+          if (a) a.focus();
+          return;
+        }
+        if (!Array.isArray(E_STATE.loanDraws)) E_STATE.loanDraws = [];
+        E_STATE.loanDraws.push({
+          id: "ld" + Date.now().toString(36),
+          when: (w && w.value) || "",
+          amount,
+          note: (n && n.value ? n.value.trim() : "") || "",
+        });
+        E_STATE._loanDrawsOpen = true; // keep panel open after adding
+        eSave();
+        eRenderBuckets();
+        toast("Loan draw added (+" + money(amount, 0) + " MAD).", "ok");
+      }
+      async function eDelLoanDraw(id) {
+        if (!Array.isArray(E_STATE.loanDraws)) return;
+        const d = E_STATE.loanDraws.find((x) => x.id === id);
+        const ok = await appConfirm(
+          "Delete this loan draw" +
+            (d ? " (" + money(+d.amount || 0, 0) + " MAD)" : "") +
+            "? It will be removed from the total principal.",
+          { danger: true, okText: "Delete" },
+        );
+        if (!ok) return;
+        E_STATE.loanDraws = E_STATE.loanDraws.filter((x) => x.id !== id);
+        E_STATE._loanDrawsOpen = true;
+        eSave();
+        eRenderBuckets();
+      }
+
+      function eYearsInLog() {
+        const ys = new Set();
+        E_STATE.log.forEach((r) => {
+          const m = /^(\d{4})/.exec(r.month || "");
+          if (m) ys.add(m[1]);
+        });
+        return [...ys].sort();
+      }
+      // Selected years as a Set. logYear may be 'all' (legacy string), an array of
+      // year strings (multi-select), or undefined. 'all' / empty => every year.
+      function eSelYears() {
+        const all = eYearsInLog();
+        let ly = E_STATE.logYear;
+        if (ly == null || ly === "all") return new Set(all);
+        if (typeof ly === "string") ly = [ly]; // legacy single-year string
+        if (Array.isArray(ly) && ly.length === 0) return new Set(); // explicit "none" (user cleared All)
+        const sel = new Set(ly.filter((y) => all.includes(y)));
+        // An array that had entries but none match current years is stale => fall back to all.
+        return sel.size ? sel : new Set(all);
+      }
+      function eIsAllYears() {
+        const n = eYearsInLog().length;
+        return n > 0 && eSelYears().size === n;
+      }
+      function eIsNoYears() {
+        return eSelYears().size === 0;
+      }
+
+      function eRenderYearChips() {
+        const box = document.getElementById("e_yearChips");
+        if (!box) return;
+        const years = eYearsInLog();
+        const sel = eSelYears();
+        const allOn = eIsAllYears();
+        const chip = (
+          val,
+          lbl,
+          on,
+        ) => `<span data-yr="${val}" style="cursor:pointer;user-select:none;padding:4px 12px;border-radius:999px;font-size:12.5px;font-weight:600;
+      border:1px solid ${on ? "var(--primary2)" : "var(--border)"};
+      background:${on ? "var(--primary2)" : "transparent"};
+      color:${on ? "#fff" : "var(--text2)"};transition:all .12s">${lbl}</span>`;
+        // "All" reflects the select-all state; each year chip reflects its own on/off
+        // so you can add or remove individual years while the others stay put.
+        box.innerHTML =
+          '<span class="mini" style="font-weight:600;margin-right:2px">Show years:</span>' +
+          chip("all", "All", allOn) +
+          years.map((y) => chip(y, y, sel.has(y))).join("");
+        box.querySelectorAll("[data-yr]").forEach((el) => {
+          el.onmouseenter = () => {
+            el.style.borderColor = "var(--primary2)";
+          };
+          el.onmouseleave = () => {
+            eRenderYearChips();
+          };
+          el.onclick = () => {
+            const yr = el.dataset.yr;
+            const years = eYearsInLog();
+            if (yr === "all") {
+              // Toggle All: if everything is already on, clear to none; otherwise select all.
+              E_STATE.logYear = eIsAllYears() ? [] : "all";
+            } else {
+              // Toggle just this one year, keeping every other year's state intact.
+              // When currently on "All", start from the full set so removing one year
+              // leaves the rest selected (instead of jumping to only-this-year).
+              let cur = eIsAllYears() ? [...years] : [...eSelYears()];
+              if (cur.includes(yr)) cur = cur.filter((y) => y !== yr);
+              else cur.push(yr);
+              // If the toggle happens to re-select every year, collapse back to 'all'.
+              E_STATE.logYear =
+                cur.length === years.length ? "all" : cur.sort();
+            }
+            eSave();
+            eRenderYearChips();
+            eRenderLog();
+          };
+        });
+      }
+
+      function eCarPlanMonths() {
+        const set = new Set();
+        (E_STATE.carPlan || []).forEach((c) => {
+          if (Math.abs(+c.amt || 0) > 0)
+            (c.months || []).forEach((m) => set.add(m));
+        });
+        return set;
+      }
+      function eRenderLog() {
+        const wrap = document.getElementById("e_logCards");
+        if (!wrap) return;
+        eRenderYearChips();
+        const s = E_STATE;
+        const sel = eSelYears();
+        const inpN =
+          "width:100%;box-sizing:border-box;padding:4px 6px;text-align:right;background:transparent;border:1px solid transparent;border-radius:6px;font-size:12.5px";
+        const inpM =
+          "width:100%;box-sizing:border-box;padding:4px 6px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--text2);font-size:12.5px";
+        const inpNote =
+          "width:100%;padding:4px 6px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--text2);font-size:12.5px";
+        // rows in selected years, keep original index for editing
+        const rows = s.log
+          .map((r, i) => ({ r, i }))
+          .filter((x) => {
+            const y = (/^(\d{4})/.exec(x.r.month || "") || [])[1];
+            return y && sel.has(y);
+          });
+        let cards = "";
+        E_BUCKETS.forEach((bk) => {
+          // realized subtotal for this bucket across selected years
+          const banked = rows.reduce(
+            (a, x) => a + (eRz(x.r, bk.key) ? +x.r[bk.key] || 0 : 0),
+            0,
+          );
+          // Select-all state for THIS bucket across the visible rows (for the header toggle).
+          const _allRz = rows.length > 0 && rows.every((x) => eRz(x.r, bk.key));
+          let body = "";
+          const carPlanMonths = eCarPlanMonths();
+          const nowYM = (() => {
+            const d = new Date();
+            return d.getFullYear() * 100 + (d.getMonth() + 1);
+          })();
+          // Trailing average of this bucket's non-zero amounts (for anomaly flags)
+          const bkVals = rows
+            .map((x) => +x.r[bk.key] || 0)
+            .filter((v) => v !== 0);
+          const bkAvg = bkVals.length
+            ? bkVals.reduce((a, v) => a + v, 0) / bkVals.length
+            : 0;
+          let curYear = null; // for annual roll-up subtotal rows
+          let yearAcc = 0;
+          const flush = (yr) => {
+            if (yr === null) return "";
+            const t = `<tr style="background:var(--panel2);font-weight:700;border-top:1px solid var(--border)">
+        <td></td><td style="padding:3px 4px;color:var(--text2);font-size:11px">${yr} total</td>
+        <td style="text-align:right;padding:3px 4px;font-family:var(--mono);color:${yearAcc < 0 ? "var(--error)" : "var(--text)"}">${eFmt(yearAcc)}</td>
+        <td colspan="2"></td></tr>`;
+            return t;
+          };
+          rows.forEach(({ r, i }) => {
+            const yr = (/^(\d{4})/.exec(r.month || "") || [])[1] || null;
+            if (curYear !== null && yr !== curYear) {
+              body += flush(curYear);
+              yearAcc = 0;
+            }
+            curYear = yr;
+            yearAcc += +r[bk.key] || 0;
+            const v = +r[bk.key] || 0;
+            const col =
+              v < 0
+                ? "var(--error)"
+                : v > 0
+                  ? "var(--success)"
+                  : "var(--text2)";
+            // Lock the Car amount + note when this month is controlled by the recurring-costs planner
+            // AND the month is today or in the future. Past months stay editable so you can fix actuals.
+            const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+            const moNum = mm ? +mm[2] : 0;
+            const ym = mm ? +mm[1] * 100 + +mm[2] : 0;
+            const carLocked =
+              bk.key === "car" &&
+              moNum &&
+              carPlanMonths.has(moNum) &&
+              ym >= nowYM;
+            const planNote = carLocked ? eCarNoteForMonth(moNum) : "";
+            const amtCell = carLocked
+              ? `<div data-tip="Managed by the Recurring car costs planner \u2014 edit it there, or untick this month to unlock" style="display:flex;align-items:center;justify-content:flex-end;gap:4px">
+             <span style="opacity:.6;font-size:11px">\uD83D\uDD12</span>
+             <input data-li="${i}" data-lk="${bk.key}" type="number" value="${v}" readonly tabindex="-1" style="${inpN};color:${col};opacity:.7;cursor:not-allowed;background:var(--panel2);border-color:var(--border-l)"></div>`
+              : `<input data-li="${i}" data-lk="${bk.key}" type="number" step="1" value="${v}" style="${inpN};color:${col}">`;
+            // Note cell: for locked car months, show the recurring cost name(s) read-only.
+            let noteCell = "";
+            if (bk.key === "car") {
+              noteCell = carLocked
+                ? `<input value="${escapeHtml(planNote)}" readonly tabindex="-1" data-tip="Auto-filled from the Recurring car costs planner" style="${inpNote};opacity:.7;cursor:not-allowed;font-style:italic">`
+                : `<input data-li="${i}" data-lk="note" value="${escapeHtml(r.note || "")}" style="${inpNote}">`;
+            } else if (bk.key === "btOther") {
+              noteCell = `<input data-li="${i}" data-lk="noteBt" value="${escapeHtml(r.noteBt || "")}" style="${inpNote}">`;
+            }
+            // Anomaly flag: this month's amount vs the bucket's trailing average
+            let flag = "";
+            if (bkAvg !== 0 && v !== 0) {
+              const dev = (v - bkAvg) / Math.abs(bkAvg);
+              if (Math.abs(dev) >= 0.5) {
+                const up = v > bkAvg;
+                const fcol = up ? "var(--success)" : "var(--error)";
+                flag = `<span data-tip="${up ? "Above" : "Below"} the ${bk.label} average (${eFmt(bkAvg)}) by ${(Math.abs(dev) * 100).toFixed(0)}%" style="position:absolute;left:2px;top:50%;transform:translateY(-50%);font-size:10px;color:${fcol};cursor:help">${up ? "\u25B2" : "\u25BC"}</span>`;
+              }
+            }
+            const _rz = eRz(r, bk.key);
+            body += `<tr style="${_rz ? "" : "opacity:.5"};border-bottom:1px solid var(--border-l)">
+        <td style="text-align:center;padding:2px 4px"><input type="checkbox" data-li="${i}" data-rzk="${bk.key}" ${_rz ? "checked" : ""} data-tip="Mark ${bk.label} realized for ${r.month}" style="accent-color:var(--primary2);width:14px;height:14px;cursor:pointer"></td>
+        <td style="padding:2px 4px"><input data-li="${i}" data-lk="month" value="${r.month}" style="${inpM}"></td>
+        <td style="text-align:right;padding:2px 4px;position:relative">${flag}${amtCell}</td>
+        <td style="padding:2px 4px">${noteCell}</td>
+        <td style="text-align:center;padding:2px 4px"><span data-ldel="${i}" data-tip="Remove month" style="cursor:pointer;color:var(--text2);opacity:.5;font-size:13px">\u2715</span></td>
+      </tr>`;
+          });
+          body += flush(curYear); // final year roll-up
+          if (!rows.length)
+            body = `<tr><td colspan="5" style="padding:14px;text-align:center;color:var(--text2)">${eIsNoYears() ? "No years selected \u2014 pick a year chip above (or \u201cAll\u201d)." : "No months for the selected year(s)."}</td></tr>`;
+          cards += `<div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:var(--panel2);border-bottom:1px solid var(--border)">
+        <span style="font-weight:800;font-size:14px;color:var(--text)">${bk.label}</span>
+        <span class="mini" style="font-weight:600">Banked <b style="font-family:var(--mono);color:${banked < 0 ? "var(--error)" : "var(--text)"}">${eFmt(banked)}</b></span>
+      </div>
+      <div style="overflow-x:hidden">
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+          <thead><tr style="position:sticky;top:0;background:var(--panel)">
+            <th scope="col" style="width:26px;text-align:center;padding:5px 4px;font-size:11px"><input type="checkbox" data-rzall="${bk.key}" ${_allRz ? "checked" : ""} style="accent-color:var(--primary2);width:14px;height:14px;cursor:pointer" data-tip="Toggle realized for ALL ${bk.label} months shown"></th>
+            <th scope="col" style="width:72px;text-align:left;padding:5px 4px;font-size:11px">Month</th>
+            <th scope="col" style="width:88px;text-align:right;padding:5px 4px;font-size:11px">Amount</th>
+            <th scope="col" style="text-align:left;padding:5px 4px;font-size:11px">${bk.key === "car" || bk.key === "btOther" ? "Note" : ""}</th>
+            <th scope="col" style="width:28px;padding:5px 4px"></th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
+        });
+        // summary strip: banked total per bucket + grand total (selected years)
+        let grand = 0;
+        let pills = "";
+        E_BUCKETS.forEach((bk) => {
+          const bt = rows.reduce(
+            (a, x) => a + (eRz(x.r, bk.key) ? +x.r[bk.key] || 0 : 0),
+            0,
+          );
+          grand += bt;
+          pills += `<div style="flex:1 1 120px;min-width:120px;border:1px solid var(--border);border-radius:10px;padding:8px 12px;background:var(--panel2)">
+      <div class="mini" style="font-weight:600">${bk.label}</div>
+      <div style="font-family:var(--mono);font-weight:800;font-size:15px;color:${bt < 0 ? "var(--error)" : "var(--text)"}">${eFmt(bt)}</div>
+    </div>`;
+        });
+        pills += `<div style="flex:1 1 140px;min-width:140px;border:1px solid var(--primary2);border-radius:10px;padding:8px 12px;background:color-mix(in srgb,var(--primary2) 12%,transparent)">
+      <div class="mini" style="font-weight:700;color:var(--primary2)">Total banked</div>
+      <div style="font-family:var(--mono);font-weight:800;font-size:15px;color:${grand < 0 ? "var(--error)" : "var(--text)"}">${eFmt(grand)}</div>
+    </div>`;
+        const sumEl = document.getElementById("e_logSummary");
+        if (sumEl) sumEl.innerHTML = pills;
+
+        wrap.innerHTML = cards;
+
+        // focus ring
+        wrap
+          .querySelectorAll(
+            "input[type=number],input[data-lk=month],input[data-lk=note],input[data-lk=noteBt]",
+          )
+          .forEach((el) => {
+            el.onfocus = () => {
+              el.style.borderColor = "var(--primary2)";
+              el.style.background = "var(--panel2)";
+            };
+            el.onblur = () => {
+              el.style.borderColor = "transparent";
+              el.style.background = "transparent";
+            };
+          });
+        wrap.querySelectorAll("input").forEach((el) => {
+          el.onchange = () => {
+            const i = +el.dataset.li,
+              k = el.dataset.lk,
+              rzk = el.dataset.rzk,
+              rzall = el.dataset.rzall;
+            if (rzall) {
+              // header: realize/clear every visible month for this bucket
+              const on = el.checked;
+              const selY = eSelYears();
+              E_STATE.log.forEach((r) => {
+                const y = (/^(\d{4})/.exec(r.month || "") || [])[1];
+                if (y && selY.has(y)) eSetRz(r, rzall, on);
+              });
+              eSave();
+              eRenderBuckets();
+              eRenderSavingsChart();
+              eRenderSavingsRate();
+              eRenderCumChart();
+              eRenderLog();
+              eRenderForward();
+              return;
+            }
+            if (rzk) {
+              // per-bucket realized checkbox
+              eSetRz(E_STATE.log[i], rzk, el.checked);
+              eSave();
+              eRenderBuckets();
+              eRenderSavingsChart();
+              eRenderSavingsRate();
+              eRenderCumChart();
+              eRenderLog();
+              eRenderForward();
+              return;
+            }
+            if (k === "month" || k === "note" || k === "noteBt")
+              E_STATE.log[i][k] = el.value;
+            else E_STATE.log[i][k] = +el.value || 0;
+            eSave();
+            if (!["month", "note", "noteBt"].includes(k)) {
+              eRenderBuckets();
+              eRenderSavingsChart();
+              eRenderSavingsRate();
+              eRenderCumChart();
+            }
+            if (k === "month") {
+              eRenderLog();
+              eRenderForward();
+            }
+          };
+        });
+        wrap.querySelectorAll("[data-ldel]").forEach((el) => {
+          el.onclick = () => {
+            E_STATE.log.splice(+el.dataset.ldel, 1);
+            eSave();
+            eRenderLog();
+            eRenderBuckets();
+            eRenderSavingsChart();
+            eRenderSavingsRate();
+            eRenderCumChart();
+            eRenderForward();
+          };
+        });
+      }
+
+      let E_CH_savings = null,
+        E_CH_fwd = null;
+      function eThemeColors() {
+        // Use the cached theme tokens (single getComputedStyle in refreshThemeCache).
+        return {
+          tx: themeColor("text"),
+          tx2: themeColor("text2"),
+          line: themeColor("border"),
+          ok: themeColor("success"),
+          pri: themeColor("primary2"),
+          warn: themeColor("warn"),
+        };
+      }
+      function eRenderSavingsChart() {
+        const el = document.getElementById("e_savingsChart");
+        if (!el || typeof Highcharts === "undefined") return;
+        const { banked, proj } = eBucketTotals();
+        const c = eThemeColors();
+        const cats = E_BUCKETS.map((b) => b.label);
+        const bankedData = E_BUCKETS.map((b) => Math.round(banked[b.key]));
+        const projData = E_BUCKETS.map((b) =>
+          Math.round(proj[b.key] - banked[b.key]),
+        ); // remaining planned on top
+        const target = +E_STATE.floatTarget || 0;
+        E_CH_savings = Highcharts.chart("e_savingsChart", {
+          chart: { type: "column", backgroundColor: "transparent" },
+          title: { text: null },
+          credits: { enabled: false },
+          xAxis: {
+            categories: cats,
+            labels: { style: { color: c.tx2 } },
+            lineColor: c.line,
+            tickColor: c.line,
+          },
+          yAxis: {
+            title: { text: null },
+            gridLineColor: c.line,
+            labels: {
+              style: { color: c.tx2 },
+              formatter: function () {
+                return this.value / 1000 + "k";
+              },
+            },
+            plotLines: [
+              {
+                value: target,
+                color: c.warn,
+                dashStyle: "Dash",
+                width: 1.5,
+                zIndex: 5,
+                label: {
+                  text: "Float target",
+                  style: { color: c.warn, fontSize: "10px" },
+                  align: "right",
+                },
+              },
+            ],
+          },
+          legend: { itemStyle: { color: c.tx2 } },
+          tooltip: {
+            shared: true,
+            pointFormat: "<b>{series.name}: {point.y:,.0f} MAD</b><br>",
+          },
+          plotOptions: { column: { stacking: "normal", borderWidth: 0 } },
+          series: [
+            { name: "Banked", data: bankedData, color: c.ok },
+            { name: "Planned (remaining)", data: projData, color: c.pri },
+          ],
+        });
+      }
+
+      // ---- Savings-rate KPI: banked \u00F7 combined income (annualized over selected months) ----
+      function eRenderSavingsRate() {
+        const el = document.getElementById("e_savingsRate");
+        if (!el) return;
+        const s = E_STATE;
+        const sel = eSelYears();
+        const rows = s.log.filter((r) => {
+          const y = (/^(\d{4})/.exec(r.month || "") || [])[1];
+          return y && sel.has(y) && E_BUCKETS.some((b) => eRz(r, b.key));
+        });
+        const nMonths = rows.length;
+        let banked = 0;
+        rows.forEach((r) => {
+          E_BUCKETS.forEach((b) => {
+            if (eRz(r, b.key)) banked += +r[b.key] || 0;
+          });
+        });
+        const monthlyIncome = (+s.inc1 || 0) + (+s.inc2 || 0);
+        const incomeOverPeriod = monthlyIncome * nMonths;
+        const rate =
+          incomeOverPeriod > 0 ? (banked / incomeOverPeriod) * 100 : 0;
+        const avgPerMo = nMonths ? banked / nMonths : 0;
+        const col =
+          rate >= 20
+            ? "var(--success)"
+            : rate >= 10
+              ? "var(--warn)"
+              : "var(--error)";
+        const verdict = rate >= 20 ? "healthy" : rate >= 10 ? "okay" : "low";
+        const bkList = E_BUCKETS.map((b) => {
+          let t = 0;
+          rows.forEach((r) => {
+            if (eRz(r, b.key)) t += +r[b.key] || 0;
+          });
+          return { label: b.label, total: t };
+        });
+        const rateTip = [
+          "HOW SAVINGS RATE IS COMPUTED",
+          "",
+          "Savings rate = total banked \u00F7 total income over the selected period",
+          "",
+          "Total banked = sum of every saving-log bucket across all realized months:",
+          ...bkList.map((x) => "  \u2022 " + x.label + ": " + eFmt(x.total)),
+          "  = " + eFmt(banked) + " total",
+          "",
+          "Total income = combined monthly income \u00D7 realized months",
+          "  = " +
+            eFmt(monthlyIncome) +
+            "/mo \u00D7 " +
+            nMonths +
+            " mo = " +
+            eFmt(incomeOverPeriod),
+          "",
+          "Rate = " +
+            eFmt(banked) +
+            " \u00F7 " +
+            eFmt(incomeOverPeriod) +
+            " = " +
+            rate.toFixed(1) +
+            "%",
+          "",
+          "Only REALIZED months count (unrealized/future rows are excluded).",
+          "Thresholds: \u2265 20% healthy  \u00B7  10\u201319% okay  \u00B7  < 10% low.",
+        ].join("\n");
+        const avgTip =
+          "Avg banked / month = total banked \u00F7 realized months\n  = " +
+          eFmt(banked) +
+          " \u00F7 " +
+          nMonths +
+          " = " +
+          eFmt(avgPerMo) +
+          "/mo\n\nCombined income is Income 1 + Income 2 = " +
+          eFmt(monthlyIncome) +
+          "/mo.";
+        const helpChip =
+          "display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--border-l);font-size:10px;opacity:.7;cursor:help;margin-left:5px;font-family:var(--sans)";
+        el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:10px">
+    <div class="card" style="flex:1 1 180px;border-color:${col};cursor:help" data-tip="${rateTip.replace(/"/g, "&quot;")}">
+      <div class="mini" style="font-weight:700">\uD83D\uDCBE Savings rate <span style="opacity:.7">(banked \u00F7 income)</span><span style="${helpChip}" data-tip="${rateTip.replace(/"/g, "&quot;")}">?</span></div>
+      <div style="font-size:26px;font-weight:800;color:${col};font-family:var(--mono)">${rate.toFixed(1)}%</div>
+      <div class="mini">${eFmt(banked)} banked over ${nMonths} realized month${nMonths === 1 ? "" : "s"} \u00B7 <b style="color:${col}">${verdict}</b></div>
+      <div class="mini" style="opacity:.6;margin-top:4px">hover for the full breakdown</div>
+    </div>
+    <div class="card" style="flex:1 1 180px;cursor:help" data-tip="${avgTip.replace(/"/g, "&quot;")}">
+      <div class="mini" style="font-weight:700">Avg banked / month<span style="${helpChip}" data-tip="${avgTip.replace(/"/g, "&quot;")}">?</span></div>
+      <div style="font-size:26px;font-weight:800;font-family:var(--mono)">${eFmt(avgPerMo)}</div>
+      <div class="mini">combined income ${eFmt(monthlyIncome)}/mo</div>
+    </div>
+  </div>`;
+      }
+
+      // ---- Cumulative banked savings over time (realized months, selected years) ----
+      let E_CH_cum = null;
+      function eRenderCumChart() {
+        const el = document.getElementById("e_cumChart");
+        if (!el || typeof Highcharts === "undefined") return;
+        const s = E_STATE;
+        const c = eThemeColors();
+        const sel = eSelYears();
+        const rows = s.log
+          .filter((r) => {
+            const y = (/^(\d{4})/.exec(r.month || "") || [])[1];
+            return y && sel.has(y) && E_BUCKETS.some((b) => eRz(r, b.key));
+          })
+          .slice()
+          .sort((a, b) => (a.month || "").localeCompare(b.month || ""));
+        let run = 0;
+        const pts = rows.map((r) => {
+          let m = 0;
+          E_BUCKETS.forEach((b) => {
+            if (eRz(r, b.key)) m += +r[b.key] || 0;
+          });
+          run += m;
+          return [r.month, Math.round(run)];
+        });
+        E_CH_cum = Highcharts.chart("e_cumChart", {
+          chart: { type: "area", backgroundColor: "transparent" },
+          title: { text: null },
+          credits: { enabled: false },
+          xAxis: {
+            categories: pts.map((p) => p[0]),
+            labels: { style: { color: c.tx2, fontSize: "10px" } },
+            lineColor: c.line,
+            tickColor: c.line,
+          },
+          yAxis: {
+            title: { text: null },
+            gridLineColor: c.line,
+            labels: {
+              style: { color: c.tx2 },
+              formatter: function () {
+                return this.value / 1000 + "k";
+              },
+            },
+          },
+          legend: { enabled: false },
+          tooltip: {
+            pointFormat: "Cumulative banked: <b>{point.y:,.0f} MAD</b>",
+          },
+          plotOptions: {
+            area: {
+              lineWidth: 2,
+              color: c.pri,
+              marker: { enabled: false, radius: 3 },
+              fillColor: {
+                linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+                stops: [
+                  [0, "rgba(96,165,250,.35)"],
+                  [1, "rgba(96,165,250,.02)"],
+                ],
+              },
+            },
+          },
+          series: [{ name: "Cumulative banked", data: pts.map((p) => p[1]) }],
+        });
+      }
+
+      function eForwardRows() {
+        // Build next-12-month projection from future log rows (unrealized, month >= current month)
+        const s = E_STATE;
+        const c = eCompute();
+        const now = new Date();
+        const cur =
+          now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+        // planned savings per month = sum of all bucket columns for that month's log row
+        const planByMonth = {};
+        s.log.forEach((r) => {
+          if (/^\d{4}-\d{2}$/.test(r.month)) {
+            const tot = E_BUCKETS.reduce((a, b) => a + (+r[b.key] || 0), 0);
+            planByMonth[r.month] = (planByMonth[r.month] || 0) + tot;
+          }
+        });
+        const leftover = c.discMD; // MD's leftover kept each month
+        let running = +s.startCash || 0;
+        const out = [];
+        let d = new Date(now.getFullYear(), now.getMonth(), 1);
+        for (let i = 0; i < 12; i++) {
+          const mk =
+            d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+          const planned = planByMonth[mk] || 0;
+          const net = leftover + planned;
+          running += net;
+          out.push({
+            month: mk,
+            leftover: leftover,
+            planned: planned,
+            net: net,
+            running: running,
+          });
+          d.setMonth(d.getMonth() + 1);
+        }
+        return out;
+      }
+
+      function eRenderForward() {
+        const rows = eForwardRows();
+        const body = document.getElementById("e_fwdBody");
+        if (body) {
+          body.innerHTML = rows
+            .map(
+              (r) => `<tr>
+      <td>${r.month}</td>
+      <td style="text-align:right">${eFmt(r.leftover)}</td>
+      <td style="text-align:right;color:${r.planned < 0 ? "var(--error)" : "var(--text2)"}">${eFmt(r.planned)}</td>
+      <td style="text-align:right;font-weight:700;color:${r.net < 0 ? "var(--error)" : "var(--success)"}">${eFmt(r.net)}</td>
+      <td style="text-align:right;font-weight:800">${eFmt(r.running)}</td>
+    </tr>`,
+            )
+            .join("");
+        }
+        const el = document.getElementById("e_fwdChart");
+        if (el && typeof Highcharts !== "undefined") {
+          const c = eThemeColors();
+          E_CH_fwd = Highcharts.chart("e_fwdChart", {
+            chart: { backgroundColor: "transparent" },
+            title: { text: null },
+            credits: { enabled: false },
+            xAxis: {
+              categories: rows.map((r) => r.month),
+              labels: {
+                style: { color: c.tx2 },
+                rotation: -40,
+                fontSize: "10px",
+              },
+              lineColor: c.line,
+              tickColor: c.line,
+            },
+            yAxis: {
+              title: { text: null },
+              gridLineColor: c.line,
+              labels: {
+                style: { color: c.tx2 },
+                formatter: function () {
+                  return this.value / 1000 + "k";
+                },
+              },
+            },
+            legend: { itemStyle: { color: c.tx2 } },
+            tooltip: { shared: true, valueSuffix: " MAD", valueDecimals: 0 },
+            plotOptions: { column: { borderWidth: 0 } },
+            series: [
+              {
+                type: "column",
+                name: "Monthly net",
+                data: rows.map((r) => Math.round(r.net)),
+                color: c.pri,
+                yAxis: 0,
+              },
+              {
+                type: "line",
+                name: "Running cash",
+                data: rows.map((r) => Math.round(r.running)),
+                color: c.ok,
+                lineWidth: 2.5,
+                marker: { radius: 3 },
+              },
+            ],
+          });
+        }
+      }
+
+      // input wiring (top fields)
+      ["e_inc1", "e_inc2", "e_btToMd", "e_floatTarget", "e_startCash"].forEach(
+        (id) => {
+          document.addEventListener("input", (ev) => {
+            if (ev.target && ev.target.id === id) {
+              const map = {
+                e_inc1: "inc1",
+                e_inc2: "inc2",
+                e_btToMd: "btToMd",
+                e_floatTarget: "floatTarget",
+                e_startCash: "startCash",
+              };
+              if (!E_STATE) eLoad();
+              E_STATE[map[id]] = +ev.target.value || 0;
+              eSave();
+              eRenderSettle();
+              eRenderBuckets();
+              eRenderMonthTab();
+              if (typeof eApplyIncCollapsed === "function")
+                eApplyIncCollapsed();
+            }
+          });
+        },
+      );
+      document.addEventListener("click", (ev) => {
+        const t = ev.target;
+        if (!t) return;
+        if (t.id === "e_addBill") {
+          if (!E_STATE) eLoad();
+          E_STATE.bills.push({
+            name: "New bill",
+            amt: 0,
+            by: "MD",
+            cat: "living",
+          });
+          eSave();
+          eRenderBills();
+          eRenderBillWarn();
+          eRenderCatDonut();
+          eRenderSettle();
+          eRenderMonthTab();
+        }
+        if (t.id === "e_addYear") {
+          if (!E_STATE) eLoad();
+          const last = E_STATE.log[E_STATE.log.length - 1];
+          let baseYear;
+          if (last && /^\d{4}-\d{2}$/.test(last.month)) {
+            baseYear = +last.month.slice(0, 4) + 1;
+          } else {
+            baseYear = new Date().getFullYear() + 1;
+          }
+          const tmpl = last || {
+            btOther: 0,
+            mt: 0,
+            car: 0,
+            mdSaving: 0,
+            toMd: 0,
+            note: "",
+          };
+          for (let m = 1; m <= 12; m++) {
+            E_STATE.log.push({
+              month: baseYear + "-" + String(m).padStart(2, "0"),
+              realized: false,
+              btOther: tmpl.btOther || 0,
+              mt: tmpl.mt || 0,
+              car: tmpl.car || 0,
+              mdSaving: tmpl.mdSaving || 0,
+              toMd: tmpl.toMd || 0,
+              note: "",
+            });
+          }
+          E_STATE.logYear = "all";
+          // auto-apply recurring car costs to the newly added months (saving-aware, same as eApplyCarPlan)
+          if (Array.isArray(E_STATE.carPlan) && E_STATE.carPlan.length) {
+            const byMonth = {};
+            E_STATE.carPlan.forEach((c) => {
+              (c.months || []).forEach((mo) => {
+                byMonth[mo] = (byMonth[mo] || 0) + Math.abs(+c.amt || 0);
+              });
+            });
+            const save = eCarMonthlySave();
+            E_STATE.log.forEach((r) => {
+              const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+              if (!mm) return;
+              if (+mm[1] !== baseYear) return;
+              const mo = +mm[2],
+                cost = byMonth[mo] || 0;
+              if (cost > 0) {
+                r.car = save - cost;
+                r.note = eCarNoteForMonth(mo);
+              } else if (save > 0) {
+                r.car = save;
+              }
+            });
+          }
+          eSave();
+          eRenderYearChips();
+          eRenderLog();
+          eRenderBuckets();
+          eRenderSavingsRate();
+          eRenderCumChart();
+          eRenderSavingsChart();
+          eRenderForward();
+          eRenderCarPlan();
+        }
+        if (t.id === "e_carPlanToggle") {
+          const now = !eCarPlanCollapsed();
+          try {
+            localStorage.setItem("casa_carPlanCollapsed_v1", now ? "1" : "0");
+          } catch (e) {}
+          eApplyCarPlanCollapsed();
+          return;
+        }
+        if (t.id === "e_carAdd") {
+          if (!E_STATE) eLoad();
+          E_STATE.carPlan = E_STATE.carPlan || [];
+          E_STATE.carPlan.push({ name: "New car cost", amt: 0, months: [] });
+          eSave();
+          eRenderCarPlan();
+        }
+        if (t.id === "e_carApply") {
+          if (!E_STATE) eLoad();
+          const n = eApplyCarPlan();
+          const note = document.getElementById("e_carPlanNote");
+          if (note) {
+            const prev = note.innerHTML;
+            note.innerHTML = `\u2713 applied to ${n} future month${n === 1 ? "" : "s"}`;
+            setTimeout(() => eRenderCarPlan(), 2200);
+          }
+        }
+        if (t.id === "e_markThru") {
+          if (!E_STATE) eLoad();
+          const now = new Date();
+          const cur =
+            now.getFullYear() +
+            "-" +
+            String(now.getMonth() + 1).padStart(2, "0");
+          E_STATE.log.forEach((r) => {
+            if (/^\d{4}-\d{2}$/.test(r.month) && r.month <= cur)
+              eSetRzAll(r, true);
+          });
+          eSave();
+          eRenderLog();
+          eRenderBuckets();
+          eRenderSavingsRate();
+          eRenderCumChart();
+          eRenderSavingsChart();
+        }
+      });
+
+
+// ===== 08-salary.js =====
+// ============================================================
+// 08-salary.js
+// salary + categories + cash tab + boot wiring (render(), restore last tab, init)
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+// ---------- Salary Calculation module (Moroccan law, 2026) ----------
+const S_LS = "casa_salary_v1";
+const CNSS_CEIL_M = 6000; // legal CNSS monthly ceiling (fixed by law)
+// 2026 MONTHLY IR bar\u00E8me: [upper bound, rate, deduction]
+const IR_BRACKETS_M = [
+  [3333.33, 0.0, 0.0],
+  [5000.0, 0.1, 333.33],
+  [6666.67, 0.2, 833.33],
+  [8333.33, 0.3, 1500.0],
+  [15000.0, 0.34, 1833.33],
+  [Infinity, 0.37, 2283.33],
+];
+function irMonthly(rni) {
+  if (rni <= 0) return { ir: 0, rate: 0, ded: 0 };
+  for (const [ub, rate, ded] of IR_BRACKETS_M) {
+    if (rni <= ub) return { ir: Math.max(rni * rate - ded, 0), rate, ded };
+  }
+  return { ir: 0, rate: 0, ded: 0 };
+}
+// Moroccan labor-law seniority scale (prime d'anciennete)
+function ancRate(years) {
+  if (years >= 25) return 0.25;
+  if (years >= 20) return 0.2;
+  if (years >= 12) return 0.15;
+  if (years >= 5) return 0.1;
+  if (years >= 2) return 0.05;
+  return 0.0;
+}
+function salInputs() {
+  return {
+    baseAnnual: +document.getElementById("s_baseAnnual").value || 0,
+    ancYears: +document.getElementById("s_ancYears").value || 0,
+    transport: +document.getElementById("s_transport").value || 0,
+    panier: +document.getElementById("s_panier").value || 0,
+    rsu: +document.getElementById("s_rsu").value || 0,
+    cimr: (+document.getElementById("s_cimr").value || 0) / 100,
+    dep: Math.min(Math.max(+document.getElementById("s_dep").value || 0, 0), 6),
+    logementOn: !!(document.getElementById("s_logementOn") || {}).checked,
+    // Actual annual loan interest (MAD); 0/blank => apply the full 10% cap.
+    logementInt: +(document.getElementById("s_logementInt") || {}).value || 0,
+  };
+}
+function computeSalary(i) {
+  const base = i.baseAnnual / 12;
+  const ancPct = ancRate(i.ancYears); // derive % from Moroccan seniority scale
+  const anc = base * ancPct; // seniority premium
+  const bg = base + anc + i.transport + i.panier + i.rsu; // brut global
+  const sbi = bg - i.transport - i.panier; // salaire brut imposable (exempt allowances removed)
+  // Social contributions
+  const cnss = Math.min(sbi, CNSS_CEIL_M) * 0.0448; // CNSS salarial 4.48% capped at legal ceiling (6000)
+  const amo = sbi * 0.0226; // AMO 2.26%
+  const cimr = sbi * i.cimr; // CIMR (contractual)
+  // Frais professionnels (LF 2023+): 35% if annual brut imposable \u2264 78 000 MAD,
+  // otherwise 25%; both capped at 35 000 MAD/yr.
+  const fraisProRate = sbi * 12 <= 78000 ? 0.35 : 0.25;
+  const fraisPro = Math.min(sbi * fraisProRate, 35000 / 12);
+  const cotis = cnss + amo + cimr + fraisPro; // total deductions from base
+  // Housing-loan interest deduction (Moroccan law): deductible interest on a
+  // qualifying primary-residence loan, capped at 10% of net taxable income.
+  // Base for the 10% cap = (sbi - cotis - rsu). If the user enters their actual
+  // annual interest, the deduction = min(actual monthly interest, 10% cap).
+  // Toggle off => no deduction (for anyone without such a loan).
+  const logementCap = Math.max(sbi - cotis - i.rsu, 0) * 0.1;
+  const logement = !i.logementOn
+    ? 0
+    : i.logementInt > 0
+      ? Math.min(i.logementInt / 12, logementCap)
+      : logementCap;
+  // Net taxable income (RNI)
+  const rni = sbi - cotis - logement;
+  const { ir: irGross, rate, ded } = irMonthly(rni);
+  const depRelief = i.dep * (600 / 12); // 2026: 600 MAD/yr per dependent (was 500 in 2025), monthly
+  const ir = Math.max(irGross - depRelief, 0);
+  const net = bg - cnss - amo - cimr - ir; // net in hand (frais pro & logement are notional deductions, not cash)
+  return {
+    base,
+    anc,
+    ancPct,
+    bg,
+    sbi,
+    cnss,
+    amo,
+    cimr,
+    fraisPro,
+    fraisProRate,
+    cotis,
+    logement,
+    rni,
+    rate,
+    ded,
+    irGross,
+    depRelief,
+    ir,
+    net,
+    effRate: bg > 0 ? 1 - net / bg : 0,
+  };
+}
+function mad(n) {
+  return (Math.round(n * 100) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+function renderSalary() {
+  const i = salInputs();
+  const r = computeSalary(i);
+  safeSetItem(S_LS, JSON.stringify(i));
+  const ph2 = document.getElementById("s_ancPctHint");
+  if (ph2) ph2.textContent = " = " + (r.ancPct * 100).toFixed(0) + "% premium";
+  // cards
+  document.getElementById("s_cards").innerHTML =
+    '<div class="salcard"><div class="k">Gross (Brut Global)</div><div class="v">' +
+    mad(r.bg) +
+    '</div><div class="mini">MAD / month</div></div>' +
+    '<div class="salcard"><div class="k">Net in hand</div><div class="v" style="color:var(--success)">' +
+    mad(r.net) +
+    '</div><div class="mini">MAD / month \u00B7 ' +
+    mad(r.net * 12) +
+    "/yr</div></div>" +
+    '<div class="salcard"><div class="k">Income Tax (IR)</div><div class="v" style="color:var(--error)">' +
+    mad(r.ir) +
+    '</div><div class="mini">marginal ' +
+    (r.rate * 100).toFixed(0) +
+    "%</div></div>" +
+    '<div class="salcard"><div class="k">Effective deduction</div><div class="v">' +
+    (r.effRate * 100).toFixed(2) +
+    '%</div><div class="mini">of gross</div></div>';
+  // table
+  const row = (l, v, cls) =>
+    '<tr class="' +
+    (cls || "") +
+    '"><td>' +
+    l +
+    '</td><td class="num" style="text-align:right;font-family:var(--mono)">' +
+    mad(v) +
+    "</td></tr>";
+  document.querySelector("#s_table tbody").innerHTML =
+    row("Base salary (monthly)", r.base) +
+    row(
+      "+ Seniority (Anciennet\u00E9: " +
+        i.ancYears +
+        " yr \u2192 " +
+        (r.ancPct * 100).toFixed(0) +
+        "%)",
+      r.anc,
+    ) +
+    row("+ Transport (exempt)", i.transport, "sub") +
+    row("+ Panier (exempt)", i.panier, "sub") +
+    row("+ RSU / other", i.rsu, "sub") +
+    row("= Brut Global (BG)", r.bg, "tot") +
+    row("Salaire Brut Imposable (SBI)", r.sbi) +
+    row("\u2212 CNSS (4.48% cap 6 000)", r.cnss, "sub") +
+    row("\u2212 AMO (2.26%)", r.amo, "sub") +
+    row("\u2212 CIMR (" + (i.cimr * 100).toFixed(1) + "%)", r.cimr, "sub") +
+    row(
+      "\u2212 Frais professionnels (" +
+        (r.fraisProRate * 100).toFixed(0) +
+        "% cap 35k/yr)",
+      r.fraisPro,
+      "sub",
+    ) +
+    (i.logementOn
+      ? row(
+          "\u2212 Housing-loan interest deduction (\u226410% RNI)",
+          r.logement,
+          "sub",
+        )
+      : "") +
+    row("= Revenu Net Imposable (RNI)", r.rni, "tot") +
+    row(
+      "IR before dependents (marg " +
+        (r.rate * 100).toFixed(0) +
+        "% \u2212 " +
+        mad(r.ded) +
+        ")",
+      r.irGross,
+      "sub",
+    ) +
+    row(
+      "\u2212 Dependent relief (" + i.dep + " \u00D7 50)",
+      r.depRelief,
+      "sub",
+    ) +
+    row("= Income Tax (IR)", r.ir, "tot") +
+    row("NET IN HAND", r.net, "tot");
+}
+
+// live recompute on any salary input change
+[
+  "s_baseAnnual",
+  "s_ancYears",
+  "s_transport",
+  "s_panier",
+  "s_rsu",
+  "s_cimr",
+  "s_dep",
+  "s_logementInt",
+].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("input", renderSalary);
+});
+// checkbox uses 'change' rather than 'input'
+(function () {
+  const el = document.getElementById("s_logementOn");
+  if (el) el.addEventListener("change", renderSalary);
+})();
+// restore saved inputs
+(function () {
+  try {
+    const s = JSON.parse(localStorage.getItem(S_LS) || "null");
+    if (s) {
+      const set = (id, v) => {
+        const e = document.getElementById(id);
+        if (e && v != null) e.value = v;
+      };
+      set("s_baseAnnual", s.baseAnnual);
+      set("s_ancYears", s.ancYears);
+      set("s_transport", s.transport);
+      set("s_panier", s.panier);
+      set("s_rsu", s.rsu);
+      set("s_cimr", s.cimr != null ? s.cimr * 100 : null);
+      set("s_dep", s.dep);
+      set("s_logementInt", s.logementInt ? s.logementInt : null);
+      const _lgOn = document.getElementById("s_logementOn");
+      if (_lgOn && typeof s.logementOn === "boolean")
+        _lgOn.checked = s.logementOn;
+    }
+  } catch (e) {}
+})();
+
+/* ===== Instant tooltip engine (data-tip) \u2014 no native title delay ===== */
+(function () {
+  if (window.__qtipInit) return;
+  window.__qtipInit = true;
+  const tip = document.createElement("div");
+  tip.id = "__qtip";
+  tip.style.cssText =
+    "position:fixed;z-index:99999;max-width:340px;background:#0d1520;color:#e6edf3;border:1px solid #2c3742;border-radius:8px;padding:9px 11px;font-size:11.5px;line-height:1.5;white-space:pre-line;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none;opacity:0;transition:opacity .08s;font-family:var(--sans,system-ui);display:none";
+  document.addEventListener("DOMContentLoaded", () =>
+    document.body.appendChild(tip),
+  );
+  if (document.body) document.body.appendChild(tip);
+  let cur = null;
+  function place(e) {
+    const pad = 14;
+    let x = e.clientX + pad,
+      y = e.clientY + pad;
+    const r = tip.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  document.addEventListener("mouseover", (e) => {
+    const t = e.target.closest("[data-tip]");
+    if (!t) {
+      return;
+    }
+    cur = t;
+    var raw = t.getAttribute("data-tip") || "";
+    var txt = raw;
+    if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+      try {
+        txt = decodeURIComponent(raw);
+      } catch (_) {
+        txt = raw;
+      }
+    }
+    if (/<[a-z][\s\S]*>/i.test(txt)) {
+      tip.innerHTML = txt;
+      tip.style.whiteSpace = "normal";
+    } else {
+      tip.textContent = txt;
+      tip.style.whiteSpace = "pre-line";
+    }
+    tip.style.display = "block";
+    place(e);
+    requestAnimationFrame(() => {
+      tip.style.opacity = "1";
+      place(e);
+    });
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (cur) place(e);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const t = e.target.closest("[data-tip]");
+    if (t && t === cur) {
+      cur = null;
+      tip.style.opacity = "0";
+      setTimeout(() => {
+        if (!cur) tip.style.display = "none";
+      }, 100);
+    }
+  });
+})();
+
+/* ===== Stock Categories (manual, not TradingView) \u2014 upload / persist / apply ===== */
+const CAT_LS = "casa_categories_v1";
+// Split a CSV line respecting simple double-quoted fields (company names may contain commas).
+function _csvSplit(line) {
+  const out = [];
+  let cur = "",
+    q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else q = false;
+      } else cur += c;
+    } else {
+      if (c === '"') q = true;
+      else if (c === ",") {
+        out.push(cur);
+        cur = "";
+      } else cur += c;
+    }
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+// Parse a Category CSV -> { TICKER: {name, cat, cycle, style} }
+function parseCategoryCSV(text) {
+  const lines = String(text)
+    .replace(/^\uFEFF/, "")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() && !l.trim().startsWith("#"));
+  if (!lines.length) return { map: {}, err: "empty file" };
+  const hdr = _csvSplit(lines[0]).map((s) => s.toLowerCase());
+  const ix = {
+    ticker: hdr.findIndex((h) => h === "ticker"),
+    name: hdr.findIndex((h) => h.includes("company") || h === "name"),
+    cat: hdr.findIndex((h) => h === "category" || h === "sector"),
+    cycle: hdr.findIndex((h) => h.includes("economic") || h === "cycle"),
+    style: hdr.findIndex((h) => h.includes("asset") || h === "style"),
+  };
+  if (ix.ticker < 0) return { map: {}, err: "CSV needs a Ticker column" };
+  const map = {};
+  for (let i = 1; i < lines.length; i++) {
+    const c = _csvSplit(lines[i]);
+    const tk = (c[ix.ticker] || "").toUpperCase().trim();
+    if (!tk) continue;
+    const rec = {};
+    if (ix.name >= 0 && c[ix.name]) rec.name = c[ix.name];
+    if (ix.cat >= 0 && c[ix.cat]) rec.cat = c[ix.cat];
+    if (ix.cycle >= 0 && c[ix.cycle]) rec.cycle = c[ix.cycle];
+    if (ix.style >= 0 && c[ix.style]) rec.style = c[ix.style];
+    if (Object.keys(rec).length) map[tk] = rec;
+  }
+  return { map, err: null };
+}
+// Apply a category map onto M. Only tickers present in the map are touched; others keep
+// their existing (TradingView / seed) category. Returns {updated, unknown[]}.
+function applyCategories(map) {
+  let updated = 0;
+  const unknown = [];
+  Object.keys(map).forEach((tk) => {
+    const rec = map[tk];
+    if (!M[tk]) {
+      unknown.push(tk);
+      return;
+    } // not in master \u2014 cannot attach metrics; skip (TV fallback stays)
+    if (rec.cat) M[tk].cat = rec.cat;
+    if (rec.cycle) M[tk].cycle = rec.cycle;
+    if (rec.style) M[tk].style = rec.style;
+    if (rec.name && !M[tk].name) M[tk].name = rec.name;
+    updated++;
+  });
+  return { updated, unknown };
+}
+function saveCategories(map) {
+  safeSetItem(CAT_LS, JSON.stringify(map));
+}
+function loadCategories() {
+  try {
+    const s = localStorage.getItem(CAT_LS);
+    return s ? JSON.parse(s) : null;
+  } catch (e) {
+    return null;
+  }
+}
+// On boot: if the user has uploaded an updated set, re-apply it over the built-in default.
+function applySavedCategories() {
+  const map = loadCategories();
+  if (map) {
+    applyCategories(map);
+  }
+  refreshCatStamp();
+}
+function refreshCatStamp() {
+  const el = document.getElementById("catStamp");
+  if (!el) return;
+  const map = loadCategories();
+  el.textContent = map
+    ? "\u00B7 using your uploaded set (" + Object.keys(map).length + " tickers)"
+    : "\u00B7 built-in default set";
+}
+
+// ---- upload handler ----
+(function () {
+  const inp = document.getElementById("importCat");
+  if (!inp) return;
+  inp.onchange = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const { map, err } = parseCategoryCSV(rd.result);
+      const res = document.getElementById("catResult");
+      const rev = document.getElementById("catReview");
+      if (err) {
+        res.style.color = "var(--error)";
+        res.textContent = "\u274c " + err;
+        return;
+      }
+      const n = Object.keys(map).length;
+      if (!n) {
+        res.style.color = "var(--error)";
+        res.textContent = "\u274c No ticker rows found.";
+        return;
+      }
+      const { updated, unknown } = applyCategories(map);
+      saveCategories(map);
+      res.style.color = "var(--success)";
+      res.textContent =
+        "\u2705 Applied " +
+        updated +
+        " categories" +
+        (unknown.length
+          ? " \u00b7 " + unknown.length + " unknown ticker(s) skipped"
+          : "") +
+        ".";
+      if (rev) {
+        rev.innerHTML =
+          '<div class="mini" style="color:var(--text2)">Updated <b>' +
+          updated +
+          "</b> tickers" +
+          (unknown.length
+            ? " \u00b7 skipped (not in master, kept TradingView category): <b>" +
+              unknown.join(", ") +
+              "</b>"
+            : "") +
+          ".</div>";
+      }
+      refreshCatStamp();
+      try {
+        render();
+      } catch (_) {}
+      inp.value = "";
+    };
+    rd.readAsText(f);
+  };
+})();
+
+// ---- template download ----
+(function () {
+  const b = document.getElementById("dlCatTemplate");
+  if (!b) return;
+  b.onclick = () => {
+    const rows = [
+      "Ticker,Company Name,Category,Economic Cycle,Asset Style",
+      "ATW,Attijariwafa Bank SA,Banking,Cyclical,Compounder",
+      "GAZ,Afriquia Gaz,Energy,Defensive,Yield King",
+      "AKT,Akdital,Healthcare,Defensive,Growth",
+      "# Economic Cycle: Cyclical / Sensitives / Defensive",
+      "# Asset Style: Yield King / Growth / Compounder / Recovery / Value / Defensive / Cyclical",
+      "# Tickers not listed here keep their existing (TradingView) category.",
+    ];
+    downloadText("stock_categories_template.csv", rows.join("\n"));
+  };
+})();
+
+// ---- reset to built-in default ----
+(function () {
+  const b = document.getElementById("resetCat");
+  if (!b) return;
+  b.onclick = () => {
+    try {
+      localStorage.removeItem(CAT_LS);
+    } catch (e) {}
+    const res = document.getElementById("catResult");
+    if (res) {
+      res.style.color = "var(--muted)";
+      res.textContent =
+        "\u21ba Reverted to built-in default. Reload to fully reset any changed values.";
+    }
+    const rev = document.getElementById("catReview");
+    if (rev) rev.innerHTML = "";
+    refreshCatStamp();
+  };
+})();
+
+applySavedCategories();
+
+showBackupAge();
+renderDivTax();
+renderPending();
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550 CASH TAB \u2550\u2550\u2550\u2550\u2550\u2550\u2550
+const CASH_LS = "casa_cash_v1";
+let CASH_ACCT = "all"; // 'all' or a broker id (e.g. 'saham','attijari')
+function loadCash() {
+  // Corruption-safe like the other loaders: quarantines a bad value to a
+  // *_corrupt_* key and warns, instead of silently discarding it.
+  const raw = localStorage.getItem(CASH_LS);
+  if (raw == null) return [];
+  const parsed = safeParseLS(CASH_LS, raw, [], "Cash movements");
+  return Array.isArray(parsed.value) ? parsed.value : [];
+}
+function saveCash(arr) {
+  if (safeSetItem(CASH_LS, JSON.stringify(arr))) markSaved();
+  else markSaveFailed();
+}
+
+function renderCash() {
+  const _today = _qwTodayISO();
+  // Include ALL movements (past + future). Future-dated ones are shown as "upcoming"
+  // but do NOT count toward the current balance (which is as-of-today).
+  // Carry each row's index in the FULL sorted array (_srcIdx) so edit/delete
+  // target the correct stored row even when an account filter is active.
+  const _allMov = loadCash()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((m, i) => ({ ...m, _srcIdx: i }));
+  const movements =
+    CASH_ACCT === "all"
+      ? _allMov
+      : _allMov.filter((m) => {
+          const parts = CASH_ACCT.split("_"); // e.g. 'attijari_pea' \u2192 ['attijari','pea']
+          if (parts.length === 2) {
+            return (
+              (m.broker || "saham") === parts[0] &&
+              (parts[1] === "pea" ? !!m.pea : !m.pea)
+            );
+          }
+          return (m.broker || "saham") === CASH_ACCT; // fallback: broker-only filter
+        });
+  const body = document.getElementById("cashBody");
+  const summary = document.getElementById("cashSummary");
+  if (!body || !summary) return;
+
+  // Compute running balance from user cash movements (deposits/withdrawals/fees)
+  let bal = 0,
+    totalDeposits = 0,
+    totalWithdrawals = 0,
+    totalFees = 0;
+  const rows = movements.map((m, i) => {
+    const sign = m.type === "deposit" ? 1 : -1;
+    const amt = Math.abs(m.amount) * sign;
+    const _future = m.date > _today;
+    if (!_future) {
+      // Only past/today movements accrue the current balance and the totals.
+      bal += amt;
+      if (m.type === "deposit") totalDeposits += Math.abs(m.amount);
+      else if (m.type === "withdrawal") totalWithdrawals += Math.abs(m.amount);
+      else if (m.type === "fee") totalFees += Math.abs(m.amount);
+    }
+    return {
+      ...m,
+      _bal: _future ? null : bal,
+      _idx: m._srcIdx,
+      _amt: amt,
+      _future,
+    };
+  });
+
+  // Check for an "initial" balance entry \u2014 sets the reference date
+  const initEntry = movements.find((m) => m.type === "initial");
+  const refDate = initEntry ? initEntry.date : null;
+
+  // Net trading cash flow: sum of all transaction .net values
+  // Only count transactions ON OR AFTER the reference date (if set)
+  let fifoResult = {};
+  try {
+    fifoResult = runFIFO();
+  } catch (_e) {}
+  const pos = fifoResult.pos || {};
+  const enriched = fifoResult.enriched || [];
+  let tradingCash = 0;
+  enriched.forEach((e) => {
+    if (typeof e.net === "number" && e.date <= _today) {
+      if (!refDate || e.date >= refDate) {
+        if (CASH_ACCT === "all") {
+          if (!(txnBroker(e) === "saham" && !e.pea)) tradingCash += e.net;
+        } else {
+          const _p = CASH_ACCT.split("_");
+          if (_p.length === 2) {
+            if (txnBroker(e) === _p[0] && (_p[1] === "pea" ? !!e.pea : !e.pea))
+              tradingCash += e.net;
+          } else if (txnBroker(e) === CASH_ACCT) tradingCash += e.net;
+        }
+      }
+    }
+  });
+
+  // Cash in account = user movements + trading cash flow (from ref date onward)
+  const cashBalance = bal + tradingCash;
+
+  // Portfolio valuations from current positions
+  const _cpos = Object.values(pos);
+  let stockVal = 0,
+    opcvmVal = 0;
+  _cpos.forEach((p) => {
+    if (p.held > 0 && p.value > 0) {
+      if (CASH_ACCT !== "all") {
+        const _parts = CASH_ACCT.split("_");
+        if (_parts.length === 2) {
+          const _pBk = txnBroker({ pea: p.isPea });
+          if (_pBk !== _parts[0] || (_parts[1] === "pea") !== p.isPea) return;
+        } else {
+          const _pBk = p.isPea ? "attijari" : "saham";
+          if (_pBk !== CASH_ACCT) return;
+        }
+      }
+      if (M[p.ticker] && M[p.ticker].cat === "OPCVM") opcvmVal += p.value;
+      else stockVal += p.value;
+    }
+  });
+
+  // Pending orders estimated cost (using computeRow for accurate fee-inclusive amount)
+  let pending = [];
+  try {
+    pending = JSON.parse(localStorage.getItem("casa_pending_v1") || "[]");
+    if (!Array.isArray(pending)) pending = [];
+  } catch (e) {
+    pending = Array.isArray(PENDING) ? PENDING : [];
+  }
+  let pendingCost = 0;
+  pending.forEach((o) => {
+    if (o.action === "BUY" && o.date <= _today) {
+      if (CASH_ACCT !== "all") {
+        const _pp = CASH_ACCT.split("_");
+        if (_pp.length === 2) {
+          if (txnBroker(o) !== _pp[0] || (_pp[1] === "pea") !== !!o.pea) return;
+        } else if (txnBroker(o) !== CASH_ACCT) return;
+      }
+      try {
+        const rr = computeRow({
+          action: "BUY",
+          ticker: o.ticker,
+          qty: o.qty,
+          price: o.price,
+          pea: o.pea,
+          opcvm: o.opcvm,
+          total: o.total,
+        });
+        pendingCost += Math.abs(rr.net) || 0;
+      } catch (_e) {
+        pendingCost += (o.qty || 0) * (o.price || 0);
+      }
+    }
+  });
+
+  // Summary cards
+  const card = (label, value, cls, tip) =>
+    `<div class="card nis-cell"${tip ? ' style="cursor:help" data-tip="' + encodeURIComponent(tip) + '"' : ""}>` +
+    `<div class="label">${label}</div>` +
+    `<div class="value ${cls || ""}">${value}</div></div>`;
+
+  // Warning if transactions exist before first recorded deposit & no initial balance
+  let _cashWarn = "";
+  if (!initEntry && enriched.length > 0 && movements.length > 0) {
+    // Only check transactions matching the current account filter
+    const _filteredTxns = enriched.filter((e) => {
+      // Exclude bank-funded accounts (saham+reg) \u2014 they don't track cash
+      if (txnBroker(e) === "saham" && !e.pea) return false;
+      if (CASH_ACCT === "all") return true;
+      const _wp = CASH_ACCT.split("_");
+      if (_wp.length === 2)
+        return txnBroker(e) === _wp[0] && (_wp[1] === "pea" ? !!e.pea : !e.pea);
+      return txnBroker(e) === CASH_ACCT;
+    });
+    if (_filteredTxns.length > 0) {
+      const firstTxn = _filteredTxns.reduce(
+        (m, e) => (e.date < m ? e.date : m),
+        _filteredTxns[0].date,
+      );
+      const firstMov = movements[0].date;
+      if (firstTxn < firstMov)
+        _cashWarn =
+          '<div style="background:var(--warn-bg,#fef3c7);border:1px solid var(--warn-border,#f59e0b);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e">\u26a0\ufe0f You have transactions before your first recorded deposit. Add an <b>Initial Balance</b> entry (your broker cash on the date you started tracking) for accurate totals.</div>';
+    }
+  }
+
+  const _isBankFunded = CASH_ACCT === "saham_reg";
+  const _effectiveCash = _isBankFunded ? 0 : cashBalance;
+  const cashAvailable = _effectiveCash - pendingCost;
+  const totalPortfolio = _isBankFunded
+    ? stockVal + opcvmVal
+    : _effectiveCash + stockVal + opcvmVal;
+  summary.innerHTML =
+    _cashWarn +
+    card(
+      "Cash Available",
+      _isBankFunded ? "N/A (bank-funded)" : money(cashAvailable, 0) + " MAD",
+      _isBankFunded ? "" : cashAvailable >= 0 ? "pos" : "neg",
+      _isBankFunded
+        ? "Trades are paid directly from your bank account. No separate brokerage cash to track."
+        : "Cash in account minus committed pending orders. What you can actually deploy.",
+    ) +
+    card(
+      "Stocks Value",
+      money(stockVal, 0) + " MAD",
+      "",
+      "Market value of all held stock positions (shares \u00d7 live price).",
+    ) +
+    card(
+      "OPCVM Value",
+      money(opcvmVal, 0) + " MAD",
+      "",
+      "Market value of all held fund/OPCVM positions.",
+    ) +
+    card(
+      "Pending Orders",
+      money(pendingCost, 0) + " MAD",
+      pendingCost > 0 ? "neg" : "",
+      "Total cost of pending BUY orders (fee-inclusive). This cash is committed.",
+    ) +
+    card(
+      "Total Portfolio",
+      money(totalPortfolio, 0) + " MAD",
+      "",
+      "Cash balance + Stocks + OPCVM. Your total account value.",
+    );
+
+  // Hide movements form+table for bank-funded accounts
+  const _cashForm = document.querySelector("#cash .form-row");
+  const _cashTableWrap = document.getElementById("cashTable");
+  if (_isBankFunded) {
+    if (_cashForm) _cashForm.style.display = "none";
+    if (_cashTableWrap) _cashTableWrap.parentElement.style.display = "none";
+    const _bfNote = document.querySelector("#cash .bankfunded-note");
+    if (!_bfNote) {
+      const n = document.createElement("div");
+      n.className = "bankfunded-note mini";
+      n.style.cssText =
+        "margin-top:12px;padding:10px 14px;background:var(--panel2);border-radius:8px;color:var(--text2)";
+      n.innerHTML =
+        "This account is funded directly from your bank \u2014 no cash deposits/withdrawals to track here. Portfolio value and pending orders are shown above.";
+      const sec = document.querySelector("#cash .sec");
+      if (sec) sec.appendChild(n);
+    }
+    return;
+  } else {
+    if (_cashForm) _cashForm.style.display = "";
+    if (_cashTableWrap) _cashTableWrap.parentElement.style.display = "";
+    const _bfNote = document.querySelector("#cash .bankfunded-note");
+    if (_bfNote) _bfNote.remove();
+  }
+
+  // Table
+  const typeLabel = {
+    deposit: "\u2795 Deposit",
+    withdrawal: "\u2796 Withdrawal",
+    fee: "\ud83d\udcb8 Fee",
+    initial: "\u2696\ufe0f Initial",
+  };
+  const typeCls = {
+    deposit: "pos",
+    withdrawal: "neg",
+    fee: "neg",
+    initial: "pos",
+  };
+  body.innerHTML = rows
+    .slice()
+    .reverse()
+    .map(
+      (r) => `<tr${r._future ? ' style="opacity:.6"' : ""}>
+    <td>${r.date}${r._future ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Future-dated \u2014 not counted in the current balance until this date">\u23F3 upcoming</span>' : ""}</td>
+    <td><span class="${typeCls[r.type] || ""}">${typeLabel[r.type] || r.type}</span></td>
+    <td class="${r._amt >= 0 ? "pos" : "neg"}">${money(r._amt)} MAD</td>
+    <td style="font-size:11px;opacity:.8">${(BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg")} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
+    <td>${r.note || "\u2014"}</td>
+    <td style="font-weight:600">${r._bal == null ? "\u2014" : money(r._bal) + " MAD"}</td>
+    <td><button class="btn-sm" data-act="editCashRow" data-args="${r._idx}" title="Edit">\u270e</button> <button class="btn-sm" data-act="deleteCashRow" data-args="${r._idx}" title="Delete">\u2715</button></td>
+  </tr>`,
+    )
+    .join("");
+
+  if (rows.length === 0) {
+    body.innerHTML =
+      '<tr><td colspan="6" style="text-align:center;opacity:.6;padding:24px">No cash movements recorded yet. Add a deposit to get started.</td></tr>';
+  }
+}
+
+function deleteCashRow(idx) {
+  if (!confirm("Delete this cash movement?")) return;
+  const arr = loadCash().sort((a, b) => a.date.localeCompare(b.date));
+  arr.splice(idx, 1);
+  saveCash(arr);
+  renderCash();
+}
+
+// Wire the Add/Edit button
+let CASH_EDIT_IX = null;
+(function () {
+  const btn = document.getElementById("cashAdd");
+  if (!btn) return;
+  const dateEl = document.getElementById("cashDate");
+  if (dateEl) dateEl.value = _qwTodayISO();
+
+  btn.onclick = () => {
+    const date = document.getElementById("cashDate").value;
+    const type = document.getElementById("cashType").value;
+    const amt = parseFloat(document.getElementById("cashAmt").value);
+    const note = document.getElementById("cashNote").value.trim();
+
+    if (!date) {
+      toast("Please enter a date.", "warn");
+      return;
+    }
+    if (!amt || amt <= 0) {
+      toast("Please enter a positive amount.", "warn");
+      return;
+    }
+
+    const arr = loadCash();
+    const broker = document.getElementById("cashBroker").value;
+    const pea = document.getElementById("cashPea").checked;
+    if (CASH_EDIT_IX !== null) {
+      // Editing existing entry
+      const sorted = arr.sort((a, b) => a.date.localeCompare(b.date));
+      sorted[CASH_EDIT_IX] = {
+        date,
+        type,
+        amount: amt,
+        note,
+        broker,
+        pea,
+      };
+      saveCash(sorted);
+      CASH_EDIT_IX = null;
+      btn.textContent = "Add";
+    } else {
+      arr.push({ date, type, amount: amt, note, broker, pea });
+      saveCash(arr);
+    }
+
+    // Reset form
+    document.getElementById("cashAmt").value = "";
+    document.getElementById("cashNote").value = "";
+    {
+      const _cbk = document.getElementById("cashBroker");
+      const _rp = CASH_ACCT.split("_");
+      if (_cbk)
+        _cbk.value = _rp[0] !== "all" ? _rp[0] : Object.keys(BROKERS)[0];
+      document.getElementById("cashPea").checked =
+        _rp.length === 2 ? _rp[1] === "pea" : _rp[0] === "attijari";
+    }
+    document.getElementById("cashDate").value = _qwTodayISO();
+    document.getElementById("cashType").value = "deposit";
+    renderCash();
+  };
+})();
+
+function editCashRow(idx) {
+  const arr = loadCash().sort((a, b) => a.date.localeCompare(b.date));
+  const m = arr[idx];
+  if (!m) return;
+  document.getElementById("cashDate").value = m.date;
+  document.getElementById("cashType").value = m.type;
+  document.getElementById("cashAmt").value = m.amount;
+  document.getElementById("cashNote").value = m.note || "";
+  {
+    const _cbk = document.getElementById("cashBroker");
+    if (_cbk) _cbk.value = m.broker || "saham";
+  }
+  document.getElementById("cashPea").checked = !!m.pea;
+  CASH_EDIT_IX = idx;
+  document.getElementById("cashAdd").textContent = "Save";
+  document
+    .getElementById("cashAdd")
+    .scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+populateBrokerSelects();
+wireBrokerAutoSelect();
+try {
+  renderCash();
+} catch (_ce) {
+  console.error("Cash init:", _ce);
+}
+// Build broker+account filter buttons dynamically
+(function () {
+  const cont = document.getElementById("cashAcctFilter");
+  if (!cont) return;
+  // Generate one button per broker+account combo (PEA and Reg for each broker)
+  Object.keys(BROKERS).forEach((id) => {
+    ["reg", "pea"].forEach((acct) => {
+      const btn = document.createElement("button");
+      btn.className = "btn sec2 cashAcctBtn";
+      btn.dataset.cacct = id + "_" + acct;
+      btn.style.cssText = "font-size:12px;padding:5px 14px;border-radius:14px";
+      btn.textContent =
+        BROKERS[id].name + " " + (acct === "pea" ? "PEA" : "Reg");
+      cont.appendChild(btn);
+    });
+  });
+  // Populate cashBroker dropdown
+  const cbk = document.getElementById("cashBroker");
+  if (cbk) {
+    cbk.innerHTML = Object.keys(BROKERS)
+      .map(
+        (id) => '<option value="' + id + '">' + BROKERS[id].name + "</option>",
+      )
+      .join("");
+    cbk.value = "attijari";
+    cbk.onchange = () => {
+      document.getElementById("cashPea").checked = cbk.value === "attijari";
+    };
+  }
+})();
+document.querySelectorAll(".cashAcctBtn").forEach((b) => {
+  b.onclick = () => {
+    CASH_ACCT = b.dataset.cacct;
+    document.querySelectorAll(".cashAcctBtn").forEach((x) => {
+      const on = x.dataset.cacct === CASH_ACCT;
+      x.classList.toggle("active", on);
+      x.classList.toggle("sec2", !on);
+    });
+    renderCash();
+  };
+});
+
+render();
+
+// Restore last active app + tab (from localStorage; URL is kept clean).
+(function () {
+  try {
+    // Strip any leftover "#tab" from older versions / bookmarks so the URL is
+    // clean. Restore is driven entirely by localStorage below.
+    if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    }
+    const lastApp = localStorage.getItem("casa_last_app_v1") || "portfolio";
+    if (lastApp !== "portfolio") {
+      const ab = document.querySelector('.app-btn[data-app="' + lastApp + '"]');
+      if (ab) ab.click();
+    } else {
+      const lastTab = localStorage.getItem("casa_last_tab_v1");
+      if (lastTab) {
+        const btn = document.querySelector('.tab[data-view="' + lastTab + '"]');
+        if (btn) btn.click();
+      }
+    }
+  } catch (e) {}
+})();
+
+
+// ===== 09-boot.js =====
+// ============================================================
+// 09-boot.js
+// boot: a11y roving-tabindex keyboard nav for tab lists
+// Part of the Portfolio Tracker app. Loaded as an ordered plain
+// <script> (shared global scope) - order matters, see index.html.
+// ============================================================
+// ---- a11y: roving-tabindex keyboard nav for tab lists ----
+/* a11y: roving-tabindex keyboard nav for tab lists */
+(function () {
+  "use strict";
+  function wire(list) {
+    const tabs = [].slice.call(list.querySelectorAll('[role="tab"]'));
+    if (!tabs.length) return;
+    list.addEventListener("keydown", function (e) {
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      let j = -1;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown")
+        j = (i + 1) % tabs.length;
+      else if (e.key === "ArrowLeft" || e.key === "ArrowUp")
+        j = (i - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") j = 0;
+      else if (e.key === "End") j = tabs.length - 1;
+      else return;
+      e.preventDefault();
+      tabs[j].focus();
+      tabs[j].click();
+    });
+  }
+  function sync(list) {
+    const tabs = [].slice.call(list.querySelectorAll('[role="tab"]'));
+    tabs.forEach(function (t) {
+      const on = t.classList.contains("active");
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    [].slice
+      .call(document.querySelectorAll('[role="tablist"]'))
+      .forEach(function (list) {
+        wire(list);
+        sync(list);
+        list.addEventListener("click", function () {
+          setTimeout(function () {
+            sync(list);
+          }, 0);
+        });
+      });
+  });
+})();
+
+// ============================================================
+// v2: delegated action dispatcher (modern event handling).
+//
+// A single document-level click listener handles any element carrying a
+// data-act attribute, calling the named function on window with parsed
+// data-args. UI uses data-act attributes instead of inline handlers; this is
+// the forward-looking mechanism (one listener, no per-element wiring,
+// CSP-friendly).
+//
+// data-args is comma-separated; JSON-ish coercion: numbers -> Number, true/false
+// -> boolean, quoted strings -> string, else raw string.
+// ============================================================
+// Convention used across the generated HTML (replaces inline handlers):
+//   data-act=NAME                function to call (looked up on window)
+//   data-args="a,b,c"            literal args; coerced (number/bool/null/string)
+//   special arg tokens:
+//     $el       -> the element itself (was inline `this`)
+//     $checked  -> element.checked   (was `this.checked`)
+//     $value    -> element.value
+//   data-stop="true"             call e.stopPropagation() (nested clickables)
+//   data-on="change"             bind on change instead of click (inputs)
+// Legacy inline on* handlers still work; this is the primary mechanism now.
+(function () {
+  "use strict";
+  function coerce(s) {
+    s = String(s).trim();
+    if (s === "true") return true;
+    if (s === "false") return false;
+    if (s === "null") return null;
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    if (
+      (s[0] === '"' && s[s.length - 1] === '"') ||
+      (s[0] === "'" && s[s.length - 1] === "'")
+    )
+      return s.slice(1, -1);
+    return s;
+  }
+  function parseArgs(raw, el) {
+    if (raw == null || raw === "") return [];
+    return String(raw)
+      .split(",")
+      .map((a) => {
+        const t = a.trim();
+        if (t === "$el") return el;
+        if (t === "$checked") return !!el.checked;
+        if (t === "$value") return el.value;
+        return coerce(t);
+      });
+  }
+  function dispatch(e, evtType) {
+    const el =
+      e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+    if (!el) return;
+    if (el.getAttribute("data-on") && el.getAttribute("data-on") !== evtType)
+      return;
+    if (!el.getAttribute("data-on") && evtType !== "click") return;
+    const fnName = el.getAttribute("data-act");
+    const fn = window[fnName];
+    if (typeof fn !== "function") return;
+    if (el.getAttribute("data-stop") === "true") e.stopPropagation();
+    if (el.tagName === "A" && el.getAttribute("href") === "#")
+      e.preventDefault();
+    try {
+      fn.apply(null, parseArgs(el.getAttribute("data-args"), el));
+    } catch (err) {
+      console.error("action '" + fnName + "' failed:", err);
+    }
+  }
+  document.addEventListener("click", (e) => dispatch(e, "click"));
+  document.addEventListener("change", (e) => dispatch(e, "change"));
+  document.addEventListener("input", (e) => dispatch(e, "input"));
+
+  // Modal helpers (replace inline onclick on the static modals in index.html).
+  // - [data-modal-backdrop]: clicking the backdrop itself (not its contents)
+  //   hides the modal.
+  // - [data-modal-close="id"]: a button that hides the modal with that id.
+  document.addEventListener("click", function (e) {
+    const bd = e.target && e.target.closest ? e.target : null;
+    if (
+      bd &&
+      bd.hasAttribute &&
+      bd.hasAttribute("data-modal-backdrop") &&
+      e.target === bd
+    ) {
+      bd.style.display = "none";
+      return;
+    }
+    const closer =
+      e.target && e.target.closest
+        ? e.target.closest("[data-modal-close]")
+        : null;
+    if (closer) {
+      const id = closer.getAttribute("data-modal-close");
+      const m = document.getElementById(id);
+      if (m) m.style.display = "none";
+    }
+  });
+})();
+
+
+if (typeof gotoTab === "function") window.gotoTab = gotoTab;
+if (typeof clearTbSel === "function") window.clearTbSel = clearTbSel;
+if (typeof toggleTbSel === "function") window.toggleTbSel = toggleTbSel;
+if (typeof openDraftSelected === "function") window.openDraftSelected = openDraftSelected;
+if (typeof applyDraftAll === "function") window.applyDraftAll = applyDraftAll;
+if (typeof recalcDraftSel === "function") window.recalcDraftSel = recalcDraftSel;
+if (typeof commitDraftSelected === "function") window.commitDraftSelected = commitDraftSelected;
+if (typeof closeDraftSelected === "function") window.closeDraftSelected = closeDraftSelected;
+if (typeof rbDraftOne === "function") window.rbDraftOne = rbDraftOne;
+if (typeof rbDraftAll === "function") window.rbDraftAll = rbDraftAll;
+if (typeof renderDivCalGrid === "function") window.renderDivCalGrid = renderDivCalGrid;
+if (typeof divCalPrevMonth === "function") window.divCalPrevMonth = divCalPrevMonth;
+if (typeof divCalNextMonth === "function") window.divCalNextMonth = divCalNextMonth;
+if (typeof editCashRow === "function") window.editCashRow = editCashRow;
+if (typeof deleteCashRow === "function") window.deleteCashRow = deleteCashRow;
+if (typeof eAddLoanDraw === "function") window.eAddLoanDraw = eAddLoanDraw;
+if (typeof eDelLoanDraw === "function") window.eDelLoanDraw = eDelLoanDraw;
+if (typeof eToggleLoanDraws === "function") window.eToggleLoanDraws = eToggleLoanDraws;
+})();

@@ -1,0 +1,2499 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Portfolio Tracker - Casablanca (MAD)</title>
+    <meta
+      name="description"
+      content="Casablanca Stock Exchange (MAD) portfolio tracker: positions, FIFO cost basis, capital-gains and dividend tax, valuation signals, rebalancing, dividends, and expenses."
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- Inline SVG favicon (data URI) - avoids a favicon.ico 404, no extra file. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%230f172a'/%3E%3Crect%20x='14'%20y='34'%20width='9'%20height='16'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='27'%20y='24'%20width='9'%20height='26'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='40'%20y='16'%20width='9'%20height='34'%20rx='2'%20fill='%2334d399'/%3E%3C/svg%3E"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/highcharts@12.1.2/highcharts.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highcharts@12.1.2/highcharts-more.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highcharts@12.1.2/modules/accessibility.js"></script>
+    <!-- styles.css is imported by src/main.js so Vite fingerprints it and
+         injects the <link> automatically at build time. -->
+  </head>
+  <body>
+    <div
+      id="toastHost"
+      aria-live="polite"
+      aria-atomic="true"
+      style="
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        pointer-events: none;
+      "
+    ></div>
+    <div class="app">
+      <div class="topbar">
+        <div class="title">
+          &#x1F4C8; Portfolio Tracker
+          <span>Casablanca Stock Exchange &#xB7; MAD</span>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Main sections">
+          <span id="portfolioTabs" style="display: contents">
+            <button
+              class="tab active"
+              data-view="dashboard"
+              role="tab"
+              aria-label="Dashboard"
+              aria-selected="true"
+              tabindex="0"
+            >
+              &#x1F4CA; Dashboard
+            </button>
+            <button
+              class="tab"
+              data-view="positions"
+              role="tab"
+              aria-label="Positions"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F4BC; Positions
+            </button>
+            <button
+              class="tab"
+              data-view="dividends"
+              role="tab"
+              aria-label="Dividends"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F4B0; Dividends
+            </button>
+            <button
+              class="tab"
+              data-view="signals"
+              role="tab"
+              aria-label="Signals"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F3AF; Signals
+            </button>
+            <button
+              class="tab"
+              data-view="rebalance"
+              role="tab"
+              aria-label="Rebalance"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x2696;&#xFE0F; Rebalance
+            </button>
+            <button
+              class="tab"
+              data-view="pending"
+              role="tab"
+              aria-label="Pending"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x23F3; Pending
+            </button>
+            <button
+              class="tab"
+              data-view="transactions"
+              role="tab"
+              aria-label="Transactions"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F9FE; Transactions
+            </button>
+            <button
+              class="tab"
+              data-view="cash"
+              role="tab"
+              aria-label="Cash"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F4B5; Cash
+            </button>
+            <button
+              class="tab"
+              data-view="data"
+              role="tab"
+              aria-label="Data"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F5C4;&#xFE0F; Data
+            </button>
+          </span>
+          <span id="expensesTabs" style="display: none">
+            <button
+              class="tab active"
+              data-etab="setup"
+              role="tab"
+              aria-label="Monthly bills"
+              aria-selected="true"
+            >
+              &#x1F9FE; Monthly bills
+            </button>
+            <button
+              class="tab"
+              data-etab="pots"
+              role="tab"
+              aria-label="Savings Pots"
+              aria-selected="false"
+            >
+              &#x1F3E6; Savings Pots
+            </button>
+          </span>
+        </div>
+        <div class="topbar-ctrls">
+          <span id="saveStatus" class="mini" style="white-space: nowrap"></span>
+          <button
+            class="btn sec2"
+            id="backupAll"
+            data-tip="Download a full backup of all your data"
+          >
+            &#x2B07; Backup
+          </button>
+          <label
+            class="btn sec2"
+            style="cursor: pointer"
+            data-tip="Restore data from a backup file"
+            >&#x2B06; Restore<input
+              type="file"
+              id="restoreAll"
+              accept=".json"
+              style="display: none"
+          /></label>
+          <button class="btn sec2" id="themeToggle">
+            &#x2600;&#xFE0F; Light
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="appSwitcher"
+        role="tablist"
+        aria-label="Applications"
+        style="display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap"
+      >
+        <button
+          class="app-btn active"
+          data-app="portfolio"
+          role="tab"
+          aria-label="Portfolio Tracker"
+          aria-selected="true"
+        >
+          &#x1F4C8; Portfolio Tracker
+        </button>
+        <button
+          class="app-btn"
+          data-app="expenses"
+          role="tab"
+          aria-label="Monthly Expenses"
+          aria-selected="false"
+        >
+          &#x1F4B8; Monthly Expenses
+        </button>
+        <button
+          class="app-btn"
+          data-app="salary"
+          role="tab"
+          aria-label="Salary Calculation"
+          aria-selected="false"
+        >
+          &#x1F4BC; Salary Calculation
+        </button>
+      </div>
+
+      <div id="salaryView" style="display: none">
+        <div class="sec">
+          <h2>
+            &#x1F4BC; Salary Calculation
+            <span class="mini" style="font-weight: 500"
+              >&#x2014; Moroccan labor & tax law (2026 bar&#xE8;me)</span
+            >
+          </h2>
+          <div
+            style="
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+              gap: 14px;
+              margin-top: 8px;
+            "
+          >
+            <label class="salf"
+              >Base salary (annual, MAD)<input
+                id="s_baseAnnual"
+                type="number"
+                step="0.01"
+                value="0"
+            /></label>
+            <label class="salf"
+              >Seniority / Anciennet&#xE9; (years)<input
+                id="s_ancYears"
+                type="number"
+                step="0.5"
+                min="0"
+                value="12" /><span
+                class="mini"
+                id="s_ancPctHint"
+                style="font-weight: 500"
+              ></span
+            ></label>
+            <label class="salf"
+              >Transport allowance (monthly)<input
+                id="s_transport"
+                type="number"
+                step="1"
+                value="500"
+            /></label>
+            <label class="salf"
+              >Panier / Meal (monthly)<input
+                id="s_panier"
+                type="number"
+                step="1"
+                value="780"
+            /></label>
+            <label class="salf"
+              >RSU / Other taxable (monthly)<input
+                id="s_rsu"
+                type="number"
+                step="1"
+                value="0"
+            /></label>
+            <label class="salf"
+              >CIMR rate (%)<input
+                id="s_cimr"
+                type="number"
+                step="0.5"
+                value="6"
+            /></label>
+            <label class="salf"
+              >Dependents (max 6)<input
+                id="s_dep"
+                type="number"
+                step="1"
+                min="0"
+                max="6"
+                value="2"
+            /></label>
+            <label
+              class="salf"
+              data-tip="Moroccan housing-loan interest deduction: interest on a qualifying primary-residence loan is deductible from net taxable income, capped at 10% of that income. Turn on if you have such a loan."
+              ><span style="display: flex; gap: var(--sp-2)"
+                ><input id="s_logementOn" type="checkbox" checked />Housing-loan
+                interest deduction</span
+              ></label
+            >
+            <label
+              class="salf"
+              data-tip="Optional: your ACTUAL annual loan interest (MAD). The deduction is min(this, 10% of net taxable income). Leave blank to apply the full 10% cap."
+              >Annual loan interest (opt.)<input
+                id="s_logementInt"
+                type="number"
+                step="1"
+                min="0"
+                placeholder="blank = full 10% cap"
+            /></label>
+          </div>
+          <div class="mini" style="margin-top: 10px">
+            Transport & Panier are exempt allowances (within legal limits) and
+            excluded from the taxable base. Frais professionnels = 35% of
+            taxable gross if annual &#x2264; 78 000 MAD, else 25%, capped at 35
+            000 MAD/yr. IR uses the 2026 monthly progressive bar&#xE8;me
+            (marginal rate &#x2212; d&#xE9;duction). Dependent relief = 50
+            MAD/mo each (600/yr), capped at 6, deducted from the IR.
+          </div>
+        </div>
+
+        <div class="cards" id="s_cards" style="margin-top: 16px"></div>
+
+        <div class="sec" style="margin-top: 16px">
+          <h2>Breakdown</h2>
+          <table id="s_table">
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="expensesView" style="display: none">
+        <div style="margin-bottom: 14px">
+          <h2 style="border: none; margin-bottom: 2px">
+            &#x1F4B8; Monthly Expenses
+          </h2>
+          <div class="mini">MD / BT / MT &#x2014; shared bills split 50/50</div>
+        </div>
+
+        <!-- (This Month tab removed &#x2014; merged into Monthly bills. Hidden legacy nodes kept so month render fns no-op safely.) -->
+        <div id="etab_month" style="display: none">
+          <div id="e_monthNav"></div>
+          <div id="e_settleBanner"></div>
+          <table>
+            <tbody id="e_mBillsBody"></tbody>
+          </table>
+          <span id="e_mBillsTot"></span>
+          <div id="e_mBillsFoot"></div>
+          <div id="e_mResetWrap"></div>
+          <span id="e_monthHint"></span>
+        </div>
+
+        <!-- =================== TAB: SAVINGS POTS =================== -->
+        <div id="etab_pots" class="etab-panel" style="display: none">
+          <div class="sec">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 4px;
+              "
+            >
+              <h3 style="border: none; margin: 0; padding: 0">
+                &#x1F3E6; Savings pots
+              </h3>
+              <span class="mini"
+                >accumulated (realized) &#xB7; monthly save &#xB7; paid out
+                &#xB7; progress to yearly target</span
+              >
+            </div>
+            <div
+              id="e_bucketCards"
+              class="kpis-grid"
+              style="margin-top: 12px"
+            ></div>
+          </div>
+
+          <!-- Recurring car costs planner (kept) -->
+          <div class="sec">
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 8px;
+              "
+            >
+              <div style="display: flex; align-items: center; gap: 8px">
+                <button
+                  id="e_carPlanToggle"
+                  class="btn sec2"
+                  aria-label="Toggle car cost details"
+                  data-tip="Show / hide car cost details"
+                  style="
+                    padding: 2px 9px;
+                    font-size: 13px;
+                    line-height: 1.2;
+                    flex: none;
+                  "
+                >
+                  &#x25BE;
+                </button>
+                <div>
+                  <b style="font-size: 14px">&#x1F697; Recurring car costs</b>
+                  <span class="mini" style="font-weight: 500"
+                    >&#x2014; define each cost once; we compute what to save
+                    monthly</span
+                  >
+                </div>
+              </div>
+              <div
+                class="mini"
+                id="e_carPlanNote"
+                style="font-weight: 500"
+              ></div>
+            </div>
+            <div id="e_carPlanDetails">
+              <div id="e_carPlanBanner" style="margin: 10px 0"></div>
+              <div style="overflow-x: auto">
+                <table
+                  id="e_carPlanTbl"
+                  style="min-width: 640px; font-size: 13px"
+                >
+                  <thead>
+                    <tr style="text-align: left; color: var(--muted)">
+                      <th scope="col" style="padding: 4px 6px">Cost</th>
+                      <th
+                        scope="col"
+                        style="padding: 4px 6px; text-align: right"
+                      >
+                        Amount
+                      </th>
+                      <th scope="col" style="padding: 4px 6px">
+                        Months it hits
+                      </th>
+                      <th
+                        scope="col"
+                        style="padding: 4px 6px; text-align: right"
+                      >
+                        Per&nbsp;year
+                      </th>
+                      <th scope="col" style="padding: 4px 6px"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="e_carPlanBody"></tbody>
+                </table>
+              </div>
+              <div class="e-actions" style="margin-top: 10px">
+                <button class="btn sec2" id="e_carAdd">+ Add car cost</button>
+                <button class="btn sec2" id="e_carApply">
+                  Apply to future months
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Savings log (per-month, per-bucket grid) -->
+          <div class="sec">
+            <h3 style="border: none; margin: 0 0 2px; padding: 0">
+              &#x1F4D2; Savings log
+            </h3>
+            <div class="mini" style="margin: 2px 0 8px">
+              Each month, per pot: positive = saved into the pot &#xB7; negative
+              = paid out. Tick a pot&#x2019;s &#x2713; to bank that month.
+              Accumulated totals above come from ticked (realized) months.
+            </div>
+            <div
+              id="e_yearChips"
+              style="
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+                align-items: center;
+              "
+            ></div>
+            <div
+              id="e_logSummary"
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-bottom: 12px;
+              "
+            ></div>
+            <div
+              id="e_logCards"
+              style="
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: 14px;
+              "
+            ></div>
+            <div class="e-actions" style="margin-top: 12px">
+              <button class="btn sec2" id="e_addYear">+ Add year</button>
+              <button class="btn sec2" id="e_markThru">
+                Mark realized through this month
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- =================== TAB: BILLS SETUP =================== -->
+        <div id="etab_setup" class="etab-panel">
+          <!-- what each keeps + settlement (from your monthly bills) -->
+          <div
+            id="e_keepCards"
+            class="kpis-grid"
+            style="margin: 2px 0 18px"
+          ></div>
+
+          <div class="sec">
+            <h3
+              style="
+                border: none;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                user-select: none;
+              "
+              id="e_incHead"
+              data-tip="Show / hide income inputs"
+            >
+              <span
+                id="e_incToggle"
+                style="
+                  font-size: 12px;
+                  color: var(--text2);
+                  width: 14px;
+                  display: inline-block;
+                "
+                >&#x25B8;</span
+              >
+              &#x1F4B0; Net monthly income
+              <span
+                class="mini"
+                id="e_incSummary"
+                style="font-weight: 600; color: var(--muted); margin-left: auto"
+              ></span>
+            </h3>
+            <div id="e_incBody" style="display: none">
+              <div class="mini" style="margin: 8px 0 10px">
+                Your monthly take-home. The bills below and the cards above are
+                based on these.
+              </div>
+              <div
+                style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                  gap: 12px;
+                "
+              >
+                <label class="salf"
+                  ><span class="salf-t"
+                    >Income 1 &#x2014; MD<span class="salf-h"></span></span
+                  ><input id="e_inc1" type="number" step="1" value="0"
+                /></label>
+                <label class="salf"
+                  ><span class="salf-t"
+                    >Income 2 &#x2014; BT<span class="salf-h"></span></span
+                  ><input id="e_inc2" type="number" step="1" value="0"
+                /></label>
+                <label class="salf"
+                  ><span class="salf-t"
+                    >BT monthly to MD<span
+                      class="salf-h"
+                      id="e_q35hint"
+                    ></span></span
+                  ><input id="e_btToMd" type="number" step="1" value="55"
+                /></label>
+              </div>
+              <div id="e_splitLine" class="mini" style="margin-top: 8px"></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h3 style="border: none; margin: 0 0 2px; padding: 0">
+              &#x1F9FE; Default shared bills
+              <span class="mini" style="font-weight: 500"
+                >&#x2014; grouped by type &#xB7; set amount, payer &amp; group
+                per bill</span
+              >
+            </h3>
+            <div style="overflow: auto; margin-top: 8px">
+              <table id="e_billsTbl" style="min-width: 520px">
+                <thead>
+                  <tr>
+                    <th
+                      scope="col"
+                      style="text-align: left; padding-left: 20px"
+                    >
+                      Bill
+                    </th>
+                    <th scope="col" style="text-align: right">Monthly (MAD)</th>
+                    <th scope="col" style="text-align: center">
+                      Paid by &#xB7; group
+                    </th>
+                    <th scope="col" style="width: 44px"></th>
+                  </tr>
+                </thead>
+                <tbody id="e_billsBody"></tbody>
+                <tfoot>
+                  <tr style="font-weight: 800">
+                    <td style="padding-left: 20px">Total shared</td>
+                    <td
+                      style="text-align: right; font-family: var(--mono)"
+                      id="e_billsTot"
+                    >
+                      0
+                    </td>
+                    <td colspan="2"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div class="e-actions">
+              <button class="btn sec2" id="e_addBill">+ Add bill</button>
+            </div>
+            <div id="e_billWarn" style="margin-top: 10px"></div>
+          </div>
+
+          <div class="sec">
+            <h3 style="border: none; margin: 0 0 2px; padding: 0">
+              &#x1F369; Shared bills by category
+            </h3>
+            <div
+              id="e_catDonutWrap"
+              style="
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                align-items: center;
+                justify-content: center;
+                margin: 12px auto 0;
+                max-width: 520px;
+              "
+            >
+              <div
+                style="
+                  position: relative;
+                  width: 180px;
+                  height: 180px;
+                  flex: none;
+                "
+              >
+                <div id="e_catDonut" style="width: 180px; height: 180px"></div>
+                <div
+                  id="e_catDonutCenter"
+                  style="
+                    position: absolute;
+                    inset: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    pointer-events: none;
+                    text-align: center;
+                    line-height: 1.15;
+                  "
+                ></div>
+              </div>
+              <div
+                id="e_catLegend"
+                class="mini"
+                style="flex: 1 1 240px; min-width: 220px; max-width: 300px"
+              ></div>
+            </div>
+          </div>
+
+          <!-- hidden legacy containers kept so existing render fns don't error -->
+          <div style="display: none">
+            <div id="e_settleHeadline"></div>
+            <div id="e_settle"></div>
+            <div id="e_savingsRate"></div>
+            <div id="e_cumChart"></div>
+            <input id="e_startCash" type="number" value="0" />
+            <div id="e_fwdChart"></div>
+            <tbody id="e_fwdBody"></tbody>
+          </div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="view active" id="dashboard">
+        <div id="pendingBanner"></div>
+
+        <!-- hero strip -->
+        <div class="dash-hero" id="dashHero"></div>
+
+        <!-- KPI row -->
+        <div class="grid kpis" id="kpiRow"></div>
+
+        <!-- value over time (full width) -->
+        <div class="sec">
+          <h2 style="justify-content: space-between">
+            <span>&#x1F4C8; Portfolio Value Over Time</span>
+            <button
+              class="btn sec2"
+              id="snapBtn"
+              style="font-size: 12px"
+              data-tip="Save today's portfolio value as a snapshot"
+            >
+              &#x1F4F8; Save snapshot
+            </button>
+          </h2>
+          <div id="historyChart" style="height: 280px"></div>
+          <div class="mini" id="snapNote"></div>
+        </div>
+
+        <!-- allocation bars + return composition + income outlook -->
+        <div
+          class="grid dash-charts"
+          style="grid-template-columns: 1fr 1fr 1fr; align-items: stretch"
+        >
+          <div class="sec">
+            <h2>&#x1F967; Allocation by Sector</h2>
+            <div id="dashAllocBars" style="flex: 1"></div>
+          </div>
+          <div class="sec">
+            <h2>&#x1F9E9; Return Composition</h2>
+            <div id="breakChart" style="height: 300px; flex: 1"></div>
+          </div>
+          <div class="sec">
+            <h2>&#x1F4B8; Income Outlook</h2>
+            <div id="dashIncomeOutlook" style="flex: 1"></div>
+          </div>
+        </div>
+
+        <!-- top contributors + detractors (each with an OPCVM toggle) -->
+        <div
+          class="grid dash-charts"
+          style="grid-template-columns: 1fr 1fr; align-items: stretch"
+        >
+          <div class="sec">
+            <h2 style="justify-content: space-between">
+              <span>&#x1F680; Top Contributors</span>
+              <label class="dash-toggle">
+                <input type="checkbox" id="contribOpcvm" />include OPCVM
+              </label>
+            </h2>
+            <div id="dashTopContrib"></div>
+          </div>
+          <div class="sec">
+            <h2 style="justify-content: space-between">
+              <span>&#x1F4C9; Top Detractors</span>
+              <label class="dash-toggle">
+                <input type="checkbox" id="detractOpcvm" />include OPCVM
+              </label>
+            </h2>
+            <div id="dashTopDetract"></div>
+          </div>
+        </div>
+
+        <div id="concentrationBox"></div>
+        <div class="sec">
+          <h2>&#x1F9FE; Realized Gains &amp; Tax by Year</h2>
+          <div class="scroll">
+            <table id="taxTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l">Year</th>
+                  <th scope="col">Realized Gains (net)</th>
+                  <th scope="col">Est. Cap-Gains Tax (TPCVM)</th>
+                  <th scope="col">Dividends (net)</th>
+                  <th scope="col">Div. Tax Withheld</th>
+                  <th scope="col">Total Tax</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="mini">
+            Capital-gains tax applies to non-PEA sells only. Figures are
+            estimates from your recorded transactions.
+          </div>
+        </div>
+        <div class="sec">
+          <h2>
+            &#x1F4B0; Upcoming Dividends &#x2014; eligible &amp; not yet paid
+          </h2>
+          <div class="scroll">
+            <table id="dashDivTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l">Ex-Date</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Days until ex-date &#x2014; you must hold through the day before to qualify"
+                  >
+                    To Ex
+                  </th>
+                  <th scope="col" class="l">Pay Date</th>
+                  <th scope="col" class="l">Ticker</th>
+                  <th scope="col" class="l">Issuer</th>
+                  <th
+                    scope="col"
+                    data-tip="Dividend amount per share (MAD) declared by the company for this payment."
+                  >
+                    Amount/Sh
+                  </th>
+                  <th scope="col">Shares</th>
+                  <th scope="col">Est. Net (MAD)</th>
+                  <th scope="col" class="center">Days</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="mini" id="dashDivEmpty"></div>
+        </div>
+      </div>
+
+      <!-- POSITIONS -->
+      <div class="view" id="positions">
+        <div
+          style="
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-bottom: 10px;
+          "
+        >
+          <button class="btn sec2" id="toggleClosed" style="font-size: 12px">
+            Show closed
+          </button>
+        </div>
+        <div class="grid kpis" id="posKpiRow" style="margin-bottom: 16px"></div>
+        <div id="missingMasterBox"></div>
+        <div class="sec">
+          <h2>&#x1F4C8; Stocks</h2>
+          <div
+            class="grid kpis"
+            id="stocksKpiRow"
+            style="margin-bottom: 14px"
+          ></div>
+          <div class="scroll">
+            <table id="stocksTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l" data-k="ticker">Ticker</th>
+                  <th scope="col" class="l" data-k="name">Name</th>
+                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    data-k="avg"
+                    data-tip="FIFO-weighted average cost per share (including all brokerage fees + TVA)."
+                  >
+                    Avg Cost
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="invested"
+                    data-tip="Total cash invested (cost basis including purchase price + fees)."
+                  >
+                    Invested
+                  </th>
+                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="value"
+                    data-tip="Current market value = shares held &#xD7; live price from last TradingView refresh."
+                  >
+                    Cur. Value
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="netIfSold"
+                    data-tip="Net proceeds if sold today: after fees, and TPCVM tax on the gain (0 for PEA)"
+                  >
+                    Net if Sold
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="unreal"
+                    data-tip="Paper gain/loss = current value &#x2212; invested. Changes with price; not locked in until you sell."
+                  >
+                    Unrealized
+                  </th>
+                  <th scope="col" data-k="realized">Realized</th>
+                  <th scope="col" data-k="divs">Dividends</th>
+                  <th
+                    scope="col"
+                    data-k="lifetime"
+                    data-tip="Total all-time return = unrealized + realized gains + dividends. Your complete P&L for this position."
+                  >
+                    Lifetime
+                  </th>
+                  <th scope="col" data-k="lifepct">Ret %</th>
+                  <th
+                    scope="col"
+                    data-k="divy"
+                    data-tip="Dividend yield (same as Signals tab)"
+                  >
+                    Div Y
+                  </th>
+                  <th scope="col" class="center" data-k="status">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="sec">
+          <h2>&#x1F3E6; OPCVM Funds</h2>
+          <div
+            class="grid kpis"
+            id="fundsKpiRow"
+            style="margin-bottom: 14px"
+          ></div>
+          <div class="scroll">
+            <table id="fundsTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l" data-k="ticker">Ticker</th>
+                  <th scope="col" class="l" data-k="name">Name</th>
+                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    data-k="avg"
+                    data-tip="FIFO-weighted average cost per share (including all brokerage fees + TVA)."
+                  >
+                    Avg Cost
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="invested"
+                    data-tip="Total cash invested (cost basis including purchase price + fees)."
+                  >
+                    Invested
+                  </th>
+                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="value"
+                    data-tip="Current market value = shares held &#xD7; live price from last TradingView refresh."
+                  >
+                    Cur. Value
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="netIfSold"
+                    data-tip="Net proceeds if sold today: after fees, and TPCVM tax on the gain (0 for PEA)"
+                  >
+                    Net if Sold
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="unreal"
+                    data-tip="Paper gain/loss = current value &#x2212; invested. Changes with price; not locked in until you sell."
+                  >
+                    Unrealized
+                  </th>
+                  <th scope="col" data-k="realized">Realized</th>
+                  <th scope="col" data-k="divs">Dividends</th>
+                  <th
+                    scope="col"
+                    data-k="lifetime"
+                    data-tip="Total all-time return = unrealized + realized gains + dividends. Your complete P&L for this position."
+                  >
+                    Lifetime
+                  </th>
+                  <th scope="col" data-k="lifepct">Ret %</th>
+                  <th scope="col" class="center" data-k="status">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="sec" style="border-color: var(--primary)">
+          <h2>&#x1F4CA; Total Portfolio</h2>
+          <div class="scroll">
+            <table id="totalTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l" data-k="ticker">Ticker</th>
+                  <th scope="col" class="l" data-k="name">Name</th>
+                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    data-k="avg"
+                    data-tip="FIFO-weighted average cost per share (including all brokerage fees + TVA)."
+                  >
+                    Avg Cost
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="invested"
+                    data-tip="Total cash invested (cost basis including purchase price + fees)."
+                  >
+                    Invested
+                  </th>
+                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="value"
+                    data-tip="Current market value = shares held &#xD7; live price from last TradingView refresh."
+                  >
+                    Cur. Value
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="netIfSold"
+                    data-tip="Net proceeds if sold today: after fees, and TPCVM tax on the gain (0 for PEA)"
+                  >
+                    Net if Sold
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="unreal"
+                    data-tip="Paper gain/loss = current value &#x2212; invested. Changes with price; not locked in until you sell."
+                  >
+                    Unrealized
+                  </th>
+                  <th scope="col" data-k="realized">Realized</th>
+                  <th scope="col" data-k="divs">Dividends</th>
+                  <th
+                    scope="col"
+                    data-k="lifetime"
+                    data-tip="Total all-time return = unrealized + realized gains + dividends. Your complete P&L for this position."
+                  >
+                    Lifetime
+                  </th>
+                  <th scope="col" data-k="lifepct">Ret %</th>
+                  <th scope="col" class="center" data-k="status">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="mini">
+            FIFO cost basis &#xB7; Realized &amp; Dividends persist after you
+            sell out &#xB7; click a header to sort
+          </div>
+        </div>
+      </div>
+
+      <!-- SIGNALS -->
+      <div class="view" id="signals">
+        <div class="sec">
+          <h2>
+            &#x1F3AF; Buy / Sell Signals
+            <span class="mini" style="font-weight: 400"
+              >&#x2014; valuation engine</span
+            >
+          </h2>
+          <div
+            id="topBuysRow"
+            style="
+              display: grid;
+              grid-template-columns: minmax(430px, 1.35fr) minmax(0, 1.65fr);
+              gap: 12px;
+              margin: 6px 0 14px;
+              align-items: stretch;
+            "
+          >
+            <div
+              id="topBuysWrap"
+              style="display: flex; flex-direction: column; min-height: 0"
+            ></div>
+            <div
+              style="
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+              "
+            >
+              <div id="topSectorWrap"></div>
+              <div id="topHeadroomWrap"></div>
+            </div>
+          </div>
+          <div class="form-row" style="align-items: flex-end">
+            <label
+              >Asset type<select id="sigAsset">
+                <option value="stocks">&#x1F4C8; Stocks</option>
+                <option value="opcvm">&#x1F3E6; OPCVM Funds</option>
+                <option value="all">All</option>
+              </select></label
+            >
+            <label
+              >Filter<select id="sigFilter">
+                <option value="all">All signals</option>
+                <option value="buy">Buy only</option>
+                <option value="sell">Sell / Trim</option>
+                <option value="held">Held only</option>
+              </select></label
+            >
+            <label style="flex: 1; min-width: 180px"
+              >Search opportunities
+              <span style="position: relative; display: block">
+                <input
+                  id="sigSearch"
+                  type="text"
+                  placeholder="Ticker or name&#x2026;"
+                  autocomplete="off"
+                  style="width: 100%; padding-right: 26px"
+                />
+                <button
+                  id="sigSearchClear"
+                  type="button"
+                  title="Clear search"
+                  style="
+                    display: none;
+                    position: absolute;
+                    right: 6px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: none;
+                    border: none;
+                    color: var(--muted);
+                    cursor: pointer;
+                    font-size: 15px;
+                    line-height: 1;
+                    padding: 0;
+                  "
+                >
+                  &#xD7;
+                </button>
+              </span>
+            </label>
+            <button
+              class="btn sec2"
+              id="sigClearSort"
+              type="button"
+              style="font-size: 12px"
+              data-tip="Reset the table to the default ranked view (strongest buys first)."
+            >
+              Clear sort
+            </button>
+          </div>
+          <div class="scroll">
+            <table id="sigTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l" data-k="ticker">Ticker</th>
+                  <th scope="col" class="l">Name</th>
+                  <th scope="col" class="center">Signal</th>
+                  <th scope="col" data-k="price">Price</th>
+                  <th
+                    scope="col"
+                    data-k="fv"
+                    data-tip="Intrinsic worth from blended anchors (Graham, Earnings Power, DDM, 52w mid). If price < FV &#x2192; undervalued."
+                  >
+                    Fair Value
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="tbuy"
+                    data-tip="Ideal entry price = Fair Value minus margin-of-safety (conviction-scaled). Buying below this gives you a cushion."
+                  >
+                    Target Buy
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="tsell"
+                    data-tip="Take-profit price = max(Fair Value, Buy&#xD7;1.18), capped ~10% above 52w high. Selling above this locks in gains."
+                  >
+                    Target Sell
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="score"
+                    data-tip="Composite 9-factor signal score (0-100%). Sector-weighted, correlation-adjusted. Higher = more factors align favorably."
+                  >
+                    Score
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-k="conviction"
+                    data-tip="Data reliability: High (&#x2265;80% coverage+depth) = trustworthy. Medium = directional. Low = speculative."
+                  >
+                    Conviction
+                  </th>
+                  <th scope="col" data-k="pir">PiR</th>
+                  <th scope="col" data-k="pe">P/E</th>
+                  <th scope="col" data-k="divy">Div Y</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="mini">
+            Score blends Valuation &#xB7; Safety &#xB7; Quality &#xB7; Growth
+            &#xB7; Yield &#xB7; Book &#xB7; Timing (0&#x2013;1)
+          </div>
+        </div>
+      </div>
+
+      <!-- DIVIDENDS -->
+      <div class="view" id="dividends">
+        <div class="grid kpis" id="divKpiRow" style="margin-bottom: 14px"></div>
+        <div
+          class="grid eqrow"
+          style="
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            align-items: stretch;
+          "
+        >
+          <div class="sec">
+            <h2>
+              &#x1F4C8; Expected Income by Month
+              <span class="mini">(upcoming, net)</span>
+            </h2>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin: 6px 0;
+              "
+              data-tip="Project this year's dividends into next year (same amounts, shifted +12 months). Useful for estimating next year's income when you only enter current-year calendar data."
+              ><input
+                type="checkbox"
+                id="divProjectNext"
+                checked
+                style="width: 16px; height: 16px"
+              />Project next year</label
+            >
+            <div id="divIncomeChart" style="height: 280px"></div>
+          </div>
+          <div class="sec">
+            <h2>
+              &#x1F4B5; Dividends Received
+              <span class="mini" id="divRecvSubtitle"></span>
+            </h2>
+            <div id="divReceivedChart" style="height: 280px"></div>
+          </div>
+        </div>
+        <div
+          class="grid eqrow"
+          style="
+            grid-template-columns: 1.3fr 1fr;
+            gap: 14px;
+            align-items: stretch;
+          "
+        >
+          <div class="sec">
+            <h2>
+              &#x1F3C6; Received by Ticker
+              <span class="mini">(net, all-time)</span>
+            </h2>
+            <div class="scroll">
+              <table id="divByTickerTable">
+                <thead>
+                  <tr>
+                    <th scope="col" class="l">Ticker</th>
+                    <th scope="col" class="l">Name</th>
+                    <th scope="col" class="center">Payments</th>
+                    <th scope="col">Total Received (net)</th>
+                    <th scope="col">% of Total</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="sec">
+            <h2>&#x1F967; Received Split</h2>
+            <div id="divByTickerChart" style="height: 300px"></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h2>&#x1F4C5; Dividend Calendar</h2>
+          <div class="form-row">
+            <label
+              >Show<select id="divFilter">
+                <option value="held" selected>Upcoming &#xB7; held only</option>
+                <option value="upcoming">Upcoming (all)</option>
+                <option value="all">All (incl. past)</option>
+                <option value="missing">
+                  &#x26A0; Missing (eligible, not recorded)
+                </option>
+              </select></label
+            >
+            <span
+              class="mini"
+              id="divMissingCount"
+              style="align-self: center"
+            ></span>
+            <button
+              class="btn sec2"
+              id="addAllMissing"
+              data-tip="Record all eligible-but-missing dividends at once"
+            >
+              + Add all missing
+            </button>
+          </div>
+          <div
+            id="divCalGrid"
+            style="
+              margin: 12px 0 16px;
+              background: var(--panel);
+              border: 1px solid var(--border);
+              border-radius: var(--radius);
+              padding: 14px 16px;
+            "
+          ></div>
+          <div class="scroll">
+            <table id="divTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l">Ex-Date</th>
+                  <th scope="col" class="l">Pay Date</th>
+                  <th scope="col" class="l">Ticker</th>
+                  <th scope="col" class="l">Issuer</th>
+                  <th scope="col" class="l">Type</th>
+                  <th scope="col">Amount/Sh</th>
+                  <th scope="col" class="center">Held?</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="&#x2705; Recorded = matching transaction exists. &#x26A0; Not recorded = eligible but not logged. &#x23F3; Upcoming = ex-date not yet reached."
+                  >
+                    Status
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Days until the payment date. Negative = payment date has passed."
+                  >
+                    Days to Pay
+                  </th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TRANSACTIONS -->
+      <div class="view" id="transactions">
+        <div class="sec">
+          <h2>&#x2795; Add Transaction</h2>
+          <div class="form-row">
+            <label>Date<input type="date" id="tDate" /></label>
+            <label
+              >Ticker<input
+                list="tickerList"
+                id="tTicker"
+                placeholder="AFI"
+                style="width: 120px" /><datalist
+                id="tickerList"
+              ></datalist></label
+            ><span
+              id="tKind"
+              class="chip"
+              style="display: none; align-self: end; margin-bottom: 6px"
+            ></span>
+            <label
+              >Action<select id="tAction">
+                <option>BUY</option>
+                <option>SELL</option>
+                <option>DIV</option>
+              </select></label
+            >
+            <label
+              >Quantity<input
+                type="number"
+                id="tQty"
+                step="any"
+                style="width: 100px"
+            /></label>
+            <label
+              data-tip="Leave blank for OPCVM if you enter Total &#x2014; unit price will be Total &#xF7; Quantity"
+              >Unit Price<input
+                type="number"
+                id="tPrice"
+                step="any"
+                style="width: 110px"
+                placeholder="or use Total"
+            /></label>
+            <label
+              data-tip="Total TTC &#x2014; for OPCVM funds (custom fees). If set, this exact total is used and the standard fee formula is skipped. For OPCVM, enter Quantity + Total only."
+              >Total TTC<input
+                type="number"
+                id="tTotal"
+                step="any"
+                style="width: 110px"
+                placeholder="OPCVM"
+            /></label>
+            <label
+              data-tip="OPCVM fund? Uses subscription/redemption fees instead of stock brokerage fees. Auto-checks for known funds; tick it manually for a fund not yet in the master list."
+              >OPCVM?<input
+                type="checkbox"
+                id="tOpcvm"
+                style="width: 18px; height: 18px; margin-top: 6px"
+            /></label>
+            <label
+              id="tFundNameWrap"
+              data-tip="Display name for this ticker. For OPCVM funds it must match the name in the VL/fees import file so the importer can match by name (ISIN remembered on first import). For stocks it is just the label shown in tables."
+              >Name<input
+                type="text"
+                id="tFundName"
+                placeholder="e.g. ATTIJARIWAFA BANK / HORIZON AL BARAKA"
+                style="width: 200px"
+            /></label>
+            <label
+              data-tip="PEA accounts are exempt from TPCVM capital-gains tax"
+              >PEA?<input
+                type="checkbox"
+                id="tPea"
+                checked
+                style="width: 18px; height: 18px; margin-top: 6px"
+            /></label>
+            <label
+              >Broker<select id="tBroker" style="width: 120px"></select
+            ></label>
+            <button class="btn" id="addTxn">Add</button>
+            <button class="btn sec2" id="cancelEdit" style="display: none">
+              Cancel edit
+            </button>
+            <button
+              class="btn sec2"
+              id="autoDiv"
+              data-tip="Add dividend payments from the calendar based on shares held before each ex-date"
+            >
+              &#x1F4B0; Auto-add dividends
+            </button>
+            <button
+              class="btn sec2"
+              id="clearAutoDiv"
+              data-tip="Remove all auto-added dividend rows"
+            >
+              &#x1F9F9; Clear auto-added
+            </button>
+          </div>
+          <div class="mini" id="txnCalc"></div>
+          <div class="mini" id="editHint" style="color: var(--warn)"></div>
+        </div>
+        <div class="sec">
+          <h2
+            class="collap"
+            style="
+              justify-content: space-between;
+              cursor: pointer;
+              user-select: none;
+            "
+          >
+            <span
+              >&#x1F501; Recent Activity &#x2014; bought &amp; sold (30 / 90
+              days)</span
+            ><span class="collap-ch mini" style="color: var(--text2)"
+              >&#x25B8; Show</span
+            >
+          </h2>
+          <div class="collap-body" style="display: none">
+            <div class="fee-sub">&#x1F4E4; Sold</div>
+            <div class="grid kpis" id="soldKpiRow"></div>
+            <div class="fee-sub" style="margin-top: 14px">&#x1F4E5; Bought</div>
+            <div class="grid kpis" id="boughtKpiRow"></div>
+            <div class="mini" style="margin-top: 8px">
+              Proceeds/invested are net cash (incl. fees &amp; tax). Hover a
+              card for the itemized list &amp; realized gain.
+            </div>
+          </div>
+        </div>
+        <div class="sec">
+          <h2 style="justify-content: space-between">
+            <span
+              >&#x1F4D2; Ledger <span class="chip" id="txnCount"></span
+            ></span>
+            <input
+              type="text"
+              id="txnSearch"
+              placeholder="&#x1F50D; Filter by ticker, action, date&#x2026;"
+              style="font-size: 13px; width: 240px"
+            />
+          </h2>
+          <div
+            id="txnBulkBar"
+            style="
+              display: none;
+              align-items: center;
+              gap: 10px;
+              margin-bottom: 10px;
+              padding: 8px 12px;
+              background: var(--panel2);
+              border-radius: 8px;
+            "
+          >
+            <span class="mini" id="txnSelCount" style="font-weight: 600"></span>
+            <button class="btn sec2" id="txnEditSel" style="font-size: 12px">
+              &#x270E; Edit selected
+            </button>
+            <button
+              class="btn sec2"
+              id="txnToPending"
+              style="font-size: 12px"
+              data-tip="Move back to Pending (un-execute)"
+            >
+              &#x23F3; Move to pending
+            </button>
+            <button
+              class="btn"
+              id="txnDelSel"
+              style="font-size: 12px; background: var(--error)"
+            >
+              &#x1F5D1; Delete selected
+            </button>
+            <button class="btn sec2" id="txnClearSel" style="font-size: 12px">
+              Clear
+            </button>
+          </div>
+          <div class="scroll">
+            <table id="txnTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="center">
+                    <input
+                      type="checkbox"
+                      id="txnSelectAll"
+                      data-tip="Select all"
+                    />
+                  </th>
+                  <th scope="col" class="l">Date</th>
+                  <th scope="col" class="l">Ticker</th>
+                  <th scope="col" class="l">Name</th>
+                  <th scope="col" class="l">Action</th>
+                  <th scope="col">Qty</th>
+                  <th scope="col">Unit Px</th>
+                  <th
+                    scope="col"
+                    data-tip="Brokerage commission + fixed fee + TVA. OPCVM PEA: flat 11 MAD. Stocks: ~0.99% + 2.75 MAD."
+                  >
+                    Fees
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Capital gains tax (TPCVM 15%) on SELL profits. PEA accounts are exempt. Dividends: withholding tax."
+                  >
+                    Tax
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="All-in cost per share. BUY: (gross+fees)/qty. SELL: (gross&#x2212;fees&#x2212;tax)/qty."
+                  >
+                    TTC/Sh
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Actual cash flow: BUY = &#x2212;(gross+fees), SELL = gross&#x2212;fees&#x2212;tax, DIV = gross&#x2212;fees&#x2212;tax."
+                  >
+                    Net Cash
+                  </th>
+                  <th scope="col" class="center">Acct</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Broker used for this transaction's fee model."
+                  >
+                    Broker
+                  </th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- CASH -->
+      <div class="view" id="cash">
+        <div class="sec">
+          <h2>&#x1F4B5; Cash Account</h2>
+
+          <!-- Account filter -->
+          <div
+            id="cashAcctFilter"
+            style="display: flex; gap: 6px; margin-bottom: 12px"
+          >
+            <button
+              class="btn cashAcctBtn active"
+              data-cacct="all"
+              style="font-size: 12px; padding: 5px 14px; border-radius: 14px"
+            >
+              All
+            </button>
+          </div>
+
+          <!-- Summary cards -->
+          <div class="grid kpis" id="cashSummary"></div>
+
+          <!-- Add cash movement form -->
+          <h3 style="margin-top: 18px; margin-bottom: 8px">
+            &#x2795; Add Cash Movement
+          </h3>
+          <div class="mini" style="margin-bottom: 12px">
+            Record deposits, withdrawals, and account management fees.
+          </div>
+          <div class="form-row">
+            <label>Date<input type="date" id="cashDate" /></label>
+            <label
+              >Type<select id="cashType">
+                <option value="deposit">Deposit</option>
+                <option value="withdrawal">Withdrawal</option>
+                <option value="fee">Account Fee</option>
+                <option value="initial">Initial Balance</option>
+              </select></label
+            >
+            <label
+              >Amount (MAD)<input
+                type="number"
+                id="cashAmt"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+            /></label>
+            <label
+              >Note<input
+                type="text"
+                id="cashNote"
+                placeholder="Optional note"
+                style="min-width: 140px"
+            /></label>
+            <label
+              >Broker<select id="cashBroker" style="width: 110px"></select
+            ></label>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                align-self: flex-end;
+                font-size: 12px;
+              "
+              ><input type="checkbox" id="cashPea" checked /> PEA</label
+            >
+            <button class="btn" id="cashAdd" style="align-self: flex-end">
+              Add
+            </button>
+          </div>
+
+          <!-- Cash movements table -->
+          <h3 style="margin-top: 24px; margin-bottom: 8px">
+            &#x1F4CB; Cash Movements
+          </h3>
+          <div style="overflow-x: auto">
+            <table class="tx-table" id="cashTable">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Type</th>
+                  <th
+                    scope="col"
+                    data-tip="Positive = money in (deposit). Negative = money out (withdrawal/fee)."
+                  >
+                    Amount
+                  </th>
+                  <th scope="col">Acct</th>
+                  <th scope="col">Note</th>
+                  <th
+                    scope="col"
+                    data-tip="Cumulative balance after this movement (deposits &#x2212; withdrawals &#x2212; fees)."
+                  >
+                    Running Balance
+                  </th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cashBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- PENDING -->
+      <div class="view" id="pending">
+        <div class="sec">
+          <h2>&#x2795; Add Pending Order</h2>
+          <div class="mini" style="margin-bottom: 12px">
+            Log orders you've placed but that haven't executed yet. Pending
+            orders do <b>not</b> affect Positions or P&amp;L until you validate
+            them.
+          </div>
+          <div class="form-row">
+            <label>Date<input type="date" id="pDate" /></label>
+            <label
+              >Ticker<input
+                list="tickerList"
+                id="pTicker"
+                placeholder="AFI"
+                style="width: 120px" /></label
+            ><span
+              id="pKind"
+              class="chip"
+              style="display: none; align-self: end; margin-bottom: 6px"
+            ></span>
+            <label
+              >Action<select id="pAction">
+                <option>BUY</option>
+                <option>SELL</option>
+              </select></label
+            >
+            <label
+              >Quantity<input
+                type="number"
+                id="pQty"
+                step="any"
+                style="width: 100px"
+            /></label>
+            <label
+              >Unit Price<input
+                type="number"
+                id="pPrice"
+                step="any"
+                style="width: 110px"
+                placeholder="or use Total"
+            /></label>
+            <label
+              data-tip="Total TTC &#x2014; for OPCVM. If set, unit price is derived and standard fees are skipped on validation."
+              >Total TTC<input
+                type="number"
+                id="pTotal"
+                step="any"
+                style="width: 110px"
+                placeholder="OPCVM"
+            /></label>
+            <label
+              data-tip="OPCVM fund? Uses subscription/redemption fees instead of stock brokerage fees. Auto-checks for known funds; tick it manually for a fund not yet in the master list."
+              >OPCVM?<input
+                type="checkbox"
+                id="pOpcvm"
+                style="width: 18px; height: 18px; margin-top: 6px"
+            /></label>
+            <label
+              id="pFundNameWrap"
+              data-tip="Display name for this ticker. For OPCVM funds it must match the name in the VL/fees import file so the importer can match by name (ISIN remembered on first import). For stocks it is just the label shown in tables."
+              >Name<input
+                type="text"
+                id="pFundName"
+                placeholder="e.g. ATTIJARIWAFA BANK / HORIZON AL BARAKA"
+                style="width: 200px"
+            /></label>
+            <label data-tip="PEA account?"
+              >PEA?<input
+                type="checkbox"
+                id="pPea"
+                checked
+                style="width: 18px; height: 18px; margin-top: 6px"
+            /></label>
+            <label
+              >Broker<select id="pBroker" style="width: 120px"></select
+            ></label>
+            <button class="btn" id="addPending">Add order</button>
+            <button
+              class="btn sec2"
+              id="cancelPendingEdit"
+              style="display: none"
+            >
+              Cancel edit
+            </button>
+          </div>
+          <div class="mini" id="pendCalc" style="margin-top: 8px"></div>
+          <div class="mini" id="pendHint" style="color: var(--warn)"></div>
+        </div>
+        <div class="sec">
+          <h2>
+            &#x23F3; Pending Buy / Sell Orders
+            <span class="chip" id="pendCount"></span>
+          </h2>
+          <div
+            id="pendBulkBar"
+            style="
+              display: none;
+              align-items: center;
+              gap: 10px;
+              margin-bottom: 10px;
+              padding: 8px 12px;
+              background: var(--panel2);
+              border-radius: 8px;
+            "
+          >
+            <span
+              class="mini"
+              id="pendSelCount"
+              style="font-weight: 600"
+            ></span>
+            <button class="btn sec2" id="pendEditSel" style="font-size: 12px">
+              &#x270E; Edit selected
+            </button>
+            <button
+              class="btn"
+              id="pendValSel"
+              style="font-size: 12px; background: rgba(38, 208, 124, 0.85)"
+              data-tip="Validate selected &#x2192; add to Transactions (asks fill details per order)"
+            >
+              &#x2713; Validate selected
+            </button>
+            <button
+              class="btn"
+              id="pendDelSel"
+              style="font-size: 12px; background: var(--error)"
+            >
+              &#x1F5D1; Delete selected
+            </button>
+            <button class="btn sec2" id="pendClearSel" style="font-size: 12px">
+              Clear
+            </button>
+          </div>
+          <div class="scroll">
+            <table id="pendTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="center">
+                    <input
+                      type="checkbox"
+                      id="pendSelectAll"
+                      data-tip="Select all"
+                    />
+                  </th>
+                  <th scope="col" class="l">Date</th>
+                  <th scope="col" class="l">Ticker</th>
+                  <th scope="col" class="l">Name</th>
+                  <th scope="col" class="l">Action</th>
+                  <th scope="col">Qty</th>
+                  <th
+                    scope="col"
+                    data-tip="Current live price from your master list (Signals/Data)"
+                  >
+                    Live Price
+                  </th>
+                  <th scope="col">Unit Px</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Where your order price sits within the 52-week range (green low &#x2192; red high). Grey tick = live price &#xB7; purple marker = your order."
+                  >
+                    Range
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="How your order price compares to the ideal target buy/sell. &#x26A0; = materially off-target (hover the badge for detail)."
+                  >
+                    vs Target
+                  </th>
+                  <th scope="col">Total</th>
+                  <th
+                    scope="col"
+                    data-tip="Dividend yield from the master list (same figure as the Signals tab)."
+                  >
+                    Div Y
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="If a SELL executes at this price: net proceeds &#x2212; FIFO cost of the shares (fees & tax applied)"
+                  >
+                    Exp. P&amp;L
+                  </th>
+                  <th scope="col" class="center">Acct</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Broker used for this order's fee model."
+                  >
+                    Broker
+                  </th>
+                  <th scope="col" class="center">Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div
+            id="pendSellSummary"
+            style="margin-top: 10px; font-size: 13px"
+          ></div>
+          <div class="mini">
+            &#x2611; Select rows for bulk edit / validate / delete &#xB7;
+            &#x2713; Validate &#x2192; moves to Transactions (adjust fill
+            qty/price/date) &#xB7; &#x270E; Edit &#xB7; &#x2715; Delete (cancel
+            order)
+          </div>
+        </div>
+        <div class="sec">
+          <h2 style="justify-content: space-between">
+            <span
+              >&#x1F4B0; Pending Dividends
+              <span class="chip" id="pendDivCount"></span></span
+            ><button class="btn sec2" id="clearPendDiv" style="font-size: 12px">
+              &#x1F9F9; Clear pending dividends
+            </button>
+          </h2>
+          <div class="scroll">
+            <table id="pendDivTable">
+              <thead>
+                <tr>
+                  <th scope="col" class="l">Pay Date</th>
+                  <th scope="col" class="l">Ex-Date</th>
+                  <th scope="col" class="l">Ticker</th>
+                  <th scope="col">Qty</th>
+                  <th scope="col">Amount/Sh</th>
+                  <th scope="col">Est. Net</th>
+                  <th scope="col" class="center">Acct</th>
+                  <th scope="col" class="center">Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div
+            id="pendDivSummary"
+            style="margin-top: 10px; font-size: 13px"
+          ></div>
+          <div class="mini">
+            Dividends eligible (ex-date passed) but not yet paid. &#x2713;
+            Validate when received &#x2192; moves to Transactions.
+          </div>
+        </div>
+      </div>
+
+      <!-- REBALANCE -->
+      <div class="view" id="rebalance">
+        <div class="sec">
+          <h2>
+            &#x2696;&#xFE0F; Rebalance Helper
+            <span class="mini" style="font-weight: 400"
+              >&#x2014; diversify by sector, fees-aware, whole-share lots</span
+            >
+          </h2>
+          <div class="mini" style="margin-bottom: 12px; color: var(--text2)">
+            Enter how much new cash you want to invest. This suggests
+            <b>buys</b> that move your portfolio toward a more balanced sector
+            mix &#x2014; favouring under-represented sectors and undervalued
+            names &#x2014; and flags any <b>overweight</b> positions worth
+            trimming. All figures net of estimated commission &amp; fixed fees.
+          </div>
+          <div
+            class="form-row"
+            style="align-items: flex-end; gap: 16px; flex-wrap: wrap"
+          >
+            <label
+              >Cash to invest (MAD)<input
+                type="number"
+                id="rbCash"
+                value="2500"
+                min="0"
+                step="500"
+                style="width: 140px"
+            /></label>
+            <label
+              data-tip="Max % of your post-investment portfolio any single sector should occupy."
+              >Sector cap %<input
+                type="number"
+                id="rbCap"
+                value="20"
+                min="5"
+                max="60"
+                step="1"
+                style="width: 90px"
+            /></label>
+            <label
+              data-tip="Separate, higher cap for OPCVM funds combined. Funds are already-diversified baskets, so they're allowed a larger share than a single equity sector."
+              >OPCVM cap %<input
+                type="number"
+                id="rbCapOpcvm"
+                value="35"
+                min="5"
+                max="80"
+                step="1"
+                style="width: 90px"
+            /></label>
+            <label data-tip="How many buy suggestions to spread the cash across"
+              >Max buys<input
+                type="number"
+                id="rbMaxBuys"
+                value="5"
+                min="1"
+                max="10"
+                step="1"
+                style="width: 80px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Only suggest names flagged Buy by the signal engine"
+              >Buy-signal only<input
+                type="checkbox"
+                id="rbBuyOnly"
+                checked
+                style="width: 18px; height: 18px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Also suggest trimming overweight / overvalued holdings"
+              >Suggest trims<input
+                type="checkbox"
+                id="rbTrims"
+                checked
+                style="width: 18px; height: 18px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Include OPCVM funds as BUY candidates too (to fill an underweight up to the OPCVM cap). When off, funds can only be trimmed, never bought."
+              >OPCVMs<input
+                type="checkbox"
+                id="rbOpcvm"
+                style="width: 18px; height: 18px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Fold your pending BUY/SELL orders into the current holdings before computing: sector weights and buy suggestions reflect where your portfolio will be once those orders execute."
+              >Account for pending<input
+                type="checkbox"
+                id="rbPending"
+                style="width: 18px; height: 18px"
+            /></label>
+            <button class="btn" id="rbRun">Compute plan</button>
+          </div>
+          <div
+            class="mini"
+            id="rbHint"
+            style="margin-top: 8px; color: var(--text2)"
+          ></div>
+        </div>
+        <div id="rbResult"></div>
+      </div>
+
+      <!-- DATA -->
+      <div class="view" id="data">
+        <div class="sec">
+          <h2
+            id="feeToggle"
+            class="collap"
+            style="
+              cursor: pointer;
+              justify-content: space-between;
+              user-select: none;
+            "
+          >
+            <span>&#x2699;&#xFE0F; Broker Fees & Tax</span
+            ><span id="feeChevron" style="color: var(--text2); font-size: 13px"
+              >&#x25B8; Show</span
+            >
+          </h2>
+          <div id="feeBody" style="display: none">
+            <div class="mini" style="margin-bottom: 14px">
+              These mirror your Excel fee model (columns BS&#x2013;BX). Edit any
+              value; changes are saved and applied to all calculations.
+            </div>
+            <div class="fee-grid">
+              <!-- BROKER TABS + FEE PANEL -->
+              <div style="grid-column: 1/3">
+                <div
+                  id="brokerTabs"
+                  style="
+                    display: flex;
+                    gap: 6px;
+                    flex-wrap: wrap;
+                    margin-bottom: 12px;
+                  "
+                ></div>
+                <div id="brokerFeePanel"></div>
+                <div class="form-row" style="margin-top: 12px">
+                  <button class="btn" id="saveBrokerFeesBtn">Save fees</button>
+                  <button class="btn sec2" id="resetBrokerFeesBtn">
+                    Reset to defaults
+                  </button>
+                  <button
+                    class="btn sec2"
+                    id="addBrokerBtn"
+                    style="font-size: 11px; padding: 5px 10px"
+                  >
+                    &#x2795; Add broker
+                  </button>
+                  <span class="mini" id="brokerFeeSaved"></span>
+                </div>
+                <!-- GLOBAL: TPCVM -->
+                <div
+                  style="
+                    margin-top: 16px;
+                    padding: 12px 14px;
+                    background: var(--panel2);
+                    border-radius: 10px;
+                    border: 1px solid var(--border);
+                  "
+                >
+                  <div class="fee-sub">
+                    Global tax
+                    <span class="mini">&#x2014; applies to all brokers</span>
+                  </div>
+                  <div class="fee-fields" style="margin-top: 8px">
+                    <label
+                      >TPCVM &#x2014; capital-gains tax (%)
+                      <input type="text" id="fe_tpcvm" placeholder="15%"
+                    /></label>
+                  </div>
+                  <div class="form-row" style="margin-top: 8px">
+                    <button
+                      class="btn sec2"
+                      id="saveTpcvmBtn"
+                      style="font-size: 12px; padding: 5px 12px"
+                    >
+                      Save TPCVM
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <!-- RIGHT: dividend tax by year -->
+              <div>
+                <div class="fee-sub">
+                  Dividend tax by year
+                  <span class="mini">(changes annually)</span>
+                </div>
+                <div class="scroll">
+                  <table id="divTaxTable">
+                    <thead>
+                      <tr>
+                        <th scope="col" class="l">Year</th>
+                        <th scope="col">Rate</th>
+                        <th scope="col"></th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div class="fee-fields" style="margin-top: 10px">
+                  <label
+                    >Year <input type="number" id="ntYear" placeholder="2028"
+                  /></label>
+                  <label
+                    >Rate %
+                    <input
+                      type="number"
+                      id="ntRate"
+                      step="any"
+                      placeholder="10"
+                  /></label>
+                </div>
+                <div class="form-row" style="margin-top: 10px">
+                  <button class="btn sec2" id="addYear">
+                    Add / update year
+                  </button>
+                </div>
+                <div class="mini" style="margin-top: 6px">
+                  Years beyond the table use the
+                  <b>latest defined rate</b> (2028+ &#x2192; 10%).
+                </div>
+              </div>
+            </div>
+            <div
+              style="
+                font-size: 12px;
+                line-height: 1.7;
+                color: var(--text2);
+                margin-top: 16px;
+                border-top: 1px solid var(--border-l);
+                padding-top: 12px;
+              "
+            >
+              <div>
+                <b>Regular fee formula</b>: fees = Qty &#xD7; Price &#xD7;
+                (c_march&#xE9; + c_interm + c_regl) &#xD7; (1+VAT) + courier
+                &#xD7; (1+VAT)
+              </div>
+              <div>
+                <b>PEA fee formula</b>: fees = [ max(gross &#xD7; courtage, min)
+                + gross &#xD7; r&#xE8;glement + gross &#xD7; bourse ] &#xD7;
+                (1+TVA) &nbsp;&#xB7;&nbsp; OPCVM = flat order fee &#xD7; (1+TVA)
+                &nbsp;&#xB7;&nbsp; DIV = gross &#xD7; div-comm &#xD7; (1+TVA),
+                no TPCVM
+              </div>
+              <div>
+                <b>BUY</b> &#x2192; TTC/share = (gross + fees) / qty
+                &nbsp;&#xB7;&nbsp; <b>SELL</b> &#x2192; tax = max(proceeds
+                &#x2212; fees &#x2212; qty&#xD7;avgCost, 0) &#xD7; TPCVM
+                <i>(0 for PEA)</i>
+              </div>
+              <div>
+                <b>DIV</b> (regular) &#x2192; tax = gross &#xD7; (1+VAT) &#xD7;
+                dividend-rate(year)
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="data-grid">
+          <!-- Row 1 &#xB7; text-paste imports -->
+          <div class="sec">
+            <h2 style="justify-content: space-between">
+              <span
+                >&#x1F504; Refresh Prices
+                <span
+                  class="mini"
+                  id="pricesStamp"
+                  style="font-weight: 400"
+                ></span
+              ></span>
+            </h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Paste your TradingView watchlist block (all columns). The parser
+              handles the multi-line format and MAD/spacing cleanup, updating
+              prices &amp; metrics live.
+            </div>
+            <textarea
+              id="tvPaste"
+              placeholder="Paste TradingView rows here..."
+              style="
+                width: 100%;
+                height: 150px;
+                background: var(--panel2);
+                border: 1px solid var(--border);
+                color: var(--text);
+                border-radius: 8px;
+                padding: 10px;
+                font-family: var(--mono);
+                font-size: 12px;
+              "
+            ></textarea>
+            <div class="form-row" style="margin-top: 10px">
+              <button class="btn" id="applyTV">Apply prices</button>
+              <button class="btn sec2" id="clearTV">Clear</button>
+              <span class="mini" id="tvResult"></span>
+            </div>
+          </div>
+          <div class="sec">
+            <h2>&#x1F4C5; Import Dividend Calendar</h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Paste the calendar exactly as copied. Two layouts are
+              auto-detected:
+              <b
+                >Issuer &#xB7; Amount &#xB7; Ex-date &#xB7; Payment date &#xB7;
+                Type</b
+              >
+              (fields on separate lines or tab-separated), and
+              <b
+                >Issuer &#xB7; Ex-date &#xB7; Payment date &#xB7; Type &#xB7;
+                Amount</b
+              >
+              with a <code>MAD</code>-suffixed amount last (tab- or
+              space-separated, one row per line). Header rows are auto-skipped,
+              issuers auto-matched to tickers, dates in <code>dd/mm/yyyy</code>.
+            </div>
+            <textarea
+              id="calPaste"
+              placeholder="AFI&#9;Afric Industries SA&#9;20,00&#9;24/06/2026&#9;30/06/2026&#9;Ordinary"
+              style="
+                width: 100%;
+                height: 150px;
+                background: var(--panel2);
+                border: 1px solid var(--border);
+                color: var(--text);
+                border-radius: 8px;
+                padding: 10px;
+                font-family: var(--mono);
+                font-size: 12px;
+              "
+            ></textarea>
+            <div class="form-row" style="margin-top: 10px">
+              <label
+                >Mode<select id="calMode">
+                  <option value="replace">Replace</option>
+                  <option value="append">Append</option>
+                </select></label
+              >
+              <button class="btn" id="applyCal">Import</button>
+              <button class="btn sec2" id="clearCal">Clear</button>
+              <button class="btn sec2" id="dlCalTemplate">
+                &#x1F4C4; Template
+              </button>
+              <span class="mini" id="calResult"></span>
+            </div>
+          </div>
+          <!-- Row 2 &#xB7; file-based import / export -->
+          <div class="sec">
+            <h2>&#x1F4C1; Transactions &#x2014; Import / Export CSV</h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Back up or move your ledger as a <code>.csv</code>. Columns:
+              <code>date,ticker,action,qty,price,pea,total</code> (date
+              YYYY-MM-DD; <code>pea</code>=yes/no; <code>total</code>=TTC).
+              <b>OPCVM funds</b> export with their <code>total</code> and
+              re-import identically &#x2014; leave <code>price</code> blank and
+              the unit price is derived from total&#xF7;qty (funds are
+              re-classified via the imported OPCVM list). Choose
+              <b>Replace</b> to overwrite, or <b>Append</b> to add rows.
+            </div>
+            <div class="form-row">
+              <button class="btn" id="exportCsv">&#x2B07; Export CSV</button>
+              <label
+                >Import mode<select id="csvMode">
+                  <option value="replace">Replace</option>
+                  <option value="append">Append</option>
+                </select></label
+              >
+              <label class="btn sec2" style="cursor: pointer; align-self: end"
+                >&#x2B06; Import CSV<input
+                  type="file"
+                  id="importCsv"
+                  accept=".csv"
+                  style="display: none"
+              /></label>
+              <button
+                class="btn sec2"
+                id="dlTxnTemplate"
+                style="align-self: end"
+              >
+                &#x1F4C4; Template
+              </button>
+              <span class="mini" id="csvResult"></span>
+            </div>
+          </div>
+          <div class="sec">
+            <h2 style="justify-content: space-between">
+              <span
+                >&#x1F3E6; Import OPCVM Prices &amp; Fees
+                <span
+                  class="mini"
+                  id="opcvmStamp"
+                  style="font-weight: 400"
+                ></span
+              ></span>
+            </h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Import the ASFIM/AMMC performance file (<code>.xlsx</code>), keyed
+              by <b>ISIN</b>. There are two variants: the <b>daily</b> file
+              (fresh VL, partial fund coverage) and the fuller
+              <b>weekly</b> file (all funds + <b>buy/sell fees</b>). Held funds
+              are auto-matched by name; map any unmatched fund once and it
+              sticks (via ISIN) for future imports.
+            </div>
+            <div
+              class="form-row"
+              style="margin-top: 6px; gap: 8px; flex-wrap: wrap"
+            >
+              <label
+                class="btn"
+                style="cursor: pointer"
+                data-tip="Daily performance file &#x2014; freshest VL. May not cover every fund."
+                >&#x1F4C5; Import daily VL<input
+                  type="file"
+                  id="opcvmFileDaily"
+                  accept=".xlsx"
+                  style="display: none"
+              /></label>
+              <label
+                class="btn sec2"
+                style="cursor: pointer"
+                data-tip="Weekly performance file &#x2014; full fund list incl. buy/sell fees."
+                >&#x1F5D3;&#xFE0F; Import weekly (VL + fees)<input
+                  type="file"
+                  id="opcvmFileWeekly"
+                  accept=".xlsx"
+                  style="display: none"
+              /></label>
+              <span class="mini" id="opcvmFileName" style="color: var(--muted)"
+                >No file selected</span
+              >
+            </div>
+            <div id="opcvmReview" style="margin-top: 12px"></div>
+            <div class="form-row" style="margin-top: 10px">
+              <button class="btn" id="applyOpcvm" style="display: none">
+                Apply prices &amp; fees
+              </button>
+              <span class="mini" id="opcvmResult"></span>
+            </div>
+          </div>
+          <div class="sec">
+            <h2 style="justify-content: space-between">
+              <span
+                >&#x1F3F7;&#xFE0F; Import Stock Categories
+                <span class="mini" id="catStamp" style="font-weight: 400"></span
+              ></span>
+            </h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Categories are <b>entered manually</b> (not from TradingView). A
+              default set is built in &#x2014; upload an updated
+              <code>.csv</code> only when it changes. Columns:
+              <code
+                >Ticker,Company Name,Category,Economic Cycle,Asset Style</code
+              >. Each row updates that ticker's <b>sector</b>,
+              <b>economic cycle</b> and <b>asset style</b>. Tickers
+              <b>not</b> in the file keep their existing (TradingView) category.
+              Economic cycle &amp; asset style also feed the
+              <b>Rebalance</b> diversification.
+            </div>
+            <div class="form-row" style="gap: 8px; flex-wrap: wrap">
+              <label
+                class="btn"
+                style="cursor: pointer"
+                data-tip="Upload an updated Category CSV &#x2014; updates sector, economic cycle and asset style per ticker."
+                >&#x2B06; Import categories<input
+                  type="file"
+                  id="importCat"
+                  accept=".csv"
+                  style="display: none"
+              /></label>
+              <button class="btn sec2" id="dlCatTemplate">
+                &#x1F4C4; Template
+              </button>
+              <button
+                class="btn sec2"
+                id="resetCat"
+                data-tip="Discard your uploaded categories and revert to the built-in default set."
+              >
+                &#x21BA; Reset to default
+              </button>
+              <span
+                class="mini"
+                id="catResult"
+                style="color: var(--muted)"
+              ></span>
+            </div>
+            <div id="catReview" style="margin-top: 10px"></div>
+          </div>
+        </div>
+      </div>
+      <div
+        id="wfModal"
+        data-modal-backdrop
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 56;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 22px;
+            max-width: 560px;
+            width: 92%;
+          "
+        >
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 10px;
+            "
+          >
+            <h3 id="wfTitle" style="margin: 0"></h3>
+            <button
+              class="btn sec2"
+              data-modal-close="wfModal"
+              style="padding: 4px 10px"
+              aria-label="Close"
+              title="Close"
+            >
+              &#x2715;
+            </button>
+          </div>
+          <div id="wfChart" style="height: 300px"></div>
+          <div id="wfNote" class="mini" style="margin-top: 8px"></div>
+        </div>
+      </div>
+      <div
+        id="bulkEditModal"
+        data-modal-backdrop
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 55;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 22px;
+            width: fit-content;
+            max-width: 96vw;
+            max-height: 88vh;
+            overflow: auto;
+          "
+        >
+          <div id="bulkEditBody"></div>
+        </div>
+      </div>
+    </div>
+    <!-- /.app -->
+
+    <!-- Vite entry (module). At build time Vite bundles + minifies this into a
+         single fingerprinted asset. src/main.js imports styles.css and the
+         generated app bundle (concatenation of js/01..09-*.js). -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

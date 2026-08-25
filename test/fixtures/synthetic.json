@@ -1,0 +1,21 @@
+{
+  "_note": "SYNTHETIC test data - no personal information. Exercises FIFO (multi-lot), PEA vs regular independence, OPCVM fractional quantities, and dividends. Prices/tickers are made up.",
+  "master": {
+    "AAA": { "name": "Alpha Bank", "cat": "Banking", "price": 120 },
+    "BBB": { "name": "Beta Telecom", "cat": "Telecom", "price": 50 },
+    "FND": { "name": "Gamma Fund", "cat": "OPCVM", "price": 1000, "buyFee": 0.02, "sellFee": 0.015 }
+  },
+  "fpPea": {},
+  "divtax": { "2025": 0.125, "2026": 0.1125, "2027": 0.1 },
+  "brokers": null,
+  "txns": [
+    { "date": "2025-01-10", "ticker": "AAA", "action": "BUY", "qty": 10, "price": 100, "pea": false, "broker": "saham", "opcvm": false },
+    { "date": "2025-02-10", "ticker": "AAA", "action": "BUY", "qty": 10, "price": 200, "pea": false, "broker": "saham", "opcvm": false },
+    { "date": "2025-06-10", "ticker": "AAA", "action": "SELL", "qty": 10, "price": 300, "pea": false, "broker": "saham", "opcvm": false },
+    { "date": "2025-03-01", "ticker": "BBB", "action": "BUY", "qty": 20, "price": 50, "pea": true, "broker": "attijari", "opcvm": false },
+    { "date": "2025-07-01", "ticker": "BBB", "action": "SELL", "qty": 20, "price": 60, "pea": true, "broker": "attijari", "opcvm": false },
+    { "date": "2025-04-01", "ticker": "FND", "action": "BUY", "qty": 0.5, "price": 1000, "pea": false, "broker": "saham", "opcvm": true },
+    { "date": "2025-08-01", "ticker": "FND", "action": "SELL", "qty": 0.5, "price": 1100, "pea": false, "broker": "saham", "opcvm": true },
+    { "date": "2025-05-15", "ticker": "AAA", "action": "DIV", "qty": 10, "price": 5, "pea": false, "broker": "saham", "opcvm": false }
+  ]
+}
