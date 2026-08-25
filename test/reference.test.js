@@ -50,8 +50,9 @@ describe("reference (synthetic data): locked totals", () => {
   it("per-account positions are correct (FIFO, PEA split, OPCVM)", () => {
     const { pos } = runFIFO(fx.txns, CTX);
     // AAA regular: sold the oldest 10 (100-cost lot), 10 remain (200-cost lot).
+    // Status is "Partial": still holding shares AND has realized a gain.
     expect(pos["AAA||REG"].held).toBe(10);
-    expect(pos["AAA||REG"].status).toBe("Open");
+    expect(pos["AAA||REG"].status).toBe("Partial");
     expect(pos["AAA||REG"].realized).toBe(1737.41);
     expect(pos["AAA||REG"].divs).toBe(39.87);
     // BBB PEA: fully sold, no capital-gains tax (PEA exempt).
