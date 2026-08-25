@@ -1,0 +1,20 @@
+name: Price source coverage test
+
+# Manual-only diagnostic. Click "Run workflow" in the Actions tab. It checks
+# which Casablanca tickers return price/fundamentals from free sources and
+# prints a report to the log. It does NOT touch the app, data, or deploy.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Run coverage test
+        run: node scripts/price-coverage-test.mjs
