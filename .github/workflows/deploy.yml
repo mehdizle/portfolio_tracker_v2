@@ -1,0 +1,88 @@
+name: Test, build and deploy to GitHub Pages
+
+# On push to main: run tests -> build -> deploy. The build/deploy only happens
+# if tests pass, so a financial-core regression cannot reach production.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check for lockfile
+        id: lock
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node (cached)
+        if: steps.lock.outputs.exists == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Node (no cache)
+        if: steps.lock.outputs.exists == 'false'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install (npm ci)
+        if: steps.lock.outputs.exists == 'true'
+        run: npm ci
+
+      - name: Install + create lockfile (first run)
+        if: steps.lock.outputs.exists == 'false'
+        run: npm install
+
+      - name: Commit generated lockfile
+        if: steps.lock.outputs.exists == 'false'
+        continue-on-error: true
+        run: |
+          if [ -f package-lock.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: add generated package-lock.json (CI bootstrap)" || echo "nothing to commit"
+            git push || echo "push skipped"
+          fi
+
+      - name: Run tests (financial core)
+        run: npm test
+
+      - name: Build (concat UI + Vite bundle/minify)
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
