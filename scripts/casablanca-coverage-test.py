@@ -1,84 +1,68 @@
-# Casablanca coverage test v3 - direct official-endpoint probe with proper certs.
+# Casablanca coverage test v4 - find the CURRENT data endpoint.
 #
-# Run 2 revealed: the official Bourse de Casablanca endpoint IS reachable and
-# knows the companies (correct codeValeur per stock), but Python rejected its
-# TLS cert (CERTIFICATE_VERIFY_FAILED). LeBoursier history (loadata) is dead.
+# Run 3: the old bourseweb/Societe-Cote.aspx endpoint returns 200 but only 244
+# bytes (dead/placeholder). The site was rebuilt as a modern SPA at
+# casablanca-bourse.com/fr/live-market/... which must call a JSON API. The SSL
+# cert chain is genuinely incomplete (fails in CI AND elsewhere), so we use an
+# unverified context for this DIAGNOSTIC probe only.
 #
-# This version bypasses BVCscrap's fetch and hits the official page directly,
-# using certifi's CA bundle. It probes a few tickers whose codeValeur we learned
-# from run 2's log, and prints the raw response status + a snippet so we can see
-# whether a real MAD price is present. Diagnostic only; no app data touched.
+# This script: (1) dumps the old endpoint's 244-byte body so we see what it is;
+# (2) tries a set of candidate modern API URLs and prints status + a snippet of
+# each, so we can identify the real data source. No app data touched.
 
 import ssl
-import sys
-import re
+import json
+import urllib.request
 
-# codeValeur values observed in run 2's log (official site internal codes).
-CODES = {
-    "ATW": 8200,   # Attijariwafa
-    "IAM": 8001,   # Maroc Telecom
-    "CSR": 4100,   # Cosumar
-    "LHM": 3800,   # LafargeHolcim
-    "BCP": 11600,  # (was mismatched name; code from log - verify)
-    "SBM": 10400,  # Ste des Boissons
-    "MUT": 21,     # Mutandis
-    "IMO": 12,     # Immorente
-}
+CTX = ssl.create_default_context()
+CTX.check_hostname = False
+CTX.verify_mode = ssl.CERT_NONE
 
 
-def fetch(url, ctx, label):
-    import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+def get(url, headers=None):
+    h = {"User-Agent": "Mozilla/5.0", "Accept": "application/json,text/html,*/*"}
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, headers=h)
     try:
-        with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+        with urllib.request.urlopen(req, timeout=30, context=CTX) as r:
             body = r.read().decode("utf-8", errors="replace")
-            return r.status, body
+            return r.status, r.headers.get("Content-Type", ""), body
     except Exception as e:
-        return None, f"{type(e).__name__}: {e}"
+        return None, "", f"{type(e).__name__}: {e}"
+
+
+def show(label, url, headers=None, maxlen=600):
+    status, ctype, body = get(url, headers)
+    print(f"\n--- {label} ---")
+    print(f"URL: {url}")
+    print(
+        f"status={status} content-type={ctype} len={len(body) if body else 0}")
+    if body:
+        print("body[:%d]:" % maxlen)
+        print(body[:maxlen])
 
 
 def main():
-    # Build an SSL context that trusts certifi's CA bundle (the usual fix).
-    try:
-        import certifi
-        ctx = ssl.create_default_context(cafile=certifi.where())
-        print("Using certifi CA bundle:", certifi.where())
-    except Exception as e:
-        ctx = ssl.create_default_context()
-        print("certifi not available, using system default:", e)
+    # 1) What is the old endpoint actually returning?
+    show("OLD bourseweb (ATW code 8200)",
+         "https://www.casablanca-bourse.com/bourseweb/Societe-Cote.aspx?codeValeur=8200&cat=7")
 
-    # Also prepare a NO-VERIFY context as a fallback diagnostic (tells us if the
-    # ONLY problem is the cert chain vs. the endpoint being gone).
-    noverify = ssl.create_default_context()
-    noverify.check_hostname = False
-    noverify.verify_mode = ssl.CERT_NONE
-
-    base = "https://www.casablanca-bourse.com/bourseweb/Societe-Cote.aspx?codeValeur={}&cat=7"
-    print("\n=== direct official-endpoint probe ===")
-    for tk, code in CODES.items():
-        url = base.format(code)
-        status, body = fetch(url, ctx, tk)
-        mode = "verify(certifi)"
-        if status is None:
-            # retry without verification to isolate the cause
-            status2, body2 = fetch(url, noverify, tk)
-            if status2 is not None:
-                print(
-                    f"{tk:5} code={code}: certifi FAILED but NO-VERIFY worked (status {status2}) -> cert-chain issue only")
-                status, body, mode = status2, body2, "no-verify"
-            else:
-                print(
-                    f"{tk:5} code={code}: BOTH failed. certifi_err={body} | noverify_err={body2}")
-                continue
-        # Look for a price-like number in the page (MAD values, e.g. 706,10 or 706.10)
-        snippet = ""
-        m = re.search(
-            r'(Cours|Dernier|cours)[^0-9]{0,40}([0-9][0-9\s.,]{2,})', body)
-        if m:
-            snippet = f"matched '{m.group(1)}' -> {m.group(2).strip()[:20]}"
-        else:
-            snippet = "no obvious price pattern; page len=" + str(len(body))
-        print(f"{tk:5} code={code}: status={status} [{mode}] {snippet}")
+    # 2) Candidate modern API endpoints (guesses based on the SPA site structure).
+    candidates = [
+        # common CMS/SPA data patterns
+        "https://www.casablanca-bourse.com/api/proxy/fr/api/bourse/dashboard/listing?",
+        "https://www.casablanca-bourse.com/api/bourse/dashboard/listing",
+        "https://www.casablanca-bourse.com/api/proxy/fr/api/bourse/dashboard/index_watch",
+        "https://www.casablanca-bourse.com/fr/api/live-market/marche-actions-listing",
+        "https://www.casablanca-bourse.com/api/live-market/marche-actions-listing",
+        "https://api.casablanca-bourse.com/api/instruments",
+        "https://www.casablanca-bourse.com/api/instruments",
+        # the front page HTML (to grep for the api base it calls)
+        "https://www.casablanca-bourse.com/fr/live-market/marche-actions-listing",
+    ]
+    for i, u in enumerate(candidates):
+        show(f"candidate {i+1}", u)
 
 
 if __name__ == "__main__":
