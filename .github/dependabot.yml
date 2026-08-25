@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # npm dependencies (vite, vitest, and anything added later). This is the
+  # high-value updater: it opens PRs when build/test tooling releases updates,
+  # and each PR runs the CI test+build so you only merge if it stays green.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      build-tooling:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions version updater. Only enable this once .github/workflows/
+  # exists at the repo root (it errors "workflow file not found" otherwise -
+  # which is what happened on the first run before the workflow was in place).
+  # Re-add by uncommenting when the deploy workflow is confirmed in the repo:
+  #
+  # - package-ecosystem: github-actions
+  #   directory: "/"
+  #   schedule:
+  #     interval: weekly
+  #   open-pull-requests-limit: 5
