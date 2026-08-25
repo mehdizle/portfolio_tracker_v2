@@ -1,0 +1,23 @@
+name: Price source coverage test
+
+# Manual-only diagnostic. Click "Run workflow" in the Actions tab. It checks
+# which Casablanca tickers return correct MAD price/fundamentals via BVCscrap
+# (scrapes Bourse de Casablanca / LeBoursier.ma) and prints a report to the log.
+# It does NOT touch the app, data, or deploy.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install BVCscrap
+        run: pip install BVCscrap pandas lxml beautifulsoup4 requests
+      - name: Run Casablanca coverage test
+        run: python scripts/casablanca-coverage-test.py
