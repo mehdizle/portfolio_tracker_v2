@@ -89,15 +89,36 @@
   }
   function parseArgs(raw, el) {
     if (raw == null || raw === "") return [];
-    return String(raw)
-      .split(",")
-      .map((a) => {
-        const t = a.trim();
-        if (t === "$el") return el;
-        if (t === "$checked") return !!el.checked;
-        if (t === "$value") return el.value;
-        return coerce(t);
-      });
+    // Split on commas, but NOT commas inside single/double quotes - so a quoted
+    // argument may safely contain a comma (e.g. a name). Unquoted args split
+    // exactly as before, so this is backward compatible.
+    const rawStr = String(raw);
+    const chunks = [];
+    let cur = "";
+    let quote = null;
+    for (let i = 0; i < rawStr.length; i++) {
+      const ch = rawStr[i];
+      if (quote) {
+        if (ch === quote) quote = null;
+        cur += ch;
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+        cur += ch;
+      } else if (ch === ",") {
+        chunks.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    chunks.push(cur);
+    return chunks.map((a) => {
+      const t = a.trim();
+      if (t === "$el") return el;
+      if (t === "$checked") return !!el.checked;
+      if (t === "$value") return el.value;
+      return coerce(t);
+    });
   }
   function dispatch(e, evtType) {
     const el =
