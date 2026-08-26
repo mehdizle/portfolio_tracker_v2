@@ -24,7 +24,9 @@
 
 // --- small coercion helpers (pure) ---
 const truthy = (s) => {
-  const v = String(s == null ? "" : s).trim().toLowerCase();
+  const v = String(s == null ? "" : s)
+    .trim()
+    .toLowerCase();
   return v === "yes" || v === "true" || v === "1";
 };
 const num = (s) => {
@@ -86,7 +88,9 @@ export const TXN_FIELDS = [
     default: false,
     toCsv: (v) => (v ? "yes" : "no"),
     fromCsv: (c) => {
-      const v = String(c || "").trim().toLowerCase();
+      const v = String(c || "")
+        .trim()
+        .toLowerCase();
       return v === "yes" || v === "pea" || v === "true" || v === "1";
     },
   },
@@ -98,9 +102,15 @@ export const TXN_FIELDS = [
     default: false,
     toCsv: (v) => (v ? "yes" : "no"),
     fromCsv: (c) => {
-      const v = String(c || "").trim().toLowerCase();
+      const v = String(c || "")
+        .trim()
+        .toLowerCase();
       return (
-        v === "yes" || v === "opcvm" || v === "fund" || v === "true" || v === "1"
+        v === "yes" ||
+        v === "opcvm" ||
+        v === "fund" ||
+        v === "true" ||
+        v === "1"
       );
     },
   },
@@ -123,7 +133,8 @@ export const TXN_FIELDS = [
     form: "tBroker",
     kind: "value",
     // Blank/unknown -> undefined so txnBroker() resolves by asset type.
-    toCsv: (v, t, ctx) => (ctx && ctx.resolveBroker ? ctx.resolveBroker(t) : v || ""),
+    toCsv: (v, t, ctx) =>
+      ctx && ctx.resolveBroker ? ctx.resolveBroker(t) : v || "",
     fromCsv: (c, ctx) => {
       const raw = String(c || "").trim();
       if (!raw) return undefined;
@@ -185,7 +196,11 @@ export function txnToCsvRow(t, ctx) {
 
 /** Build a header->column-index map from a parsed CSV header array. */
 export function buildCsvIx(headerCells) {
-  const lower = headerCells.map((h) => String(h || "").trim().toLowerCase());
+  const lower = headerCells.map((h) =>
+    String(h || "")
+      .trim()
+      .toLowerCase(),
+  );
   const ix = {};
   for (const f of TXN_FIELDS) ix[f.key] = lower.indexOf(f.csv);
   return ix;
@@ -215,4 +230,51 @@ export function requiredKeys() {
 /** Form-bound fields (have a DOM id) - for schema-driven form prefill. */
 export function formFields() {
   return TXN_FIELDS.filter((f) => f.form);
+}
+
+// ============================================================
+// PENDING helpers.
+//
+// A pending order shares the transaction shape. Its add/edit form uses the same
+// field set as transactions but with "p"-prefixed input ids (tDate -> pDate,
+// tOpcvm -> pOpcvm, ...) and never has the DIV-only side-channel fields as form
+// controls. Rather than a second registry, we DERIVE pending from TXN_FIELDS so
+// the two entities can never drift apart: add a field to TXN_FIELDS and the
+// pending form + pending->txn conversion pick it up for free (and the pending
+// round-trip test enforces it).
+// ============================================================
+
+/** Map a transaction form id (tXxx) to the matching pending form id (pXxx). */
+export function txnFormToPendingForm(formId) {
+  return formId && formId[0] === "t" ? "p" + formId.slice(1) : formId;
+}
+
+/** Form-bound fields for the PENDING form: same fields as the txn form, but
+ *  addressed by their p-prefixed ids. Returns { key, kind, pform, required }. */
+export function pendingFormFields() {
+  return TXN_FIELDS.filter((f) => f.form).map((f) => ({
+    key: f.key,
+    kind: f.kind,
+    required: !!f.required,
+    pform: txnFormToPendingForm(f.form),
+  }));
+}
+
+/** Fields the fill dialog supplies at execution time (NOT copied from the
+ *  pending order verbatim): the UI resolves these from the dialog. */
+const PENDING_DIALOG_KEYS = ["date", "qty", "price", "total"];
+
+/** Keys that a pending order carries over UNCHANGED into the executed
+ *  transaction. Everything form-bound except the dialog-driven fields, i.e.
+ *  ticker, action, pea, opcvm, broker. Deriving this from TXN_FIELDS means a
+ *  new pending field is carried into the txn automatically. */
+export function pendingCarryKeys() {
+  return TXN_FIELDS.filter(
+    (f) => f.form && PENDING_DIALOG_KEYS.indexOf(f.key) < 0,
+  ).map((f) => f.key);
+}
+
+/** DIV-only metadata keys carried from a pending DIV order to the txn. */
+export function divMetaKeys() {
+  return TXN_FIELDS.filter((f) => f.divOnly).map((f) => f.key);
 }
