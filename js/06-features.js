@@ -2819,38 +2819,13 @@ try {
 
 // ---------- CSV import / export ----------
 document.getElementById("exportCsv").onclick = () => {
-  const rows = [
-    [
-      "date",
-      "ticker",
-      "action",
-      "qty",
-      "price",
-      "pea",
-      "opcvm",
-      "total",
-      "broker",
-      "exdate",
-      "eligbasis",
-      "auto",
-    ],
-    ...TXNS.map((t) => [
-      t.date,
-      t.ticker,
-      t.action,
-      t.qty,
-      t.price,
-      t.pea ? "yes" : "no",
-      t.opcvm ? "yes" : "no",
-      typeof t.total === "number" && t.total > 0 ? t.total : "",
-      // Emit the resolved broker so export -> re-import preserves the fee model.
-      txnBroker(t),
-      // DIV side-channel fields, so an export -> re-import round-trip keeps them.
-      t.exDate || "",
-      t.eligBasis != null ? t.eligBasis : "",
-      t.auto ? "yes" : "",
-    ]),
-  ];
+  // Schema-driven: columns + per-field serialisation come from TXN_FIELDS, so
+  // adding a field to the schema automatically appears in the export (and the
+  // round-trip test enforces it). ctx.resolveBroker emits the resolved broker
+  // so export -> re-import preserves the fee model.
+  const S = __core.txnSchema;
+  const ctx = { resolveBroker: (t) => txnBroker(t) };
+  const rows = [S.csvHeader(), ...TXNS.map((t) => S.txnToCsvRow(t, ctx))];
   const csv = rows.map((r) => r.join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv" }),
     url = URL.createObjectURL(blob);
@@ -2878,87 +2853,30 @@ document.getElementById("importCsv").onchange = (e) => {
         .toLowerCase()
         .split(",")
         .map((s) => s.trim());
-      const ix = {
-        date: hdr.indexOf("date"),
-        ticker: hdr.indexOf("ticker"),
-        action: hdr.indexOf("action"),
-        qty: hdr.indexOf("qty"),
-        price: hdr.indexOf("price"),
-        pea: hdr.indexOf("pea"),
-        opcvm: hdr.indexOf("opcvm"),
-        total: hdr.indexOf("total"),
-        broker: hdr.indexOf("broker"),
-        exdate: hdr.indexOf("exdate"),
-        eligbasis: hdr.indexOf("eligbasis"),
-        auto: hdr.indexOf("auto"),
-      };
-      if (
-        [ix.date, ix.ticker, ix.action, ix.qty, ix.price].some((v) => v < 0)
-      ) {
+      // Schema-driven parse: column index map + per-field parsing come from
+      // TXN_FIELDS, so a new field is picked up automatically (and the
+      // round-trip test enforces coverage). Two OPCVM-specific behaviours are
+      // kept as explicit post-steps below, matching the add-form.
+      const S = __core.txnSchema;
+      const ix = S.buildCsvIx(hdr);
+      if (S.requiredKeys().some((k) => ix[k] < 0)) {
         document.getElementById("csvResult").textContent =
           "\u274C CSV needs columns: date,ticker,action,qty,price (pea,opcvm,total,broker optional)";
         return;
       }
+      const parseCtx = { brokers: BROKERS };
       const out = [];
       for (let i = 1; i < lines.length; i++) {
         const c = lines[i].split(",");
-        const o = {
-          date: (c[ix.date] || "").trim(),
-          ticker: (c[ix.ticker] || "").trim().toUpperCase(),
-          action: (c[ix.action] || "").trim().toUpperCase(),
-          qty: parseFloat(c[ix.qty]),
-          price: parseFloat(c[ix.price]),
-        };
-        if (ix.pea >= 0) {
-          const pv = (c[ix.pea] || "").trim().toLowerCase();
-          o.pea = pv === "yes" || pv === "pea" || pv === "true" || pv === "1";
-        }
-        if (ix.opcvm >= 0) {
-          const ov = (c[ix.opcvm] || "").trim().toLowerCase();
-          o.opcvm =
-            ov === "yes" ||
-            ov === "opcvm" ||
-            ov === "fund" ||
-            ov === "true" ||
-            ov === "1";
-        }
-        // If the column is absent, infer from the master list so known funds are still flagged.
+        const o = S.csvRowToTxn(c, ix, parseCtx);
+        // OPCVM auto-detect: if the column is absent/false but the master list
+        // knows this ticker as a fund, flag it (same as the add-form).
         if (o.opcvm !== true && M[o.ticker] && M[o.ticker].cat === "OPCVM")
           o.opcvm = true;
-        if (ix.total >= 0) {
-          const tv = parseFloat(c[ix.total]);
-          if (!isNaN(tv) && tv > 0) o.total = tv;
-        }
-        // Optional broker column: match (case-insensitively) to a known broker
-        // id, e.g. "saham"/"attijari". Unknown/blank -> left unset so txnBroker()
-        // resolves it by asset type (funds->attijari, stocks->saham).
-        if (ix.broker >= 0) {
-          const bvRaw = (c[ix.broker] || "").trim();
-          if (bvRaw) {
-            const match = Object.keys(BROKERS).find(
-              (id) =>
-                id.toLowerCase() === bvRaw.toLowerCase() ||
-                (BROKERS[id].name || "").toLowerCase() === bvRaw.toLowerCase(),
-            );
-            if (match) o.broker = match;
-          }
-        }
-        // Optional DIV side-channel fields (round-trip parity with export).
-        if (ix.exdate >= 0) {
-          const ev = (c[ix.exdate] || "").trim();
-          if (ev) o.exDate = ev;
-        }
-        if (ix.eligbasis >= 0) {
-          const eb = parseFloat(c[ix.eligbasis]);
-          if (!isNaN(eb)) o.eligBasis = eb;
-        }
-        if (ix.auto >= 0) {
-          const av = (c[ix.auto] || "").trim().toLowerCase();
-          if (av === "yes" || av === "true" || av === "1") o.auto = true;
-        }
         // OPCVM parity with the add-form: if a row has a Total but no unit price
-        // (funds are entered by Quantity + Total TTC), derive the unit price so the
-        // row survives the filter below and stores identically to a UI-entered fund.
+        // (funds are entered by Quantity + Total TTC), derive the unit price so
+        // the row survives the filter below and stores identically to a
+        // UI-entered fund.
         if ((isNaN(o.price) || !o.price) && o.total > 0 && o.qty) {
           o.price = o.total / o.qty;
         }
