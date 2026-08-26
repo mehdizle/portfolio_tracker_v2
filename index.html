@@ -2276,13 +2276,17 @@
             <h2>&#x1F4C1; Transactions &#x2014; Import / Export CSV</h2>
             <div class="mini" style="margin-bottom: 10px">
               Back up or move your ledger as a <code>.csv</code>. Columns:
-              <code>date,ticker,action,qty,price,pea,total</code> (date
-              YYYY-MM-DD; <code>pea</code>=yes/no; <code>total</code>=TTC).
+              <code>date,ticker,action,qty,price,pea,opcvm,total,broker</code>
+              (date YYYY-MM-DD; <code>pea</code>=yes/no;
+              <code>opcvm</code>=yes/no; <code>total</code>=TTC;
+              <code>broker</code>=saham/attijari, optional).
               <b>OPCVM funds</b> export with their <code>total</code> and
               re-import identically &#x2014; leave <code>price</code> blank and
               the unit price is derived from total&#xF7;qty (funds are
-              re-classified via the imported OPCVM list). Choose
-              <b>Replace</b> to overwrite, or <b>Append</b> to add rows.
+              re-classified via the imported OPCVM list). A blank
+              <code>broker</code> auto-resolves (funds&#x2192;attijari,
+              stocks&#x2192;saham). Choose <b>Replace</b> to overwrite, or
+              <b>Append</b> to add rows.
             </div>
             <div class="form-row">
               <button class="btn" id="exportCsv">&#x2B07; Export CSV</button>
