@@ -158,9 +158,16 @@ function divCalc(d, shares) {
     : _regBk
       ? calcBrokerFees(grossR, "DIV", _regBk, false)
       : _round(grossR * feeRate() + fixedFee());
-  // Dividend tax on the REGULAR-account portion only (PEA is exempt), rounded
-  // to centimes to match the cents-precise core.
-  const tax = _round(d.amount * regPortion * (1 + vatRate()) * rate);
+  // Dividend tax on the REGULAR-account portion only (PEA is exempt). Routed
+  // through the shared core so the projected-dividend tax uses the exact same
+  // formula as recorded DIV transactions (computeRow -> __core.tax). The gross
+  // passed is the regular (taxed) portion; isPea=false since PEA is pre-split.
+  const tax = __core.tax.dividendTax(
+    d.amount * regPortion,
+    false,
+    vatRate(),
+    rate,
+  );
   const net = _round(grossR - fees - tax);
   return {
     yr,
@@ -4978,19 +4985,29 @@ function savePending() {
 let PEND_EDIT = null;
 function readPendingForm() {
   const g = (id) => document.getElementById(id);
-  const o = {
-    date: g("pDate").value,
-    ticker: g("pTicker").value.trim().toUpperCase(),
-    action: g("pAction").value,
-    qty: parseFloat(g("pQty").value),
-    price: parseFloat(g("pPrice").value),
-    pea: g("pPea").checked,
-    opcvm: g("pOpcvm").checked,
-    broker: g("pBroker").value,
-  };
-  const tot = parseFloat(g("pTotal").value);
-  if (!isNaN(tot) && tot > 0) o.total = tot;
-
+  // Schema-driven: the field list (and each field's p-prefixed input id + kind)
+  // comes from __core.txnSchema.pendingFormFields(), so a new transaction field
+  // is read from the pending form automatically. The per-kind DOM coercion below
+  // matches the previous hand-written reads exactly (no behaviour change).
+  const o = {};
+  for (const f of __core.txnSchema.pendingFormFields()) {
+    const el = g(f.pform);
+    if (!el) continue;
+    if (f.kind === "checkbox") {
+      o[f.key] = el.checked;
+    } else if (f.key === "qty" || f.key === "price") {
+      o[f.key] = parseFloat(el.value);
+    } else if (f.key === "ticker") {
+      o[f.key] = el.value.trim().toUpperCase();
+    } else if (f.key === "total") {
+      const tot = parseFloat(el.value);
+      if (!isNaN(tot) && tot > 0) o[f.key] = tot; // only stored when > 0
+    } else {
+      o[f.key] = el.value;
+    }
+  }
+  // OPCVM parity with the add form: derive unit price from Total / qty when the
+  // price box is blank (funds are entered by Quantity + Total TTC).
   if ((isNaN(o.price) || !o.price) && o.total > 0 && o.qty)
     o.price = o.total / o.qty;
   return o;
@@ -5232,13 +5249,18 @@ window.editPending = function (i) {
   if (!o) return;
   PEND_EDIT = i;
   window._loadingEditForm = true;
-  document.getElementById("pDate").value = o.date;
-  document.getElementById("pTicker").value = o.ticker;
+  // Schema-driven prefill for the plain value/checkbox fields (so a new field is
+  // prefilled automatically). Fields needing special handling (broker fallback,
+  // opcvm master-detect, kind badge, fund name) are done explicitly afterwards.
+  const _special = { broker: 1, opcvm: 1 };
+  for (const f of __core.txnSchema.pendingFormFields()) {
+    if (_special[f.key]) continue;
+    const el = document.getElementById(f.pform);
+    if (!el) continue;
+    if (f.kind === "checkbox") el.checked = !!o[f.key];
+    else el.value = o[f.key] != null ? o[f.key] : "";
+  }
   setKindBadge(document.getElementById("pKind"), o.ticker);
-  document.getElementById("pAction").value = o.action;
-  document.getElementById("pQty").value = o.qty;
-  document.getElementById("pPrice").value = o.price != null ? o.price : "";
-  document.getElementById("pTotal").value = o.total != null ? o.total : "";
   {
     const _tt = document.getElementById("pTotal");
     if (_tt) _tt.dataset.auto = "";
@@ -5247,7 +5269,6 @@ window.editPending = function (i) {
     const _nf = document.getElementById("pFundName");
     if (_nf) _nf.value = (M[o.ticker] && M[o.ticker].name) || "";
   }
-  document.getElementById("pPea").checked = !!o.pea;
   // Prefill the broker select (was missing -> edits silently reset broker).
   {
     const _bs = document.getElementById("pBroker");
@@ -5310,17 +5331,30 @@ window.validatePending = async function (i) {
     fillQty = qv;
   }
   const partial = !isDiv && fillQty < o.qty - 1e-9;
+  // Dialog-driven fields (date/qty/price come from the fill dialog); the
+  // remaining fields are carried from the pending order. The carry-key list is
+  // derived from the shared schema (__core.txnSchema.pendingCarryKeys()), so a
+  // new transaction field is carried from pending -> txn automatically instead
+  // of being silently dropped here. Per-key resolution matches the prior code.
   const t = {
     date: String(fillDate).trim(),
-    ticker: o.ticker,
-    action: o.action,
     qty: fillQty,
     price: px,
-    pea: !!o.pea,
-    broker: o.broker || txnBroker(o),
   };
-  if (o.opcvm === true || (M[o.ticker] && M[o.ticker].cat === "OPCVM"))
-    t.opcvm = true;
+  for (const k of __core.txnSchema.pendingCarryKeys()) {
+    if (k === "broker") {
+      t.broker = o.broker || txnBroker(o);
+    } else if (k === "pea") {
+      t.pea = !!o.pea;
+    } else if (k === "opcvm") {
+      // opcvm is set only when true or the master flags the ticker as a fund.
+      if (o.opcvm === true || (M[o.ticker] && M[o.ticker].cat === "OPCVM"))
+        t.opcvm = true;
+    } else {
+      // ticker, action, and any future carried field: copy through.
+      t[k] = o[k];
+    }
+  }
   if (isDiv) {
     if (o.exDate) t.exDate = o.exDate;
     if (o.eligBasis != null) t.eligBasis = o.eligBasis;
