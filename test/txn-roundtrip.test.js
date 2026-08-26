@@ -45,14 +45,25 @@ describe("txn schema: coverage", () => {
     }
   });
   it("required keys are date, ticker, action, qty", () => {
-    const req = TXN_FIELDS.filter((f) => f.required).map((f) => f.key).sort();
-    expect(req).toEqual(["action", "date", "qty"].sort());
+    const req = TXN_FIELDS.filter((f) => f.required)
+      .map((f) => f.key)
+      .sort();
+    expect(req).toEqual(["action", "date", "qty", "ticker"].sort());
   });
 });
 
 describe("txn schema: export -> import round-trip preserves every field", () => {
   it("regular BUY (stock, saham)", () => {
-    const t = { date: "2026-01-15", ticker: "ATW", action: "BUY", qty: 10, price: 680, pea: false, opcvm: false, broker: "saham" };
+    const t = {
+      date: "2026-01-15",
+      ticker: "ATW",
+      action: "BUY",
+      qty: 10,
+      price: 680,
+      pea: false,
+      opcvm: false,
+      broker: "saham",
+    };
     const [back] = roundTrip([t]);
     expect(back.date).toBe("2026-01-15");
     expect(back.ticker).toBe("ATW");
@@ -67,7 +78,16 @@ describe("txn schema: export -> import round-trip preserves every field", () => 
   });
 
   it("PEA SELL (attijari)", () => {
-    const t = { date: "2026-03-20", ticker: "ATW", action: "SELL", qty: 5, price: 720, pea: true, opcvm: false, broker: "attijari" };
+    const t = {
+      date: "2026-03-20",
+      ticker: "ATW",
+      action: "SELL",
+      qty: 5,
+      price: 720,
+      pea: true,
+      opcvm: false,
+      broker: "attijari",
+    };
     const [back] = roundTrip([t]);
     expect(back.pea).toBe(true);
     expect(back.broker).toBe("attijari");
@@ -75,7 +95,17 @@ describe("txn schema: export -> import round-trip preserves every field", () => 
   });
 
   it("OPCVM BUY with total, blank price -> total preserved", () => {
-    const t = { date: "2026-02-04", ticker: "FCP A", action: "BUY", qty: 8.435, price: 831.8, pea: false, opcvm: true, total: 7025, broker: "attijari" };
+    const t = {
+      date: "2026-02-04",
+      ticker: "FCP A",
+      action: "BUY",
+      qty: 8.435,
+      price: 831.8,
+      pea: false,
+      opcvm: true,
+      total: 7025,
+      broker: "attijari",
+    };
     const [back] = roundTrip([t]);
     expect(back.opcvm).toBe(true);
     expect(back.total).toBe(7025);
@@ -83,7 +113,19 @@ describe("txn schema: export -> import round-trip preserves every field", () => 
   });
 
   it("auto DIV with exDate + eligBasis + auto flag", () => {
-    const t = { date: "2026-06-22", ticker: "ATW", action: "DIV", qty: 10, price: 22, pea: false, opcvm: false, broker: "saham", exDate: "2026-06-10", eligBasis: 10, auto: true };
+    const t = {
+      date: "2026-06-22",
+      ticker: "ATW",
+      action: "DIV",
+      qty: 10,
+      price: 22,
+      pea: false,
+      opcvm: false,
+      broker: "saham",
+      exDate: "2026-06-10",
+      eligBasis: 10,
+      auto: true,
+    };
     const [back] = roundTrip([t]);
     expect(back.exDate).toBe("2026-06-10");
     expect(back.eligBasis).toBe(10);
