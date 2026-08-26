@@ -9,6 +9,7 @@ import * as tax from "./core/tax.js";
 import * as fifo from "./core/fifo.js";
 import * as backupCrypto from "./core/backup-crypto.js";
 import * as txnSchema from "./core/txn-schema.js";
+import * as masterSchema from "./core/master-schema.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -23,5 +24,6 @@ globalThis.__core = {
   fifo,
   backupCrypto,
   txnSchema,
+  masterSchema,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };
