@@ -2004,6 +2004,15 @@ document.getElementById("addTxn").onclick = () => {
     return;
   }
   // --- end Tier 2 validation ---
+  // Carry dividend side-channel metadata (ex-date, eligible-shares basis) that
+  // the form has no visible field for. Set by prefillDividend / editTxn; merged
+  // here so manual add + edit no longer drop it. Cleared after use.
+  if (t.action === "DIV" && _pendingDivMeta) {
+    if (_pendingDivMeta.exDate) t.exDate = _pendingDivMeta.exDate;
+    if (_pendingDivMeta.eligBasis != null)
+      t.eligBasis = _pendingDivMeta.eligBasis;
+  }
+  _pendingDivMeta = null;
   if (EDIT_IX != null) {
     TXNS[EDIT_IX] = t;
     EDIT_IX = null;
@@ -2821,6 +2830,9 @@ document.getElementById("exportCsv").onclick = () => {
       "opcvm",
       "total",
       "broker",
+      "exdate",
+      "eligbasis",
+      "auto",
     ],
     ...TXNS.map((t) => [
       t.date,
@@ -2833,6 +2845,10 @@ document.getElementById("exportCsv").onclick = () => {
       typeof t.total === "number" && t.total > 0 ? t.total : "",
       // Emit the resolved broker so export -> re-import preserves the fee model.
       txnBroker(t),
+      // DIV side-channel fields, so an export -> re-import round-trip keeps them.
+      t.exDate || "",
+      t.eligBasis != null ? t.eligBasis : "",
+      t.auto ? "yes" : "",
     ]),
   ];
   const csv = rows.map((r) => r.join(",")).join("\n");
@@ -2872,6 +2888,9 @@ document.getElementById("importCsv").onchange = (e) => {
         opcvm: hdr.indexOf("opcvm"),
         total: hdr.indexOf("total"),
         broker: hdr.indexOf("broker"),
+        exdate: hdr.indexOf("exdate"),
+        eligbasis: hdr.indexOf("eligbasis"),
+        auto: hdr.indexOf("auto"),
       };
       if (
         [ix.date, ix.ticker, ix.action, ix.qty, ix.price].some((v) => v < 0)
@@ -2923,6 +2942,19 @@ document.getElementById("importCsv").onchange = (e) => {
             );
             if (match) o.broker = match;
           }
+        }
+        // Optional DIV side-channel fields (round-trip parity with export).
+        if (ix.exdate >= 0) {
+          const ev = (c[ix.exdate] || "").trim();
+          if (ev) o.exDate = ev;
+        }
+        if (ix.eligbasis >= 0) {
+          const eb = parseFloat(c[ix.eligbasis]);
+          if (!isNaN(eb)) o.eligBasis = eb;
+        }
+        if (ix.auto >= 0) {
+          const av = (c[ix.auto] || "").trim().toLowerCase();
+          if (av === "yes" || av === "true" || av === "1") o.auto = true;
         }
         // OPCVM parity with the add-form: if a row has a Total but no unit price
         // (funds are entered by Quantity + Total TTC), derive the unit price so the
@@ -3023,10 +3055,18 @@ document.getElementById("addYear").onclick = () => {
 
 // ---------- transaction edit / update ----------
 let EDIT_IX = null;
+// Holds ex-date / eligible-shares basis for a dividend being added or edited,
+// since the transaction form has no visible field for them. addTxn merges it.
+let _pendingDivMeta = null;
 window.editTxn = function (i) {
   const t = TXNS[i];
   if (!t) return;
   EDIT_IX = i;
+  // Preserve DIV ex-date / eligibility basis across an edit (no visible field).
+  _pendingDivMeta =
+    t.action === "DIV" && (t.exDate != null || t.eligBasis != null)
+      ? { exDate: t.exDate, eligBasis: t.eligBasis }
+      : null;
   window._loadingEditForm = true; // keep stored price/total, don't auto-overwrite
   document.getElementById("tDate").value = t.date;
   document.getElementById("tTicker").value = t.ticker;
@@ -3068,6 +3108,7 @@ window.editTxn = function (i) {
 };
 document.getElementById("cancelEdit").onclick = () => {
   EDIT_IX = null;
+  _pendingDivMeta = null;
   document.getElementById("addTxn").textContent = "Add";
   document.getElementById("cancelEdit").style.display = "none";
   document.getElementById("editHint").textContent = "";
@@ -3742,6 +3783,7 @@ document.getElementById("dlTxnTemplate").onclick = () => {
     "# date=YYYY-MM-DD \u00B7 action=BUY/SELL/DIV \u00B7 pea=yes/no \u00B7 opcvm=yes/no (fund? auto-detected for known funds) \u00B7 total=OPCVM total TTC (optional, blank for stocks) \u00B7 qty=shares (or share count for DIV)  price=unit price MAD (or dividend/share for DIV)",
     "# broker=saham/attijari (optional). Blank -> auto: funds->attijari, stocks->saham. It sets the fee model, so fill it if you use a specific broker.",
     "# OPCVM funds: you can leave price BLANK and give total only \u2014 unit price is derived as total/qty on import (see FCP B row above).",
+    "# Export adds 3 more optional columns for auto-recorded dividends (exdate,eligbasis,auto); they re-import automatically. You don't need to fill them by hand.",
   ].join("\n");
   downloadText("transactions_template.csv", t);
 };
@@ -5212,6 +5254,8 @@ window.prefillDividend = function (tk, amount, payDate, exDate) {
   const elig = exDate
     ? heldBefore(tk, false, exDate) + heldBefore(tk, true, exDate)
     : 0;
+  // Stash ex-date + eligibility basis so addTxn stores them (form has no field).
+  _pendingDivMeta = exDate ? { exDate: exDate, eligBasis: elig } : null;
   gotoTab("transactions");
   const g = (id) => document.getElementById(id);
   if (g("tDate")) g("tDate").value = payDate;
