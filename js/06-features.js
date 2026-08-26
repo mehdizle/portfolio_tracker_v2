@@ -2269,27 +2269,10 @@ document.getElementById("applyTV").onclick = () => {
       if (tk) unmatched.push(tk);
       continue;
     }
-    const set = (k, v) => {
-      if (v != null && !isNaN(v)) M[tk][k] = v;
-    };
-    set("price", r.price);
-    set("low", r.low);
-    set("high", r.high);
-    set("pe", r.pe);
-    set("pb", r.pb);
-    set("peg", r.peg);
-    set("divy", r.divy);
-    set("ev", r.ev);
-    set("netdebt", r.netdebt);
-    set("roe", r.roe);
-    // Absolute per-share fundamentals (price-independent) \u2014 used by fairValue to break circularity.
-    set("eps", r.eps);
-    set("bvps", r.bvps);
-    set("dps", r.dps);
-    set("fcf", r.fcf);
-    set("revenue", r.revenue);
-    set("epsGrowth", r.epsGrowth);
-    if (r.category) M[tk].cat = M[tk].cat || r.category;
+    // Schema-driven copy: the metric list lives in __core.masterSchema.TV_METRICS,
+    // so a metric added to the parser is applied automatically (and the coverage
+    // test enforces it). Same guard (skip null/NaN) and same cat || logic.
+    __core.masterSchema.applyTvRec(M, tk, r);
     updated++;
   }
   safeSetItem("casa_master_v1", JSON.stringify(M));
@@ -2749,25 +2732,12 @@ document.getElementById("clearTV").onclick = () => {
       const f = FUNDS[row.chosenIdx];
       const tk = row.ticker;
       if (!M[tk]) continue;
-      if (f.vl != null) {
-        M[tk].price = f.vl;
-        updated++;
-      }
-      M[tk].isin = f.isin;
-      // Fees only come from the WEEKLY (full) file. The daily file's fee columns
-      // are ignored so a daily refresh never overwrites your stored fees.
-      if (weekly) {
-        if (f.buyFee != null) {
-          M[tk].buyFee = f.buyFee;
-          fees++;
-        }
-        if (f.sellFee != null) {
-          M[tk].sellFee = f.sellFee;
-        }
-        if (f.mgmt != null) {
-          M[tk].mgmt = f.mgmt;
-        }
-      }
+      // Schema-driven apply (__core.masterSchema.OPCVM_FIELDS): vl->price only
+      // when non-null, isin always written, buyFee/sellFee/mgmt weekly-only.
+      // Same gating as before; counters preserved for the result summary.
+      const _res = __core.masterSchema.applyOpcvmFund(M, tk, f, weekly);
+      if (_res.priceUpdated) updated++;
+      if (_res.feeUpdated) fees++;
       map[tk] = f.isin; // remember mapping for future imports
     }
     saveMap(map);
