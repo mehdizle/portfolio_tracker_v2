@@ -2811,7 +2811,17 @@ try {
 // ---------- CSV import / export ----------
 document.getElementById("exportCsv").onclick = () => {
   const rows = [
-    ["date", "ticker", "action", "qty", "price", "pea", "opcvm", "total"],
+    [
+      "date",
+      "ticker",
+      "action",
+      "qty",
+      "price",
+      "pea",
+      "opcvm",
+      "total",
+      "broker",
+    ],
     ...TXNS.map((t) => [
       t.date,
       t.ticker,
@@ -2821,6 +2831,8 @@ document.getElementById("exportCsv").onclick = () => {
       t.pea ? "yes" : "no",
       t.opcvm ? "yes" : "no",
       typeof t.total === "number" && t.total > 0 ? t.total : "",
+      // Emit the resolved broker so export -> re-import preserves the fee model.
+      txnBroker(t),
     ]),
   ];
   const csv = rows.map((r) => r.join(",")).join("\n");
@@ -2859,12 +2871,13 @@ document.getElementById("importCsv").onchange = (e) => {
         pea: hdr.indexOf("pea"),
         opcvm: hdr.indexOf("opcvm"),
         total: hdr.indexOf("total"),
+        broker: hdr.indexOf("broker"),
       };
       if (
         [ix.date, ix.ticker, ix.action, ix.qty, ix.price].some((v) => v < 0)
       ) {
         document.getElementById("csvResult").textContent =
-          "\u274C CSV needs columns: date,ticker,action,qty,price (pea,total optional)";
+          "\u274C CSV needs columns: date,ticker,action,qty,price (pea,opcvm,total,broker optional)";
         return;
       }
       const out = [];
@@ -2896,6 +2909,20 @@ document.getElementById("importCsv").onchange = (e) => {
         if (ix.total >= 0) {
           const tv = parseFloat(c[ix.total]);
           if (!isNaN(tv) && tv > 0) o.total = tv;
+        }
+        // Optional broker column: match (case-insensitively) to a known broker
+        // id, e.g. "saham"/"attijari". Unknown/blank -> left unset so txnBroker()
+        // resolves it by asset type (funds->attijari, stocks->saham).
+        if (ix.broker >= 0) {
+          const bvRaw = (c[ix.broker] || "").trim();
+          if (bvRaw) {
+            const match = Object.keys(BROKERS).find(
+              (id) =>
+                id.toLowerCase() === bvRaw.toLowerCase() ||
+                (BROKERS[id].name || "").toLowerCase() === bvRaw.toLowerCase(),
+            );
+            if (match) o.broker = match;
+          }
         }
         // OPCVM parity with the add-form: if a row has a Total but no unit price
         // (funds are entered by Quantity + Total TTC), derive the unit price so the
@@ -3017,6 +3044,15 @@ window.editTxn = function (i) {
     if (_nf) _nf.value = (M[t.ticker] && M[t.ticker].name) || "";
   }
   document.getElementById("tPea").checked = !!t.pea;
+  // Prefill the broker select so editing doesn't silently reset it to the
+  // default. Use the stored broker, else the resolved fallback (txnBroker).
+  {
+    const _bs = document.getElementById("tBroker");
+    if (_bs) {
+      const _bv = t.broker || txnBroker(t);
+      if (BROKERS[_bv]) _bs.value = _bv;
+    }
+  }
   document.getElementById("tOpcvm").checked =
     t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
   document.getElementById("tOpcvm").dispatchEvent(new Event("change"));
@@ -3697,13 +3733,14 @@ function downloadText(filename, text) {
 }
 document.getElementById("dlTxnTemplate").onclick = () => {
   const t = [
-    "date,ticker,action,qty,price,pea,opcvm,total",
-    "2026-01-15,ATW,BUY,10,680,no,no,",
-    "2026-03-20,ATW,SELL,5,720,no,no,",
-    "2026-06-22,ATW,DIV,10,22,no,no,",
-    "2026-02-04,FCP A,BUY,8.435,831.8,no,yes,7025",
-    "2026-02-04,FCP B,BUY,2.34,,no,yes,2990.35",
+    "date,ticker,action,qty,price,pea,opcvm,total,broker",
+    "2026-01-15,ATW,BUY,10,680,no,no,,saham",
+    "2026-03-20,ATW,SELL,5,720,no,no,,saham",
+    "2026-06-22,ATW,DIV,10,22,no,no,,saham",
+    "2026-02-04,FCP A,BUY,8.435,831.8,no,yes,7025,attijari",
+    "2026-02-04,FCP B,BUY,2.34,,no,yes,2990.35,attijari",
     "# date=YYYY-MM-DD \u00B7 action=BUY/SELL/DIV \u00B7 pea=yes/no \u00B7 opcvm=yes/no (fund? auto-detected for known funds) \u00B7 total=OPCVM total TTC (optional, blank for stocks) \u00B7 qty=shares (or share count for DIV)  price=unit price MAD (or dividend/share for DIV)",
+    "# broker=saham/attijari (optional). Blank -> auto: funds->attijari, stocks->saham. It sets the fee model, so fill it if you use a specific broker.",
     "# OPCVM funds: you can leave price BLANK and give total only \u2014 unit price is derived as total/qty on import (see FCP B row above).",
   ].join("\n");
   downloadText("transactions_template.csv", t);
@@ -5249,6 +5286,14 @@ window.editPending = function (i) {
     if (_nf) _nf.value = (M[o.ticker] && M[o.ticker].name) || "";
   }
   document.getElementById("pPea").checked = !!o.pea;
+  // Prefill the broker select (was missing -> edits silently reset broker).
+  {
+    const _bs = document.getElementById("pBroker");
+    if (_bs) {
+      const _bv = o.broker || txnBroker(o);
+      if (BROKERS[_bv]) _bs.value = _bv;
+    }
+  }
   document.getElementById("pOpcvm").checked =
     o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
   document.getElementById("pOpcvm").dispatchEvent(new Event("change"));
