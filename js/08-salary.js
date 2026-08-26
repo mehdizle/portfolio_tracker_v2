@@ -789,7 +789,7 @@ function renderCash() {
 
   if (rows.length === 0) {
     body.innerHTML =
-      '<tr><td colspan="6" style="text-align:center;opacity:.6;padding:24px">No cash movements recorded yet. Add a deposit to get started.</td></tr>';
+      '<tr><td colspan="7" style="text-align:center;opacity:.6;padding:24px">No cash movements recorded yet. Add a deposit to get started.</td></tr>';
   }
 }
 
