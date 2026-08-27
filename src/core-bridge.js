@@ -10,6 +10,7 @@ import * as fifo from "./core/fifo.js";
 import * as backupCrypto from "./core/backup-crypto.js";
 import * as txnSchema from "./core/txn-schema.js";
 import * as masterSchema from "./core/master-schema.js";
+import * as connections from "./core/connection-manifest.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -25,5 +26,6 @@ globalThis.__core = {
   backupCrypto,
   txnSchema,
   masterSchema,
+  connections,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };
