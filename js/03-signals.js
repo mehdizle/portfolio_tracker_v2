@@ -486,12 +486,12 @@ function factorScores(m) {
 // that sector). Banks/REITs -> book & dividend; growth -> earnings power; etc.
 // mid52 is a light technical sanity anchor everywhere. Weights are relative (auto-normalised).
 const ANCHOR_W = {
-  financial: { graham: 1.1, earnpower: 0.7, ddm: 1.0, mid52: 0.5 },
-  reit: { graham: 0.9, earnpower: 0.5, ddm: 1.4, mid52: 0.5 },
-  industrial: { graham: 1.0, earnpower: 1.2, ddm: 0.6, mid52: 0.5 },
-  defensive: { graham: 1.0, earnpower: 1.0, ddm: 1.0, mid52: 0.5 },
-  growth: { graham: 0.7, earnpower: 1.4, ddm: 0.4, mid52: 0.6 },
-  default: { graham: 1.0, earnpower: 1.0, ddm: 0.8, mid52: 0.5 },
+  financial: { graham: 1.1, earnpower: 0.7, ddm: 1.0, mid52: 0.5, fcf: 0 },
+  reit: { graham: 0.9, earnpower: 0.5, ddm: 1.4, mid52: 0.5, fcf: 0 },
+  industrial: { graham: 1.0, earnpower: 1.2, ddm: 0.6, mid52: 0.5, fcf: 0.9 },
+  defensive: { graham: 1.0, earnpower: 1.0, ddm: 1.0, mid52: 0.5, fcf: 0.8 },
+  growth: { graham: 0.7, earnpower: 1.4, ddm: 0.4, mid52: 0.6, fcf: 0.9 },
+  default: { graham: 1.0, earnpower: 1.0, ddm: 0.8, mid52: 0.5, fcf: 0.7 },
 };
 function anchorWeights(prof) {
   return ANCHOR_W[(prof && prof.key) || "default"] || ANCHOR_W.default;
@@ -568,6 +568,16 @@ function fairValue(m) {
   // 3) Dividend value: Gordon growth DDM (uses sector growth g)
   if (dps != null && dps > 0)
     anchors.push({ v: ddmValue(dps, prof), k: "ddm", w: aw.ddm });
+  // 3b) FCF power: FCF-per-share capitalised at the sector fair multiple. Only
+  // for sectors where cash flow is a clean anchor (aw.fcf>0 => not banks/REITs)
+  // and only when FCF is positive. Shares the cyclical peak-earnings haircut
+  // since FCF is also cycle-sensitive. Names without FCF are unaffected.
+  if (num(m.fcf) && m.fcf > 0 && aw.fcf > 0)
+    anchors.push({
+      v: m.fcf * prof.peFair * _earnFactor,
+      k: "fcf",
+      w: aw.fcf,
+    });
   // 4) 52-week midpoint (technical, price-anchored reference)
   if (num(m.low) && num(m.high))
     anchors.push({ v: (m.low + m.high) / 2, k: "mid52", w: aw.mid52 });
@@ -647,6 +657,14 @@ function fairValueParts(m) {
         ((prof.g || 0) * 100).toFixed(0) +
         "%, DDM)",
       ddmValue(dps, prof),
+    ]);
+  // FCF power anchor - only shown for sectors that use it (anchor weight > 0)
+  // and when FCF is positive. Mirrors fairValue().
+  const _awP = anchorWeights(prof);
+  if (num(m.fcf) && m.fcf > 0 && _awP.fcf > 0)
+    out.push([
+      "FCF power (FCF\u00D7" + prof.peFair + ")" + _haircutNote,
+      m.fcf * prof.peFair * _earnFactor,
     ]);
   if (num(m.low) && num(m.high))
     out.push(["52-wk midpoint", (m.low + m.high) / 2]);
