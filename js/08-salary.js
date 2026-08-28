@@ -613,12 +613,16 @@ function renderCash() {
   _cpos.forEach((p) => {
     if (p.held > 0 && p.value > 0) {
       if (CASH_ACCT !== "all") {
+        // Attribute the position to its REAL broker (p.broker, set by the FIFO
+        // engine from the transaction's broker field) - NOT one inferred from
+        // the PEA flag. Broker and PEA-status are independent, so a PEA holding
+        // can live at Saham and a Regular holding at Attijari; inferring broker
+        // from pea silently mis-files positions into the wrong account KPI.
+        const _pBk = p.broker || (p.isPea ? "attijari" : "saham");
         const _parts = CASH_ACCT.split("_");
         if (_parts.length === 2) {
-          const _pBk = txnBroker({ pea: p.isPea });
           if (_pBk !== _parts[0] || (_parts[1] === "pea") !== p.isPea) return;
         } else {
-          const _pBk = p.isPea ? "attijari" : "saham";
           if (_pBk !== CASH_ACCT) return;
         }
       }
@@ -850,12 +854,21 @@ let CASH_EDIT_IX = null;
     document.getElementById("cashAmt").value = "";
     document.getElementById("cashNote").value = "";
     {
+      // Re-default the broker/pea inputs to the CURRENTLY SELECTED account so the
+      // next movement is tagged for the account you're actually viewing. When no
+      // specific account is selected ("all"), fall back to the same sensible
+      // default as the initial form (Attijari + PEA) instead of silently
+      // flipping to the first broker key (Saham) + Regular, which mis-filed new
+      // movements under the wrong account.
       const _cbk = document.getElementById("cashBroker");
       const _rp = CASH_ACCT.split("_");
-      if (_cbk)
-        _cbk.value = _rp[0] !== "all" ? _rp[0] : Object.keys(BROKERS)[0];
-      document.getElementById("cashPea").checked =
-        _rp.length === 2 ? _rp[1] === "pea" : _rp[0] === "attijari";
+      const _hasAcct = _rp[0] !== "all";
+      if (_cbk) _cbk.value = _hasAcct ? _rp[0] : "attijari";
+      document.getElementById("cashPea").checked = _hasAcct
+        ? _rp.length === 2
+          ? _rp[1] === "pea"
+          : _rp[0] === "attijari"
+        : true;
     }
     document.getElementById("cashDate").value = _qwTodayISO();
     document.getElementById("cashType").value = "deposit";
