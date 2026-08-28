@@ -6124,7 +6124,7 @@ function pendingRangeBar(o, barW, compact) {
     fvX = xOf(fv);
     out.fvX = fvX;
     bar +=
-      '<div title="Fair value" style="position:absolute;top:5px;left:' +
+      '<div title="Fair value" style="position:absolute;top:6px;left:' +
       (fvX - 3) +
       'px;width:6px;height:6px;background:var(--text);transform:rotate(45deg);border-radius:1px;opacity:.85"></div>';
   }
@@ -6344,7 +6344,7 @@ function renderPending() {
             // Range column: 52-wk range bar with valuation zones, mirroring the
             // Unit Px tooltip. Wider now to fit the buy/sell zones + fair-value
             // tick alongside the order & live-price markers.
-            const rb = pendingRangeBar(o, 150, true);
+            const rb = pendingRangeBar(o, 120, true);
             if (!rb.hasRange)
               return '<td class="center" style="color:var(--muted)">\u2014</td>';
             const _tip = pendingUnitPxTipHTML(o);
