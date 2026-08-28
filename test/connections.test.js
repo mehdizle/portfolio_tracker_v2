@@ -10,10 +10,12 @@ import { dirname, join } from "node:path";
 import {
   FIELD_CONNECTIONS,
   RENDER_CONNECTIONS,
+  SAVE_REFRESH_CONNECTIONS,
   txnInputIds,
   pendingInputIds,
   csvColumns,
   requiredRenderCalls,
+  requiredSaveRefreshes,
 } from "../src/core/connection-manifest.js";
 import { csvHeader } from "../src/core/txn-schema.js";
 
@@ -23,6 +25,9 @@ const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
 const HTML = read("index.html");
 const RENDER_JS = read("js/04-render.js");
 const FEATURES_JS = read("js/06-features.js");
+// Cache of source files read on demand for the save->refresh checks.
+const _srcCache = {};
+const readSrc = (rel) => (_srcCache[rel] = _srcCache[rel] || read(rel));
 
 // Extract the body of a top-level `function name() { ... }` by brace matching.
 function extractFn(src, name) {
@@ -88,7 +93,31 @@ describe("connection manifest: price-displaying views are wired into render()", 
     it(`render() calls ${fn}() (${reason})`, () => {
       // Match a call like `renderPositions(` anywhere in the render() body.
       const called = new RegExp("\\b" + fn + "\\s*\\(").test(body || "");
-      expect(called, `render() does not call ${fn}() - live data won't refresh`).toBe(true);
+      expect(
+        called,
+        `render() does not call ${fn}() - live data won't refresh`,
+      ).toBe(true);
+    });
+  }
+});
+
+describe("connection manifest: data-save functions refresh the KPI row", () => {
+  it("refreshKpiRow() is defined in js/04-render.js", () => {
+    expect(
+      extractFn(RENDER_JS, "refreshKpiRow"),
+      "refreshKpiRow() not found - the single KPI-refresh entry point is missing",
+    ).toBeTruthy();
+  });
+
+  for (const { fn, file, must, reason } of SAVE_REFRESH_CONNECTIONS) {
+    it(`${fn}() (${file}) calls ${must}() (${reason})`, () => {
+      const body = extractFn(readSrc(file), fn);
+      expect(body, `${fn}() not found in ${file}`).toBeTruthy();
+      const called = new RegExp("\\b" + must + "\\s*\\(").test(body || "");
+      expect(
+        called,
+        `${fn}() does not call ${must}() - Dashboard KPIs will go stale when its data changes`,
+      ).toBe(true);
     });
   }
 });
@@ -103,5 +132,9 @@ describe("connection manifest: internal consistency", () => {
   it("required render calls are unique", () => {
     const calls = requiredRenderCalls();
     expect(new Set(calls).size).toBe(calls.length);
+  });
+  it("save-refresh connections are unique by function name", () => {
+    const fns = requiredSaveRefreshes().map((c) => c.fn);
+    expect(new Set(fns).size).toBe(fns.length);
   });
 });
