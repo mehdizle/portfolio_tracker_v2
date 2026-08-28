@@ -444,3 +444,70 @@ describe("Spec #3b: benchmark-relative signal outcomes", () => {
     expect(overall).toBeCloseTo((0.5 + 0.1 - 0.1) / 3, 10);
   });
 });
+
+// ---- replica of recordSignalSnapshot's LATEST-of-day dedup (js/06-features.js) ----
+// A re-snapshot on the same day (e.g. after re-importing prices) overwrites that
+// ticker's entry in place; prior days are untouched; today never duplicates.
+function recordDay(hist, rows, today) {
+  const todayIdx = {};
+  for (let i = 0; i < hist.length; i++)
+    if (hist[i].date === today) todayIdx[hist[i].ticker] = i;
+  for (const r of rows) {
+    if (!r || !r.ticker || r.price == null) continue;
+    const rec = {
+      date: today,
+      ticker: r.ticker,
+      sig: r.sig || "",
+      price: r.price,
+    };
+    const at = todayIdx[r.ticker];
+    if (at != null) hist[at] = rec;
+    else {
+      todayIdx[r.ticker] = hist.length;
+      hist.push(rec);
+    }
+  }
+  return hist;
+}
+
+describe("Spec #3: signal snapshot latest-of-day wins", () => {
+  it("a same-day re-snapshot overwrites the ticker in place (no duplicate)", () => {
+    const hist = [
+      { date: "2026-08-01", ticker: "ATW", sig: "b-buy", price: 500 }, // prior day
+      { date: "2026-08-28", ticker: "ATW", sig: "b-buy", price: 520 }, // today, early
+    ];
+    recordDay(
+      hist,
+      [{ ticker: "ATW", sig: "b-hold", price: 540 }],
+      "2026-08-28",
+    );
+    const today = hist.filter(
+      (h) => h.date === "2026-08-28" && h.ticker === "ATW",
+    );
+    expect(today.length).toBe(1); // no duplicate
+    expect(today[0].price).toBe(540); // latest wins
+    expect(today[0].sig).toBe("b-hold");
+  });
+  it("prior-day snapshots are never modified", () => {
+    const hist = [
+      { date: "2026-08-01", ticker: "ATW", sig: "b-buy", price: 500 },
+    ];
+    recordDay(
+      hist,
+      [{ ticker: "ATW", sig: "b-hold", price: 999 }],
+      "2026-08-28",
+    );
+    expect(hist.find((h) => h.date === "2026-08-01").price).toBe(500);
+  });
+  it("a new ticker on the same day appends", () => {
+    const hist = [
+      { date: "2026-08-28", ticker: "ATW", sig: "b-buy", price: 500 },
+    ];
+    recordDay(
+      hist,
+      [{ ticker: "IAM", sig: "b-buy", price: 100 }],
+      "2026-08-28",
+    );
+    expect(hist.filter((h) => h.date === "2026-08-28").length).toBe(2);
+  });
+});
