@@ -218,3 +218,147 @@ describe("Spec B: value-led mode lets an undervalued name in a full sector throu
     expect(rbScore(over, 1)).toBeLessThan(rbScore(over, 0));
   });
 });
+
+// ---- replica of fairValue() with the new FCF anchor (js/03-signals.js) ----
+function fairValue(m, prof) {
+  if (!num(m.price)) return null;
+  const eps =
+    num(m.eps) && m.eps > 0
+      ? m.eps
+      : num(m.pe) && m.pe > 0
+        ? m.price / m.pe
+        : null;
+  const bvps = num(m.bvps) && m.bvps > 0 ? m.bvps : null;
+  const dps = num(m.dps) && m.dps > 0 ? m.dps : null;
+  const aw = prof.aw;
+  const ddm = (d) => (d * (1 + (prof.g || 0))) / prof.dyFair;
+  const anchors = [];
+  if (eps && bvps && eps > 0 && bvps > 0)
+    anchors.push([Math.sqrt(prof.grahamK * eps * bvps), aw.graham]);
+  if (eps && eps > 0) anchors.push([eps * prof.peFair, aw.earnpower]);
+  if (dps && dps > 0) anchors.push([ddm(dps), aw.ddm]);
+  if (num(m.fcf) && m.fcf > 0 && aw.fcf > 0)
+    anchors.push([m.fcf * prof.peFair, aw.fcf]);
+  if (num(m.low) && num(m.high)) anchors.push([(m.low + m.high) / 2, aw.mid52]);
+  if (!anchors.length) return m.price;
+  const vals = anchors
+    .map((a) => a[0])
+    .slice()
+    .sort((a, b) => a - b);
+  const med = vals[Math.floor((vals.length - 1) / 2)];
+  const kept = anchors.filter((a) =>
+    med > 0 ? a[0] / med >= 0.5 && a[0] / med <= 2.0 : true,
+  );
+  const use = kept.length ? kept : anchors;
+  let wsum = 0,
+    acc = 0;
+  use.forEach((a) => {
+    acc += a[0] * a[1];
+    wsum += a[1];
+  });
+  return wsum > 0 ? acc / wsum : use.reduce((x, a) => x + a[0], 0) / use.length;
+}
+
+describe("Spec #1: FCF feeds into fair value", () => {
+  const ind = {
+    grahamK: 48,
+    peFair: 17,
+    dyFair: 0.032,
+    g: 0.03,
+    aw: { graham: 1.0, earnpower: 1.2, ddm: 0.6, mid52: 0.5, fcf: 0.9 },
+  };
+  const fin = {
+    grahamK: 40,
+    peFair: 14,
+    dyFair: 0.045,
+    g: 0.03,
+    aw: { graham: 1.1, earnpower: 0.7, ddm: 1.0, mid52: 0.5, fcf: 0 },
+  };
+  const base = {
+    price: 100,
+    eps: 6,
+    bvps: 40,
+    dps: 3,
+    pe: 16.7,
+    low: 80,
+    high: 120,
+  };
+
+  it("strong FCF raises fair value; weak FCF lowers it (industrial)", () => {
+    const noFcf = fairValue({ ...base }, ind);
+    const hiFcf = fairValue({ ...base, fcf: 8 }, ind);
+    const loFcf = fairValue({ ...base, fcf: 1 }, ind);
+    expect(hiFcf).toBeGreaterThan(noFcf);
+    expect(loFcf).toBeLessThan(hiFcf);
+  });
+
+  it("missing FCF leaves fair value unchanged", () => {
+    expect(fairValue({ ...base }, ind)).toBeCloseTo(
+      fairValue({ ...base }, ind),
+      10,
+    );
+  });
+
+  it("financials ignore the FCF anchor (weight 0)", () => {
+    const noFcf = fairValue({ ...base }, fin);
+    const withFcf = fairValue({ ...base, fcf: 8 }, fin);
+    expect(withFcf).toBeCloseTo(noFcf, 10);
+  });
+});
+
+// ---- replica of signal-outcome aggregation (js/06-features.js) ----
+function sigBucket(c) {
+  if (c === "b-buy") return "buy";
+  if (c === "b-sell" || c === "b-trim") return "sell";
+  return "neutral";
+}
+function aggregateOutcomes(hist, cur, todayISO, horizonDays) {
+  const today = new Date(todayISO);
+  const byTk = {};
+  for (const h of hist) {
+    const ageD = (today - new Date(h.date)) / 86400000;
+    if (ageD < horizonDays) continue;
+    if (!byTk[h.ticker] || h.date < byTk[h.ticker].date) byTk[h.ticker] = h;
+  }
+  const agg = {
+    buy: { n: 0, sum: 0 },
+    neutral: { n: 0, sum: 0 },
+    sell: { n: 0, sum: 0 },
+  };
+  for (const tk in byTk) {
+    const h = byTk[tk];
+    const now = cur[tk];
+    if (now == null || !h.price) continue;
+    const ret = (now - h.price) / h.price;
+    agg[sigBucket(h.sig)].n++;
+    agg[sigBucket(h.sig)].sum += ret;
+  }
+  return { byTk, agg };
+}
+
+describe("Spec #3: signal-outcome aggregation", () => {
+  const hist = [
+    { date: "2026-01-10", ticker: "AAA", sig: "b-buy", price: 100 },
+    { date: "2026-06-01", ticker: "AAA", sig: "b-buy", price: 130 },
+    { date: "2026-02-01", ticker: "BBB", sig: "b-sell", price: 200 },
+    { date: "2026-08-20", ticker: "CCC", sig: "b-buy", price: 50 },
+    { date: "2026-03-01", ticker: "DDD", sig: "b-hold", price: 80 },
+  ];
+  const cur = { AAA: 150, BBB: 180, CCC: 55, DDD: 88 };
+  const { byTk, agg } = aggregateOutcomes(hist, cur, "2026-08-28", 30);
+
+  it("excludes snapshots newer than the horizon", () => {
+    expect(byTk.CCC).toBeUndefined();
+  });
+  it("keeps the OLDEST snapshot per ticker", () => {
+    expect(byTk.AAA.price).toBe(100);
+  });
+  it("buy bucket averages the right return (100 -> 150 = +50%)", () => {
+    expect(agg.buy.n).toBe(1);
+    expect(agg.buy.sum / agg.buy.n).toBeCloseTo(0.5, 10);
+  });
+  it("sell and neutral buckets aggregate correctly", () => {
+    expect(agg.sell.sum / agg.sell.n).toBeCloseTo(-0.1, 10);
+    expect(agg.neutral.sum / agg.neutral.n).toBeCloseTo(0.1, 10);
+  });
+});
