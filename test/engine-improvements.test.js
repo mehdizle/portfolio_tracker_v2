@@ -362,3 +362,85 @@ describe("Spec #3: signal-outcome aggregation", () => {
     expect(agg.neutral.sum / agg.neutral.n).toBeCloseTo(0.1, 10);
   });
 });
+
+// ---- replica of the benchmark-relative outcome logic (js/06-features.js) ----
+function outcomesWithBench(hist, cur, todayISO, horizonDays) {
+  const today = new Date(todayISO);
+  const byTk = {};
+  for (const h of hist) {
+    const ageD = (today - new Date(h.date)) / 86400000;
+    if (ageD < horizonDays) continue;
+    if (!byTk[h.ticker] || h.date < byTk[h.ticker].date) byTk[h.ticker] = h;
+  }
+  const benchByDate = {};
+  for (const s of hist) {
+    const now0 = cur[s.ticker];
+    if (now0 == null || !s.price) continue;
+    const r0 = (now0 - s.price) / s.price;
+    benchByDate[s.date] = benchByDate[s.date] || { sum: 0, n: 0 };
+    benchByDate[s.date].sum += r0;
+    benchByDate[s.date].n += 1;
+  }
+  const benchFor = (dt) => {
+    const b = benchByDate[dt];
+    return b && b.n ? b.sum / b.n : null;
+  };
+  const agg = {
+    buy: { exSum: 0, exN: 0 },
+    neutral: { exSum: 0, exN: 0 },
+    sell: { exSum: 0, exN: 0 },
+  };
+  const byName = {};
+  let allSum = 0,
+    allN = 0;
+  for (const tk in byTk) {
+    const h = byTk[tk];
+    const now = cur[tk];
+    if (now == null || !h.price) continue;
+    const ret = (now - h.price) / h.price;
+    const bench = benchFor(h.date);
+    const excess = bench != null ? ret - bench : null;
+    const b = sigBucket(h.sig);
+    if (excess != null) {
+      agg[b].exSum += excess;
+      agg[b].exN++;
+    }
+    allSum += ret;
+    allN++;
+    byName[tk] = { ret, bench, excess };
+  }
+  return { agg, byName, overall: allN ? allSum / allN : null };
+}
+
+describe("Spec #3b: benchmark-relative signal outcomes", () => {
+  // Two names snapshotted the SAME day: AAA (+50%) and ZZZ (+10%) -> bench +30%.
+  const hist = [
+    { date: "2026-01-10", ticker: "AAA", sig: "b-buy", price: 100 },
+    { date: "2026-01-10", ticker: "ZZZ", sig: "b-hold", price: 100 },
+    { date: "2026-02-01", ticker: "BBB", sig: "b-sell", price: 200 },
+    { date: "2026-08-20", ticker: "CCC", sig: "b-buy", price: 50 }, // too recent to judge
+  ];
+  const cur = { AAA: 150, ZZZ: 110, BBB: 180, CCC: 55 };
+  const { agg, byName, overall } = outcomesWithBench(
+    hist,
+    cur,
+    "2026-08-28",
+    30,
+  );
+
+  it("excess = return minus the same-start-date benchmark", () => {
+    expect(byName.AAA.bench).toBeCloseTo(0.3, 10); // avg(50%,10%)
+    expect(byName.AAA.excess).toBeCloseTo(0.2, 10); // 50% - 30%
+    expect(byName.ZZZ.excess).toBeCloseTo(-0.2, 10); // 10% - 30%
+  });
+  it("a lone name on its date has zero excess (it IS the benchmark)", () => {
+    expect(byName.BBB.excess).toBeCloseTo(0, 10);
+  });
+  it("buy bucket excess averages the value-add", () => {
+    expect(agg.buy.exN).toBe(1);
+    expect(agg.buy.exSum / agg.buy.exN).toBeCloseTo(0.2, 10);
+  });
+  it("overall benchmark is the average judged return", () => {
+    expect(overall).toBeCloseTo((0.5 + 0.1 - 0.1) / 3, 10);
+  });
+});
