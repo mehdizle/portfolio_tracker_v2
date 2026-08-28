@@ -118,6 +118,167 @@ function renderSignals() {
   document.querySelector("#sigTable tbody").innerHTML =
     _tb ||
     `<tr><td colspan="12" class="l" style="color:var(--muted);padding:14px">${_sq ? "No opportunities match \u201c" + escapeHtml(_sq) + "\u201d." : "No opportunities."}</td></tr>`;
+  // Signal-outcome tracking: snapshot today's signals (once/day) and render how
+  // past calls have played out. Wrapped in try so it can never break the table.
+  try {
+    recordSignalSnapshot(computeSignalsRows());
+  } catch (e) {
+    console.error("sig snapshot", e);
+  }
+  try {
+    renderSignalOutcomes();
+  } catch (e) {
+    console.error("sig outcomes", e);
+  }
+}
+
+// \u2500\u2500 SIGNAL-OUTCOME TRACKING \u2500\u2500
+// Persists a dated snapshot of each ticker's signal + price so we can later
+// measure whether the engine's calls actually worked (did Buy-rated names rise
+// more than Avoid-rated ones?). This is the feedback loop a factor model needs.
+const SIGHIST_LS = "casa_signal_hist_v1";
+function loadSigHist() {
+  try {
+    const raw = localStorage.getItem(SIGHIST_LS);
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v : [];
+  } catch (e) {
+    return [];
+  }
+}
+function saveSigHist(arr) {
+  try {
+    if (safeSetItem(SIGHIST_LS, JSON.stringify(arr))) markSaved();
+  } catch (e) {}
+}
+// Bucket a signal class into buy / neutral / sell for aggregate outcome stats.
+function _sigBucket(sigC) {
+  if (sigC === "b-buy") return "buy";
+  if (sigC === "b-sell" || sigC === "b-trim") return "sell";
+  return "neutral";
+}
+// Append one snapshot per ranked ticker, at most once per calendar day. A day
+// with an existing snapshot for a ticker is skipped (idempotent re-renders).
+function recordSignalSnapshot(rows) {
+  if (!Array.isArray(rows) || !rows.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const hist = loadSigHist();
+  const seenToday = new Set(
+    hist.filter((h) => h.date === today).map((h) => h.ticker),
+  );
+  let added = 0;
+  for (const r of rows) {
+    if (!r || !r.ticker || r.price == null) continue;
+    if (seenToday.has(r.ticker)) continue;
+    hist.push({
+      date: today,
+      ticker: r.ticker,
+      sig: (r.sig && r.sig.c) || "",
+      label: (r.sig && r.sig.t) || "",
+      score: r.score != null ? r.score : null,
+      price: r.price,
+      fv: r.fv != null ? r.fv : null,
+    });
+    added++;
+  }
+  // Cap history so it can't grow unbounded (keep ~2y of daily snapshots).
+  const MAX = 20000;
+  if (hist.length > MAX) hist.splice(0, hist.length - MAX);
+  if (added) saveSigHist(hist);
+}
+// Build the outcome panel: for snapshots older than a horizon, compare the
+// signal-time price to the CURRENT price and aggregate return by signal bucket.
+function renderSignalOutcomes() {
+  const host = document.getElementById("sigOutcomes");
+  if (!host) return;
+  const hist = loadSigHist();
+  const today = new Date();
+  const horizonDays = 30; // only judge calls at least this old
+  const curPrice = (tk) => (M[tk] && M[tk].price != null ? M[tk].price : null);
+  // Keep, per ticker, the OLDEST snapshot that is at least `horizonDays` old,
+  // so each name is judged on its earliest qualifying call (longest track).
+  const byTk = {};
+  for (const h of hist) {
+    const ageD = (today - new Date(h.date)) / 86400000;
+    if (ageD < horizonDays) continue;
+    if (!byTk[h.ticker] || h.date < byTk[h.ticker].date) byTk[h.ticker] = h;
+  }
+  const rows = [];
+  const agg = {
+    buy: { n: 0, sum: 0 },
+    neutral: { n: 0, sum: 0 },
+    sell: { n: 0, sum: 0 },
+  };
+  for (const tk in byTk) {
+    const h = byTk[tk];
+    const now = curPrice(tk);
+    if (now == null || !h.price) continue;
+    const ret = (now - h.price) / h.price; // price change since the call
+    const bucket = _sigBucket(h.sig);
+    agg[bucket].n++;
+    agg[bucket].sum += ret;
+    rows.push({ tk, h, now, ret, bucket });
+  }
+  if (!rows.length) {
+    host.innerHTML =
+      '<div class="mini" style="color:var(--muted)">Signal-outcome tracking is on. Once your saved signals are at least 30 days old, this panel will show how Buy / Hold / Sell calls have performed since. (Snapshots are taken automatically each day you open this tab.)</div>';
+    return;
+  }
+  rows.sort((a, b) => b.ret - a.ret);
+  const pctS = (x) => (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
+  const cls = (x) => (x > 0.0001 ? "pos" : x < -0.0001 ? "neg" : "");
+  const avg = (b) => (b.n ? b.sum / b.n : null);
+  const aggCard = (label, b, tip) =>
+    `<div class="card nis-cell" data-tip="${encodeURIComponent(tip)}" style="cursor:help">` +
+    `<div class="label">${label} <span class="mini">(${b.n})</span></div>` +
+    `<div class="value ${b.n ? cls(avg(b)) : ""}">${b.n ? pctS(avg(b)) : "\u2014"}</div></div>`;
+  let h =
+    '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name)</span></div>';
+  h +=
+    '<div class="grid kpis" style="margin-bottom:10px">' +
+    aggCard(
+      "Buy-rated avg",
+      agg.buy,
+      "Average price change since the engine first rated these names Buy (\u2265 30 days ago). Higher than the Hold/Sell buckets suggests the Buy calls have been working.",
+    ) +
+    aggCard(
+      "Hold/Wait avg",
+      agg.neutral,
+      "Average price change since these names were rated Hold/Wait/Avoid.",
+    ) +
+    aggCard(
+      "Sell/Trim avg",
+      agg.sell,
+      "Average price change since these names were rated Sell/Trim. LOWER (or negative) is the engine being right.",
+    ) +
+    "</div>";
+  h +=
+    '<div class="scroll"><table style="width:100%;font-size:12px"><thead><tr>' +
+    '<th class="l">Ticker</th><th class="l">Call</th><th>On</th><th>Price then</th><th>Price now</th><th>Change</th></tr></thead><tbody>';
+  for (const x of rows) {
+    h +=
+      '<tr><td class="l"><b>' +
+      escapeHtml(x.tk) +
+      '</b></td><td class="l"><span class="badge ' +
+      (x.h.sig || "") +
+      '">' +
+      escapeHtml(x.h.label || x.h.sig || "\u2014") +
+      "</span></td><td>" +
+      escapeHtml(x.h.date) +
+      "</td><td>" +
+      money(x.h.price) +
+      "</td><td>" +
+      money(x.now) +
+      '</td><td class="' +
+      cls(x.ret) +
+      '">' +
+      pctS(x.ret) +
+      "</td></tr>";
+  }
+  h += "</tbody></table></div>";
+  h +=
+    '<div class="mini" style="margin-top:6px;color:var(--muted)">Price-only change (excludes dividends &amp; fees). A rough scorecard for the signal engine, not a P&amp;L.</div>';
+  host.innerHTML = h;
 }
 function heldSharesOf(pos, tk) {
   let q = 0;
@@ -4218,6 +4379,7 @@ const APP_LS_KEYS = [
   "casa_issuer_aliases_v1",
   "casa_cash_v1",
   "casa_brokers_v1",
+  "casa_signal_hist_v1",
 ];
 let _backupBusy = false;
 document.getElementById("backupAll").onclick = () => {
