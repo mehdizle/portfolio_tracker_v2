@@ -1973,21 +1973,33 @@
                 style="width: 90px"
             /></label>
             <label
-              style="display: flex; align-items: center; gap: 6px"
               data-tip="Bias the buy ranking between Diversification (keep sectors balanced; sector caps are hard) and Value (let strongly undervalued names be bought slightly past a full sector cap, and let valuation + signal quality lead the ranking). Left = today's diversification-led behaviour; right = value-led. Saved with your backup."
-              >Value vs Diversification<input
-                type="range"
-                id="rbValueTilt"
-                value="0"
-                min="0"
-                max="100"
-                step="5"
-                style="width: 140px"
-              /><span
-                id="rbValueTiltVal"
-                class="mini"
-                style="min-width: 90px; color: var(--text2)"
-                >Diversification</span
+              >Value vs Diversification
+              <span
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 8px;
+                  margin-top: 4px;
+                "
+                ><input
+                  type="range"
+                  id="rbValueTilt"
+                  value="0"
+                  min="0"
+                  max="100"
+                  step="5"
+                  style="width: 130px; vertical-align: middle"
+                /><span
+                  id="rbValueTiltVal"
+                  class="mini"
+                  style="
+                    min-width: 92px;
+                    font-weight: 600;
+                    color: var(--primary2);
+                  "
+                  >Diversification</span
+                ></span
               ></label
             >
             <label data-tip="How many buy suggestions to spread the cash across"
