@@ -424,8 +424,8 @@ function factorScores(m) {
     ["Profitability (ROE)", _has(m.roe)],
     ["Income (Div yield or DPS)", _has(m.divy) || _has(m.dps)],
     [
-      "Balance sheet / growth (EV, net-debt or PEG)",
-      _has(m.ev) || _has(m.netdebt) || _has(m.peg),
+      "Balance sheet / growth / cash (EV, net-debt, PEG or FCF)",
+      _has(m.ev) || _has(m.netdebt) || _has(m.peg) || _has(m.fcf),
     ],
     ["52-week price range", _has(m.low) && _has(m.high)],
   ];
