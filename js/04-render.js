@@ -277,6 +277,34 @@ function dashUpcomingDiv3mo() {
   return sum;
 }
 
+// Single entry point to refresh the Dashboard KPI row from live data. Recomputes
+// the position totals from runFIFO() and re-renders #kpiRow. Called by render()
+// AND by savePending() so the KPI cards that depend on PENDING (Cash Available,
+// Pending Orders, Upcoming Dividends) update the moment an order changes - not
+// only when the whole dashboard re-renders. Guards so a pending mutation on
+// another tab can never throw.
+function refreshKpiRow() {
+  try {
+    if (typeof runFIFO !== "function") return;
+    const { pos } = runFIFO();
+    const arr = Object.values(pos);
+    const totals = arr.reduce(
+      (a, p) => ({
+        inv: a.inv + (p.held > 0 ? p.invested : 0),
+        val: a.val + p.value,
+        net: a.net + (p.netIfSold || 0),
+        unreal: a.unreal + p.unreal,
+        real: a.real + p.realized,
+        div: a.div + p.divs,
+        life: a.life + p.lifetime,
+        cost: a.cost + (p.costBasis || 0),
+      }),
+      { inv: 0, val: 0, net: 0, unreal: 0, real: 0, div: 0, life: 0, cost: 0 },
+    );
+    renderKPIs(totals, arr);
+  } catch (_e) {}
+}
+
 function renderKPIs(t, arr) {
   const T = (title, lines) =>
     `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
@@ -294,7 +322,9 @@ function renderKPIs(t, arr) {
     (typeof runFIFO === "function" && runFIFO().enriched) || [],
   );
   const _upDiv3 = dashUpcomingDiv3mo();
-  document.getElementById("kpiRow").innerHTML =
+  const _kpiEl = document.getElementById("kpiRow");
+  if (!_kpiEl) return; // dashboard not in DOM - nothing to update
+  _kpiEl.innerHTML =
     kpi(
       "Cash Available",
       money(_cashAvail, 0) + " MAD",
