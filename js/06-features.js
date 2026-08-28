@@ -1414,6 +1414,23 @@ const _rbBtn = document.getElementById("rbRun");
 try {
   loadRbSettings();
 } catch (e) {}
+// Value-vs-Diversification slider: update its live label as it moves and persist
+// the position (takes effect on the next "Run", like the other rebalance inputs).
+{
+  const _vt = document.getElementById("rbValueTilt");
+  if (_vt) {
+    const _sync = () => {
+      const _lbl = document.getElementById("rbValueTiltVal");
+      if (_lbl && typeof _rbTiltLabel === "function")
+        _lbl.textContent = _rbTiltLabel(_vt.value);
+      try {
+        saveRbSettings();
+      } catch (e) {}
+    };
+    _vt.addEventListener("input", _sync);
+    _sync();
+  }
+}
 if (_rbBtn)
   _rbBtn.onclick = () => {
     try {
