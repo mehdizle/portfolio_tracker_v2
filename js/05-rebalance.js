@@ -585,14 +585,18 @@ function loadRbSettings() {
     }
   } catch (e) {}
 }
-// Human label for the value-vs-diversification slider position.
+// Human label for the value-vs-diversification slider position. Shows the exact
+// numeric position AND a word, e.g. "50 - Balanced", so you always know where
+// it's set.
 function _rbTiltLabel(v) {
-  const n = Math.min(100, Math.max(0, parseFloat(v) || 0));
-  if (n <= 10) return "Diversification";
-  if (n >= 90) return "Value";
-  if (n < 45) return "Lean diversification";
-  if (n > 55) return "Lean value";
-  return "Balanced";
+  const n = Math.round(Math.min(100, Math.max(0, parseFloat(v) || 0)));
+  let word;
+  if (n <= 10) word = "Diversification";
+  else if (n >= 90) word = "Value";
+  else if (n < 45) word = "Lean diversification";
+  else if (n > 55) word = "Lean value";
+  else word = "Balanced";
+  return n + " - " + word;
 }
 function renderRebalance() {
   const wrap = document.getElementById("rbResult");
@@ -1305,6 +1309,7 @@ window.showCompanyDetail = function (tk) {
       growth: "Growth (PEG)",
       yield: "Yield (Div %)",
       book: "Book (P/B)",
+      fcfy: "FCF Yield (FCF/Price)",
       timing: "Timing",
       momentum: "Range Position",
       peerrel: "Peer-relative",
@@ -1316,6 +1321,10 @@ window.showCompanyDetail = function (tk) {
       growth: m.peg != null ? m.peg.toFixed(1) : null,
       yield: m.divy != null ? (m.divy * 100).toFixed(2) + "%" : null,
       book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
+      fcfy:
+        m.fcf != null && m.price != null && m.price > 0
+          ? ((m.fcf / m.price) * 100).toFixed(1) + "%"
+          : null,
       timing: pir != null ? (pir * 100).toFixed(0) + "%" : null,
       momentum: pir != null ? (pir * 100).toFixed(0) + "%" : null,
       peerrel: _pr && _pr.n ? _pr.n + " peers" : null,
@@ -1324,6 +1333,9 @@ window.showCompanyDetail = function (tk) {
       '<table style="width:100%;font-size:12px"><thead><tr><th class="l">Factor</th><th>Raw</th><th>Weight</th><th>Score</th><th>Contribution</th></tr></thead><tbody>';
     for (const k in sc.parts) {
       const f = sc.parts[k];
+      // Skip zero-weight factors (e.g. FCF yield for financials/REITs) - they
+      // contribute nothing and would show a noisy "0% / -" row.
+      if (!f.w) continue;
       const rv = rawVals[k] || "\u2014";
       const _fCl =
         f.s != null ? (f.s > 0.65 ? "pos" : f.s < 0.35 ? "neg" : "") : "";
