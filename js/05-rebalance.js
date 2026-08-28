@@ -1231,7 +1231,7 @@ window.showCompanyDetail = function (tk) {
     "<b>Fair Value</b>",
     fv != null ? "<b>" + money(fv) + " MAD</b>" : "\u2014",
     "",
-    "Fair Value = The intrinsic worth of the stock based on fundamentals (not market price). Blends multiple valuation anchors: Graham formula, Earnings Power, Dividend Discount Model, and 52-wk midpoint. Outlier anchors are trimmed before averaging. If price < fair value \u2192 potentially undervalued.",
+    "Fair Value = The intrinsic worth of the stock based on fundamentals (not market price). Blends multiple valuation anchors: Graham formula, Earnings Power, Dividend Discount Model, Free Cash Flow power (non-financial sectors), and 52-wk midpoint. Outlier anchors are trimmed before averaging. If price < fair value \u2192 potentially undervalued.",
   );
   if (fvParts.length) {
     fvParts.forEach((a) => {
@@ -1277,12 +1277,12 @@ window.showCompanyDetail = function (tk) {
       "<b>Signal Score</b>",
       _sScr != null ? "<b>" + (_sScr * 100).toFixed(0) + "%</b>" : "\u2014",
       _sCl,
-      "Signal Score = Weighted average of 9 factors (valuation, safety, quality, growth, yield, book value, timing, momentum, peer-relative), adjusted for correlation between similar factors.\n\nWeights vary by sector profile. Score is 0\u2013100%.\n\nGreen (>65%): strong multi-factor signal.\nRed (<40%): weak/unfavorable.\nNeutral (40\u201365%): mixed.",
+      "Signal Score = Weighted average of 10 factors (valuation, safety, quality, growth, yield, book value, FCF yield, timing, momentum, peer-relative), adjusted for correlation between similar factors.\n\nGrowth blends PEG with EPS-growth. FCF yield applies to non-financial sectors. Weights vary by sector profile. Score is 0\u2013100%.\n\nGreen (>65%): strong multi-factor signal.\nRed (<40%): weak/unfavorable.\nNeutral (40\u201365%): mixed.",
     );
   }
   {
     const _convTip =
-      "Conviction = How much to TRUST the signal score.\n\nBased on:\n1) Factor coverage: what % of scoring factors have data (by weight).\n2) Core data depth: how many of 6 key fundamentals are present (EPS, Book, ROE, Dividends, Balance sheet, 52w range).\n\nHigh (\u226580%): strong data \u2192 score is reliable.\nMedium (55\u201380%): partial \u2192 directionally useful but has gaps.\nLow (<55%): sparse \u2192 treat as speculative.";
+      "Conviction = How much to TRUST the signal score.\n\nBased on:\n1) Factor coverage: what % of scoring factors have data (by weight).\n2) Core data depth: how many of 6 key fundamentals are present (EPS, Book, ROE, Dividends, Balance sheet / cash, 52w range).\n\nHigh (\u226580%): strong data \u2192 score is reliable.\nMedium (55\u201380%): partial \u2192 directionally useful but has gaps.\nLow (<55%): sparse \u2192 treat as speculative.";
     m2 += trow(
       "Conviction",
       sc
@@ -1321,7 +1321,7 @@ window.showCompanyDetail = function (tk) {
       valuation: "Valuation (EV/EBITDA)",
       safety: "Safety (Net Debt)",
       quality: "Quality (ROE)",
-      growth: "Growth (PEG)",
+      growth: "Growth (PEG + EPS growth)",
       yield: "Yield (Div %)",
       book: "Book (P/B)",
       fcfy: "FCF Yield (FCF/Price)",
