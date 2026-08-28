@@ -1757,6 +1757,7 @@ function signalTipHTML(r) {
     growth: "Growth (PEG)",
     yield: "Yield (Div %)",
     book: "Book (P/B)",
+    fcfy: "FCF Yield (FCF/Price)",
     timing: "Timing (Entry pos.)",
     momentum: "Range Position (52w)",
     peerrel: "Peer-relative (vs sector)",
@@ -1783,6 +1784,10 @@ function signalTipHTML(r) {
           : null,
       yield: m.divy != null ? (m.divy * 100).toFixed(2) + "%" : null,
       book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
+      fcfy:
+        m.fcf != null && m.price != null && m.price > 0
+          ? ((m.fcf / m.price) * 100).toFixed(1) + "%"
+          : null,
       timing: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
       momentum: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
       peerrel:
@@ -1792,6 +1797,10 @@ function signalTipHTML(r) {
     };
     for (const k in sc.parts) {
       const f = sc.parts[k];
+      // Skip factors that carry zero weight for this sector (e.g. FCF yield for
+      // financials/REITs) - they contribute nothing and would just add a noisy
+      // "0% weight -> 0%" row.
+      if (!f.w) continue;
       const rv = _rawVals[k];
       const rawStr = rv ? "<b>" + rv + "</b> \u00B7 " : "";
       const s =
