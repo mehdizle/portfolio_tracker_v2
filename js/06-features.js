@@ -203,58 +203,103 @@ function renderSignalOutcomes() {
     if (ageD < horizonDays) continue;
     if (!byTk[h.ticker] || h.date < byTk[h.ticker].date) byTk[h.ticker] = h;
   }
+  // \u2500\u2500 PER-DATE BENCHMARK \u2500\u2500
+  // The benchmark for a call made on date D is the AVERAGE price change, from D
+  // to now, of EVERY name snapshotted on D (regardless of its signal). Comparing
+  // a name's return to this "typical stock starting the same day" isolates
+  // whether the SIGNAL added value vs the market just drifting. Computed per
+  // start-date so a 60-day-old call is measured against a 60-day benchmark, not
+  // a 30-day one. Only names with a current price contribute.
+  const benchByDate = {}; // date -> { sum, n }
+  for (const s of hist) {
+    const now0 = curPrice(s.ticker);
+    if (now0 == null || !s.price) continue;
+    const r0 = (now0 - s.price) / s.price;
+    benchByDate[s.date] = benchByDate[s.date] || { sum: 0, n: 0 };
+    benchByDate[s.date].sum += r0;
+    benchByDate[s.date].n += 1;
+  }
+  const benchFor = (dt) => {
+    const b = benchByDate[dt];
+    return b && b.n ? b.sum / b.n : null;
+  };
   const rows = [];
   const agg = {
-    buy: { n: 0, sum: 0 },
-    neutral: { n: 0, sum: 0 },
-    sell: { n: 0, sum: 0 },
+    buy: { n: 0, sum: 0, exSum: 0, exN: 0 },
+    neutral: { n: 0, sum: 0, exSum: 0, exN: 0 },
+    sell: { n: 0, sum: 0, exSum: 0, exN: 0 },
   };
+  let allSum = 0,
+    allN = 0; // overall benchmark across judged names
   for (const tk in byTk) {
     const h = byTk[tk];
     const now = curPrice(tk);
     if (now == null || !h.price) continue;
     const ret = (now - h.price) / h.price; // price change since the call
+    const bench = benchFor(h.date); // typical name starting the same day
+    const excess = bench != null ? ret - bench : null; // signal value-add
     const bucket = _sigBucket(h.sig);
     agg[bucket].n++;
     agg[bucket].sum += ret;
-    rows.push({ tk, h, now, ret, bucket });
+    if (excess != null) {
+      agg[bucket].exSum += excess;
+      agg[bucket].exN++;
+    }
+    allSum += ret;
+    allN++;
+    rows.push({ tk, h, now, ret, bench, excess, bucket });
   }
   if (!rows.length) {
     host.innerHTML =
       '<div class="mini" style="color:var(--muted)">Signal-outcome tracking is on. Once your saved signals are at least 30 days old, this panel will show how Buy / Hold / Sell calls have performed since. (Snapshots are taken automatically each day you open this tab.)</div>';
     return;
   }
-  rows.sort((a, b) => b.ret - a.ret);
+  // Sort by EXCESS return (signal value-add) when available, else raw return.
+  rows.sort((a, b) => {
+    const ax = a.excess != null ? a.excess : a.ret;
+    const bx = b.excess != null ? b.excess : b.ret;
+    return bx - ax;
+  });
   const pctS = (x) => (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
   const cls = (x) => (x > 0.0001 ? "pos" : x < -0.0001 ? "neg" : "");
   const avg = (b) => (b.n ? b.sum / b.n : null);
-  const aggCard = (label, b, tip) =>
-    `<div class="card nis-cell" data-tip="${encodeURIComponent(tip)}" style="cursor:help">` +
-    `<div class="label">${label} <span class="mini">(${b.n})</span></div>` +
-    `<div class="value ${b.n ? cls(avg(b)) : ""}">${b.n ? pctS(avg(b)) : "\u2014"}</div></div>`;
+  const exAvg = (b) => (b.exN ? b.exSum / b.exN : null);
+  const overallBench = allN ? allSum / allN : null;
+  // Bucket card now shows raw avg AND excess-vs-benchmark (the value-add).
+  const aggCard = (label, b, tip) => {
+    const ex = exAvg(b);
+    return (
+      `<div class="card nis-cell" data-tip="${encodeURIComponent(tip)}" style="cursor:help">` +
+      `<div class="label">${label} <span class="mini">(${b.n})</span></div>` +
+      `<div class="value ${b.n ? cls(avg(b)) : ""}">${b.n ? pctS(avg(b)) : "\u2014"}</div>` +
+      `<div class="mini" style="margin-top:2px">vs bench: <span class="${ex != null ? cls(ex) : ""}">${ex != null ? pctS(ex) : "\u2014"}</span></div>` +
+      `</div>`
+    );
+  };
   let h =
-    '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name)</span></div>';
+    '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name). "vs bench" = excess over the average name from the same start date.</span></div>';
   h +=
     '<div class="grid kpis" style="margin-bottom:10px">' +
+    `<div class="card nis-cell" data-tip="${encodeURIComponent("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
     aggCard(
-      "Buy-rated avg",
+      "Buy-rated",
       agg.buy,
-      "Average price change since the engine first rated these names Buy (\u2265 30 days ago). Higher than the Hold/Sell buckets suggests the Buy calls have been working.",
+      "Average price change since the engine first rated these names Buy (\u2265 30 days ago), and the EXCESS over the average name from the same start date. Positive 'vs bench' means the Buy calls beat the typical stock - the signal added value.",
     ) +
     aggCard(
-      "Hold/Wait avg",
+      "Hold/Wait",
       agg.neutral,
-      "Average price change since these names were rated Hold/Wait/Avoid.",
+      "Average price change since these names were rated Hold/Wait/Avoid, and the excess vs the same-day benchmark.",
     ) +
     aggCard(
-      "Sell/Trim avg",
+      "Sell/Trim",
       agg.sell,
-      "Average price change since these names were rated Sell/Trim. LOWER (or negative) is the engine being right.",
+      "Average price change since Sell/Trim, and the excess vs benchmark. NEGATIVE 'vs bench' is the engine being right (these underperformed the typical stock).",
     ) +
     "</div>";
   h +=
     '<div class="scroll"><table style="width:100%;font-size:12px"><thead><tr>' +
-    '<th class="l">Ticker</th><th class="l">Call</th><th>On</th><th>Price then</th><th>Price now</th><th>Change</th></tr></thead><tbody>';
+    '<th class="l">Ticker</th><th class="l">Call</th><th>On</th><th>Price then</th><th>Price now</th><th>Change</th><th data-tip="Excess return over the average name from the same start date - the signal\'s value-add.">vs bench</th></tr></thead><tbody>';
   for (const x of rows) {
     h +=
       '<tr><td class="l"><b>' +
@@ -273,11 +318,15 @@ function renderSignalOutcomes() {
       cls(x.ret) +
       '">' +
       pctS(x.ret) +
+      '</td><td class="' +
+      (x.excess != null ? cls(x.excess) : "") +
+      '">' +
+      (x.excess != null ? pctS(x.excess) : "\u2014") +
       "</td></tr>";
   }
   h += "</tbody></table></div>";
   h +=
-    '<div class="mini" style="margin-top:6px;color:var(--muted)">Price-only change (excludes dividends &amp; fees). A rough scorecard for the signal engine, not a P&amp;L.</div>';
+    '<div class="mini" style="margin-top:6px;color:var(--muted)">Price-only change (excludes dividends &amp; fees). "vs bench" compares each call to the average name from the same start date, isolating the signal\'s value-add. A rough scorecard for the signal engine, not a P&amp;L.</div>';
   host.innerHTML = h;
 }
 function heldSharesOf(pos, tk) {
