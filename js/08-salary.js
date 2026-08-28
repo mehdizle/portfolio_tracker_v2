@@ -521,6 +521,9 @@ function loadCash() {
 function saveCash(arr) {
   if (safeSetItem(CASH_LS, JSON.stringify(arr))) markSaved();
   else markSaveFailed();
+  // Cash movements feed the Dashboard "Cash Available" KPI. Refresh it at the
+  // single save point so the card stays in sync when a movement changes.
+  if (typeof refreshKpiRow === "function") refreshKpiRow();
 }
 
 function renderCash() {
