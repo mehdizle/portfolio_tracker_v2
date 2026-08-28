@@ -1345,7 +1345,32 @@ window.showCompanyDetail = function (tk) {
       peerrel: _pr && _pr.n ? _pr.n + " peers" : null,
     };
     let fb =
-      '<table style="width:100%;font-size:12px"><thead><tr><th class="l">Factor</th><th>Raw</th><th>Weight</th><th>Score</th><th>Contribution</th></tr></thead><tbody>';
+      '<table style="width:100%;font-size:12px"><thead><tr>' +
+      '<th class="l" style="cursor:help" data-tip="' +
+      encodeURIComponent(
+        "The 10 scoring factors. Each is normalised to 0-100%, weighted by the sector profile, then blended into the Signal Score.",
+      ) +
+      '">Factor</th>' +
+      '<th style="cursor:help" data-tip="' +
+      encodeURIComponent(
+        "The underlying raw metric value fed into this factor (e.g. EV/EBITDA for Valuation, ROE for Quality).",
+      ) +
+      '">Raw</th>' +
+      '<th style="cursor:help" data-tip="' +
+      encodeURIComponent(
+        "How much this factor counts toward the Signal Score for this sector. Weights differ per sector profile (e.g. banks lean on Book & ROE; FCF yield is 0 for financials).",
+      ) +
+      '">Weight</th>' +
+      '<th style="cursor:help" data-tip="' +
+      encodeURIComponent(
+        "This factor's own 0-100% score. Green >65% favourable, red <35% unfavourable. Blank = no data for this factor (it is skipped and the score re-normalised).",
+      ) +
+      '">Score</th>' +
+      '<th style="cursor:help" data-tip="' +
+      encodeURIComponent(
+        "Score x Weight = how many points this factor adds to the composite. The row that contributes most is driving the signal.",
+      ) +
+      '">Contribution</th></tr></thead><tbody>';
     for (const k in sc.parts) {
       const f = sc.parts[k];
       // Skip zero-weight factors (e.g. FCF yield for financials/REITs) - they
@@ -1380,15 +1405,19 @@ window.showCompanyDetail = function (tk) {
   // Peer comparison
   if (_pr) {
     let pb = "";
-    pb += row(
+    pb += trow(
       "Comparison basis",
       _pr.basis === "category"
         ? (m.cat || "\u2014") + " (same category)"
         : "Broad sector (" + (prof ? prof.label : "\u2014") + ")",
+      "",
+      "Which peer set this name is compared against. Same-category peers are preferred when at least 4 exist (most apples-to-apples); otherwise it falls back to the broader sector profile.",
     );
-    pb += row(
+    pb += trow(
       "Comparable count",
       String(_pr.n) + (_pr.n < 4 ? ' <span class="neg">(thin)</span>' : ""),
+      "",
+      "How many peers the comparison is based on. Fewer than 4 is flagged 'thin' \u2014 the peer-relative factor is down-weighted (3 peers \u2248 0.4x weight, 10+ \u2248 full weight) because a small sample is unreliable.",
     );
     const st = typeof sectorStats === "function" ? sectorStats() : null;
     const ref = st
@@ -1398,23 +1427,27 @@ window.showCompanyDetail = function (tk) {
       : null;
     if (ref) {
       if (ref.pe != null)
-        pb += row(
+        pb += trow(
           "Peer median P/E",
           ref.pe.toFixed(1) +
             (m.pe
               ? ' <span class="mini">(you: ' + m.pe.toFixed(1) + ")</span>"
               : ""),
+          "",
+          "The median P/E across the peer set, with this stock's own P/E in brackets. Your P/E below the peer median = cheaper than peers on earnings.",
         );
       if (ref.pb != null)
-        pb += row(
+        pb += trow(
           "Peer median P/B",
           ref.pb.toFixed(2) +
             (m.pb
               ? ' <span class="mini">(you: ' + m.pb.toFixed(2) + ")</span>"
               : ""),
+          "",
+          "The median P/B across the peer set, with this stock's own P/B in brackets. Your P/B below the peer median = cheaper than peers on book value.",
         );
       if (ref.divy != null)
-        pb += row(
+        pb += trow(
           "Peer median Div Y",
           (ref.divy * 100).toFixed(1) +
             "%" +
@@ -1423,9 +1456,11 @@ window.showCompanyDetail = function (tk) {
                 (m.divy * 100).toFixed(1) +
                 "%)</span>"
               : ""),
+          "",
+          "The median dividend yield across the peer set, with this stock's own yield in brackets. Your yield above the peer median = more income than peers.",
         );
     }
-    pb += row(
+    pb += trow(
       "Peer score",
       (_pr.score * 100).toFixed(0) +
         "% \u2014 " +
@@ -1435,6 +1470,7 @@ window.showCompanyDetail = function (tk) {
             ? "pricier than peers"
             : "in line"),
       _pr.score >= 0.6 ? "pos" : _pr.score <= 0.4 ? "neg" : "",
+      "Peer-relative valuation score (0-100%), blending this stock's P/E, P/B and yield vs the peer medians. \u2705 \u226560%: cheaper than peers. \u274c \u226440%: pricier than peers. This feeds the composite as the 'peer-relative' factor, down-weighted when the peer set is thin.",
     );
     h += sec("\ud83d\udc65 Peer Comparison", pb);
   }
@@ -1452,15 +1488,23 @@ window.showCompanyDetail = function (tk) {
   // Dividend safety
   if (ds) {
     let dsb = "";
-    dsb += row(
+    dsb += trow(
       "Level",
       '<span class="' +
         (ds.level === "ok" ? "pos" : ds.level === "danger" ? "neg" : "") +
         '">' +
         ds.level +
         "</span>",
+      "",
+      "Dividend sustainability from the payout ratio (dividend \u00f7 earnings). \u2705 ok: comfortably covered by earnings. \u26a0 stretched: payout near or slightly above 100% \u2014 limited cushion. \u274c danger: payout well above earnings \u2014 the dividend may be cut. 'unknown' = not enough data (missing EPS or DPS).",
     );
-    if (ds.note) dsb += row("Note", ds.note);
+    if (ds.note)
+      dsb += trow(
+        "Note",
+        ds.note,
+        "",
+        "The specific payout figure behind the level above.",
+      );
     h += sec("\ud83d\udcb0 Dividend Safety", dsb);
   }
 
