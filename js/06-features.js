@@ -163,14 +163,18 @@ function recordSignalSnapshot(rows) {
   if (!Array.isArray(rows) || !rows.length) return;
   const today = new Date().toISOString().slice(0, 10);
   const hist = loadSigHist();
-  const seenToday = new Set(
-    hist.filter((h) => h.date === today).map((h) => h.ticker),
-  );
-  let added = 0;
+  // LATEST-of-day wins: index today's existing entry per ticker so a re-snapshot
+  // (e.g. after importing fresh prices in the Data tab) OVERWRITES it in place
+  // with the newer values, rather than being skipped. One snapshot per ticker
+  // per day, always reflecting the most recent data you loaded that day.
+  const todayIdx = {};
+  for (let i = 0; i < hist.length; i++) {
+    if (hist[i].date === today) todayIdx[hist[i].ticker] = i;
+  }
+  let changed = 0;
   for (const r of rows) {
     if (!r || !r.ticker || r.price == null) continue;
-    if (seenToday.has(r.ticker)) continue;
-    hist.push({
+    const rec = {
       date: today,
       ticker: r.ticker,
       sig: (r.sig && r.sig.c) || "",
@@ -178,13 +182,31 @@ function recordSignalSnapshot(rows) {
       score: r.score != null ? r.score : null,
       price: r.price,
       fv: r.fv != null ? r.fv : null,
-    });
-    added++;
+    };
+    const at = todayIdx[r.ticker];
+    if (at != null)
+      hist[at] = rec; // overwrite today's entry (latest wins)
+    else {
+      todayIdx[r.ticker] = hist.length;
+      hist.push(rec);
+    }
+    changed++;
   }
   // Cap history so it can't grow unbounded (keep ~2y of daily snapshots).
   const MAX = 20000;
   if (hist.length > MAX) hist.splice(0, hist.length - MAX);
-  if (added) saveSigHist(hist);
+  if (changed) saveSigHist(hist);
+}
+// Take a signal snapshot right now (used by the Data-tab importers, which is the
+// most accurate trigger - the snapshot reflects the prices just loaded).
+// Guarded so it can never break an import; latest-of-day overwrites earlier.
+function snapshotSignalsNow() {
+  try {
+    if (typeof computeSignalsRows === "function")
+      recordSignalSnapshot(computeSignalsRows());
+  } catch (e) {
+    console.error("sig snapshot (import)", e);
+  }
 }
 // Build the outcome panel: for snapshots older than a horizon, compare the
 // signal-time price to the CURRENT price and aggregate return by signal bucket.
@@ -2514,6 +2536,10 @@ document.getElementById("applyTV").onclick = () => {
         "</span>"
       : "");
   render();
+  // Snapshot signals now that fresh prices are loaded (latest-of-day wins). This
+  // is the most accurate trigger: the snapshot reflects the data you just
+  // imported. Guarded so it can never break the import.
+  snapshotSignalsNow();
 };
 document.getElementById("clearTV").onclick = () => {
   document.getElementById("tvPaste").value = "";
@@ -2992,6 +3018,8 @@ document.getElementById("clearTV").onclick = () => {
         "</b> prices (VL). Fees left unchanged \u2014 import the weekly file to refresh fees.";
     showOpcvmStamp();
     render();
+    // Fresh fund prices loaded -> snapshot signals (latest-of-day wins).
+    snapshotSignalsNow();
   };
 
   function showOpcvmStamp() {
