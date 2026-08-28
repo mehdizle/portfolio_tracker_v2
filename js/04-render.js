@@ -147,7 +147,7 @@ function render() {
         cost: 0,
       },
     );
-    renderKPIs(totals);
+    renderKPIs(totals, arr);
     renderCharts(arr, totals);
     renderPositions(arr, totals);
     renderSignals();
@@ -217,12 +217,95 @@ function pendingBuyCost() {
   });
   return cost;
 }
-function renderKPIs(t) {
+// Dashboard "Cash available" across ALL accounts. Mirrors the Cash tab's
+// all-accounts view: user cash movements (deposits +, withdrawals/fees -, only
+// dated today or earlier) + trading cash flow from every account EXCEPT
+// saham-regular (bank-funded, so its trades don't consume brokerage cash),
+// minus the fee-inclusive cost of pending BUY orders. Kept in sync with the
+// Cash tab's "all" branch (js/08-salary.js).
+function dashCashAvailable(enriched) {
+  let bal = 0;
+  try {
+    const _today = new Date().toISOString().slice(0, 10);
+    const mov = typeof loadCash === "function" ? loadCash() : [];
+    (Array.isArray(mov) ? mov : []).forEach((m) => {
+      if (!m || m.date > _today) return; // ignore future-dated movements
+      const sign = m.type === "deposit" ? 1 : -1;
+      bal += Math.abs(m.amount || 0) * sign;
+    });
+    let tradingCash = 0;
+    (Array.isArray(enriched) ? enriched : []).forEach((e) => {
+      if (typeof e.net !== "number" || e.date > _today) return;
+      // exclude saham-regular (bank-funded) - matches the Cash tab.
+      if (txnBroker(e) === "saham" && !e.pea) return;
+      tradingCash += e.net;
+    });
+    bal += tradingCash;
+  } catch (_e) {}
+  return bal - pendingBuyCost();
+}
+
+// Dashboard "Upcoming dividends (next 3 months)". Reuses the Dividends-tab
+// per-dividend math (eligibleSharesAtEx + divNetFor) but ALWAYS projects this
+// year's calendar forward +12 months, so an estimate exists even when next
+// year's real calendar isn't loaded yet (the user asked for a this-year-based
+// estimate). Sums net dividends whose pay-date is within the next ~90 days.
+function dashUpcomingDiv3mo() {
+  let sum = 0;
+  try {
+    if (typeof DIVCAL === "undefined" || !Array.isArray(DIVCAL)) return 0;
+    const yr = new Date().getFullYear();
+    const shifted = DIVCAL.filter(
+      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+    ).map((d) => ({
+      ...d,
+      pay_date: d.pay_date.replace(/^\d{4}/, String(yr + 1)),
+      ex_date: d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null,
+      _projected: true,
+    }));
+    const cal = DIVCAL.concat(shifted);
+    for (const d of cal) {
+      if (!d.pay_date) continue;
+      const sh =
+        typeof eligibleSharesAtEx === "function" ? eligibleSharesAtEx(d) : 0;
+      if (sh <= 0) continue;
+      const du = typeof daysUntil === "function" ? daysUntil(d.pay_date) : -1;
+      if (du < 0 || du > 90) continue; // next ~3 months only
+      sum += typeof divNetFor === "function" ? divNetFor(d, sh) : 0;
+    }
+  } catch (_e) {}
+  return sum;
+}
+
+function renderKPIs(t, arr) {
   const T = (title, lines) =>
     `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
     lines.map((l) => `<div>${l}</div>`).join("");
   const _pendCost = pendingBuyCost();
+  // Split held market value into stocks vs OPCVM funds (by master category).
+  let _stockVal = 0,
+    _opcvmVal = 0;
+  (Array.isArray(arr) ? arr : []).forEach((p) => {
+    if (!(p.held > 0 && p.value > 0)) return;
+    if (M[p.ticker] && M[p.ticker].cat === "OPCVM") _opcvmVal += p.value;
+    else _stockVal += p.value;
+  });
+  const _cashAvail = dashCashAvailable(
+    (typeof runFIFO === "function" && runFIFO().enriched) || [],
+  );
+  const _upDiv3 = dashUpcomingDiv3mo();
   document.getElementById("kpiRow").innerHTML =
+    kpi(
+      "Cash Available",
+      money(_cashAvail, 0) + " MAD",
+      _cashAvail >= 0 ? "" : "neg",
+      T("Cash Available (all accounts)", [
+        "Cash movements (deposits \u2212 withdrawals \u2212 fees)",
+        "plus trading cash flow, minus committed pending buys.",
+        "Excludes the bank-funded Saham regular account.",
+      ]),
+      "cash",
+    ) +
     kpi(
       "Pending Orders",
       money(_pendCost, 0) + " MAD",
@@ -235,15 +318,26 @@ function renderKPIs(t) {
       "pending",
     ) +
     kpi(
-      "Total (Held + Pending)",
-      money(t.val + _pendCost, 0) + " MAD",
+      "Stock Value",
+      money(_stockVal, 0) + " MAD",
       "",
-      T("Total (Held + Pending)", [
-        "Current market value of held positions",
-        "plus the fee-inclusive cost of pending buys.",
-        "= Current Value + Pending Orders.",
+      T("Stock Value", [
+        "Current market value of your held STOCK positions",
+        "(non-OPCVM), across all accounts.",
+        "= \u03A3 (shares \u00D7 live price).",
       ]),
-      "pending",
+      "positions",
+    ) +
+    kpi(
+      "OPCVM Value",
+      money(_opcvmVal, 0) + " MAD",
+      "",
+      T("OPCVM Value", [
+        "Current market value of your held OPCVM funds,",
+        "across all accounts.",
+        "= \u03A3 (units \u00D7 latest NAV).",
+      ]),
+      "positions",
     ) +
     kpi(
       "Unrealized P&L",
@@ -253,17 +347,6 @@ function renderKPIs(t) {
         "= Current Value \u2212 Invested",
         "Paper gain/loss on open positions",
         "(before exit fees & tax).",
-      ]),
-      "positions",
-    ) +
-    kpi(
-      "Realized P&L",
-      money(t.real, 0) + " MAD",
-      cls(t.real),
-      T("Realized P&L", [
-        "Locked-in gain/loss from sells (FIFO)",
-        "= \u03A3 (sale proceeds \u2212 matched buy cost)",
-        "Net of fees & TPCVM tax (0 for PEA).",
       ]),
       "positions",
     ) +
@@ -279,15 +362,16 @@ function renderKPIs(t) {
       "dividends",
     ) +
     kpi(
-      "Lifetime Return",
-      money(t.life, 0) + " MAD",
-      cls(t.life),
-      T("Lifetime Return", [
-        "= Unrealized + Realized + Dividends",
-        "Your total gain/loss across everything,",
-        "held or sold.",
+      "Upcoming Dividends",
+      money(_upDiv3, 0) + " MAD",
+      _upDiv3 > 0 ? "pos" : "",
+      T("Upcoming Dividends (next 3 months)", [
+        "Estimated NET dividends due in the next ~90 days,",
+        "on shares eligible at the ex-date.",
+        "If next year's calendar isn't loaded, this year's",
+        "schedule is projected forward for the estimate.",
       ]),
-      "positions",
+      "dividends",
     );
 }
 // ---- Dashboard hero strip (portfolio value + lifetime return verdict) ----
