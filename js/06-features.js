@@ -6073,9 +6073,61 @@ function pendingRangeBar(o, barW, compact) {
       : null;
   const outLeft = px < lo,
     outRight = px > hi;
+  // Valuation references (single source of truth: the Signals engine). Fair
+  // value + target buy/sell let you judge whether the order price is GOOD, not
+  // just where it sits in the 52-wk range. OPCVM funds have no fair value -> the
+  // helpers return null and we simply draw no zones/FV tick for them.
+  let fvX = null,
+    fv = null,
+    tb = null,
+    ts = null;
+  try {
+    const _sc = typeof factorScores === "function" ? factorScores(m) : null;
+    fv = typeof fairValue === "function" ? fairValue(m) : null;
+    tb = typeof targetBuy === "function" ? targetBuy(m, _sc) : null;
+    ts = typeof targetSell === "function" ? targetSell(m, _sc) : null;
+  } catch (_e) {}
+  out.fv = fv;
+  out.tb = tb;
+  out.ts = ts;
+  // Map a price to an x within the drawable track [5 .. barW-5], clamped.
+  const xOf = (v) =>
+    Math.round(
+      5 + Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * (barW - 10),
+    );
   let bar = '<div style="position:relative;height:18px;width:' + barW + 'px">';
+  // Buy zone: from the left edge up to Target Buy (below TB = attractive entry).
+  // Sell zone: from Target Sell to the right edge (above TS = attractive exit).
+  // Drawn FIRST (under everything) as faint bands so they never obscure markers.
+  if (tb != null && isFinite(tb)) {
+    const tbX = xOf(tb);
+    if (tbX > 5)
+      bar +=
+        '<div title="Buy zone (\u2264 target buy)" style="position:absolute;top:5px;left:5px;width:' +
+        (tbX - 5) +
+        'px;height:8px;background:rgba(34,197,94,.18);border-radius:2px"></div>';
+  }
+  if (ts != null && isFinite(ts)) {
+    const tsX = xOf(ts);
+    if (tsX < barW - 5)
+      bar +=
+        '<div title="Sell zone (\u2265 target sell)" style="position:absolute;top:5px;left:' +
+        tsX +
+        "px;width:" +
+        (barW - 5 - tsX) +
+        'px;height:8px;background:rgba(239,68,68,.18);border-radius:2px"></div>';
+  }
   bar +=
     '<div style="position:absolute;top:7px;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--success),var(--warn),var(--error));border-radius:2px"></div>';
+  // Fair Value tick (neutral diamond) - the intrinsic-worth reference.
+  if (fv != null && isFinite(fv)) {
+    fvX = xOf(fv);
+    out.fvX = fvX;
+    bar +=
+      '<div title="Fair value" style="position:absolute;top:5px;left:' +
+      (fvX - 3) +
+      'px;width:6px;height:6px;background:var(--text);transform:rotate(45deg);border-radius:1px;opacity:.85"></div>';
+  }
   if (liveX != null)
     bar +=
       '<div title="Live price" style="position:absolute;top:2px;left:' +
@@ -6289,8 +6341,10 @@ function renderPending() {
             );
           })()}
           ${(function () {
-            // Range column: compact 52-wk range bar mirroring the Unit Px tooltip.
-            const rb = pendingRangeBar(o, 88, true);
+            // Range column: 52-wk range bar with valuation zones, mirroring the
+            // Unit Px tooltip. Wider now to fit the buy/sell zones + fair-value
+            // tick alongside the order & live-price markers.
+            const rb = pendingRangeBar(o, 150, true);
             if (!rb.hasRange)
               return '<td class="center" style="color:var(--muted)">\u2014</td>';
             const _tip = pendingUnitPxTipHTML(o);
