@@ -5179,6 +5179,11 @@ let PENDING = (() => {
 function savePending() {
   if (safeSetItem("casa_pending_v1", JSON.stringify(PENDING))) markSaved();
   else markSaveFailed();
+  // Pending orders feed the Dashboard KPI row (Cash Available, Pending Orders,
+  // Upcoming Dividends). Refresh it here - at the single save point - so those
+  // cards stay in sync no matter which tab changed an order. Guarded + a no-op
+  // when the dashboard isn't mounted.
+  if (typeof refreshKpiRow === "function") refreshKpiRow();
 }
 let PEND_EDIT = null;
 function readPendingForm() {
