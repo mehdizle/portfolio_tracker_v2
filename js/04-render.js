@@ -1754,7 +1754,7 @@ function signalTipHTML(r) {
     valuation: "Valuation (EV/EBITDA)",
     safety: "Safety (Net Debt/EBITDA)",
     quality: "Quality (ROE)",
-    growth: "Growth (PEG)",
+    growth: "Growth (PEG + EPS growth)",
     yield: "Yield (Div %)",
     book: "Book (P/B)",
     fcfy: "FCF Yield (FCF/Price)",
