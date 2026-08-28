@@ -659,6 +659,10 @@ function loadTxns() {
 function saveTxns(t) {
   if (safeSetItem(LS_KEY, JSON.stringify(t))) markSaved();
   else markSaveFailed();
+  // Transactions drive the whole Dashboard KPI row. Refresh it at the save
+  // point so the cards stay in sync even if a caller saves without a full
+  // render(). Guarded + no-op when the dashboard/helper isn't available.
+  if (typeof refreshKpiRow === "function") refreshKpiRow();
 }
 // ---------- saved indicator + last-backup time ----------
 let _saveTimer = null;
