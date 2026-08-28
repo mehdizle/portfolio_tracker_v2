@@ -47,7 +47,10 @@ export const RENDER_CONNECTIONS = [
   { fn: "renderPositions", reason: "position value column uses live price" },
   { fn: "renderSignals", reason: "signal targets compare to live price" },
   { fn: "renderDividends", reason: "dividend yield vs live price" },
-  { fn: "renderPending", reason: "pending live-price + expected-total columns" },
+  {
+    fn: "renderPending",
+    reason: "pending live-price + expected-total columns",
+  },
   { fn: "renderConcentration", reason: "weights use live position values" },
 ];
 
@@ -69,4 +72,48 @@ export function csvColumns() {
 /** Every view fn name that render() must call. */
 export function requiredRenderCalls() {
   return RENDER_CONNECTIONS.map((c) => c.fn);
+}
+
+/**
+ * SAVE_REFRESH_CONNECTIONS: data-save functions whose stored data feeds the
+ * Dashboard KPI row, and therefore MUST call refreshKpiRow() so the cards
+ * (Cash Available, Pending Orders, Stock/OPCVM Value, Unrealized P&L,
+ * Dividends, Upcoming Dividends) never go stale when data changes from any tab.
+ *
+ * This encodes the single-source-of-truth rule: the DATA WRITE owns refreshing
+ * its dependents, not each UI call site. The checker (connections.test.js)
+ * reads each save function's body from disk and fails CI if the refresh call is
+ * missing - so a new save path can't silently reintroduce the staleness bug.
+ *
+ *  - fn:     the save function name (as declared: `function <fn>(`)
+ *  - file:   the source file it lives in (relative to repo root)
+ *  - must:   the call that must appear inside its body
+ *  - reason: why its data feeds the KPI row (for humans reading failures)
+ */
+export const SAVE_REFRESH_CONNECTIONS = [
+  {
+    fn: "saveTxns",
+    file: "js/01-core.js",
+    must: "refreshKpiRow",
+    reason:
+      "transactions drive every KPI (value, unrealized, dividends, splits)",
+  },
+  {
+    fn: "savePending",
+    file: "js/06-features.js",
+    must: "refreshKpiRow",
+    reason:
+      "pending orders drive Cash Available, Pending Orders, Upcoming Dividends",
+  },
+  {
+    fn: "saveCash",
+    file: "js/08-salary.js",
+    must: "refreshKpiRow",
+    reason: "cash movements drive Cash Available",
+  },
+];
+
+/** The save->refresh connections the checker must verify. */
+export function requiredSaveRefreshes() {
+  return SAVE_REFRESH_CONNECTIONS.slice();
 }
