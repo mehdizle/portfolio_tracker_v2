@@ -427,11 +427,26 @@ function computeRebalance() {
         );
       if (valueTilt > 0.02)
         parts.push((valueTilt * 100).toFixed(0) + "% below fair value");
+      // Value-led: flag when the pick sits PAST its sector cap (only reachable
+      // because the slider expanded the ceiling) - i.e. value overrode the cap.
+      if (secW > _cap + 1e-9 && vTilt > 0)
+        parts.push(
+          "value-led over cap (" +
+            (secW * 100).toFixed(0) +
+            "% vs " +
+            (_cap * 100).toFixed(0) +
+            "%)",
+        );
       if (cycleNeed > 0.05) parts.push("adds " + r._cyc + " exposure");
       if (styleNeed > 0.05 && r._sty !== r._cyc) parts.push(r._sty + " style");
       if (r.sig && r.sig.c === "b-buy") parts.push("rated Buy");
+      // Factor-score lean (only contributes when the slider is toward Value).
+      if (vTilt > 0 && (r._fscore || 0) >= 0.65)
+        parts.push(
+          "strong factor score " + ((r._fscore || 0) * 100).toFixed(0) + "%",
+        );
       cand._why = parts.length
-        ? "Picked: " + parts.slice(0, 3).join(" \u00B7 ")
+        ? "Picked: " + parts.slice(0, 4).join(" \u00B7 ")
         : "Picked: fills remaining budget within caps";
     })();
     // Dynamic lot per greedy step: conviction \u00D7 range-width-scaled.
