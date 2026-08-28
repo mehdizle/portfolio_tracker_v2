@@ -71,6 +71,19 @@ function computeRebalance() {
   const buyOnly = !!(document.getElementById("rbBuyOnly") || {}).checked;
   const wantTrims = !!(document.getElementById("rbTrims") || {}).checked;
   const includeOpcvm = !!(document.getElementById("rbOpcvm") || {}).checked; // when true, funds are buyable too
+  // Value-vs-Diversification tilt (0..1). 0 = pure diversification-led (the
+  // original behaviour: sector caps are HARD and diversification dominates the
+  // buy score). 1 = value-led (undervalued names can be bought slightly past a
+  // full sector cap, and valuation/quality lead the ranking). Defaults to 0 so
+  // an absent slider reproduces today's output exactly. Persisted in
+  // casa_rebalance_v1, so it rides the existing backup.
+  const valueTiltRaw = parseFloat(
+    (document.getElementById("rbValueTilt") || {}).value,
+  );
+  const vTilt = Math.min(
+    1,
+    Math.max(0, (isFinite(valueTiltRaw) ? valueTiltRaw : 0) / 100),
+  );
 
   const { pos } = runFIFO();
   const _rbPending = !!(document.getElementById("rbPending") || {}).checked;
@@ -156,6 +169,11 @@ function computeRebalance() {
     r._cat = r.m.cat || "Uncategorized";
     r._cyc = r.m.cycle || "OPCVM / Funds";
     r._sty = r.m.style || "OPCVM / Funds";
+    // Composite factor score (0..1) from the SAME signal engine, precomputed once
+    // so the value-led ranking can lean on quality/valuation without recomputing
+    // in the greedy loop. Null/OPCVM -> 0 (neutral, no lean).
+    const _fs = r._cat === "OPCVM" ? null : factorScores(r.m);
+    r._fscore = _fs && typeof _fs.score === "number" ? _fs.score : 0;
   });
 
   // ---- #5 DYNAMIC denominator: invested base grows as cash is deployed and shrinks as
@@ -344,7 +362,12 @@ function computeRebalance() {
       const curSec = runSec[r._cat] || 0,
         secW = projTotal() > 0 ? curSec / projTotal() : 0;
       const _cap = capFor(r._cat);
-      if (secW >= _cap) continue;
+      // SOFT sector cap: the hard ceiling expands from _cap (at vTilt=0, i.e.
+      // today's hard skip) up to _cap*1.5 (at vTilt=1), so a strongly
+      // undervalued name can still be bought slightly past a full sector.
+      // Beyond the ceiling we still skip - diversification remains a real limit.
+      const _ceil = _cap * (1 + 0.5 * vTilt);
+      if (secW >= _ceil) continue;
       // Single-name concentration guard (skip funds \u2014 the OPCVM sector cap governs them)
       if (r._cat !== "OPCVM") {
         const tkW = projTotal() > 0 ? (runTk[r.ticker] || 0) / projTotal() : 0;
@@ -352,15 +375,30 @@ function computeRebalance() {
       }
       if (!distinct.has(r.ticker) && distinct.size >= maxBuys) continue; // no new names beyond cap
       const sectorNeed = 1 - secW / _cap,
-        valueTilt = Math.max(0, r._disc);
+        // Two-sided value: reward discount-to-fair; penalise buying above fair
+        // value. The overvalued penalty only bites as vTilt rises, so at vTilt=0
+        // this equals the original max(0, disc).
+        valueTilt = r._disc >= 0 ? r._disc : r._disc * vTilt;
+      // Overweight penalty: only > 0 once secW exceeds _cap, which is only
+      // reachable when vTilt>0 (the ceiling was _cap at vTilt=0). So this term
+      // is dormant in diversification mode.
+      const overPen = Math.max(0, (secW - _cap) / _cap);
       const cycleNeed = needBelow(runCyc, r._cyc, cycTarget),
         styleNeed = needBelow(runSty, r._sty, styTarget);
+      // Weights interpolate with the slider: at vTilt=0 they are exactly the
+      // original (sectorNeed 1.0, value 0.6, no factor-lean, no overweight
+      // penalty). At vTilt=1 valuation/quality lead and diversification eases.
+      const wSector = 1.0 - 0.5 * vTilt; // 1.0 -> 0.5
+      const wValue = 0.6 + 0.6 * vTilt; // 0.6 -> 1.2
+      const wFactor = 0.5 * vTilt; // 0   -> 0.5
       const score =
-        sectorNeed * 1.0 +
-        valueTilt * 0.6 +
+        sectorNeed * wSector +
+        valueTilt * wValue +
         cycleNeed * 0.35 +
         styleNeed * 0.35 +
-        (r.sig && r.sig.c === "b-buy" ? 0.15 : 0);
+        (r.sig && r.sig.c === "b-buy" ? 0.15 : 0) +
+        (r._fscore || 0) * wFactor -
+        overPen * 1.2 * vTilt;
       if (score > candScore) {
         candScore = score;
         cand = r;
@@ -518,6 +556,7 @@ function saveRbSettings() {
       trims: !!(g("rbTrims") || {}).checked,
       opcvm: !!(g("rbOpcvm") || {}).checked,
       pending: !!(g("rbPending") || {}).checked,
+      valueTilt: (g("rbValueTilt") || {}).value,
     };
     safeSetItem(RB_LS, JSON.stringify(s));
   } catch (e) {}
@@ -539,7 +578,21 @@ function loadRbSettings() {
     if (s.opcvm != null && g("rbOpcvm")) g("rbOpcvm").checked = !!s.opcvm;
     if (s.pending != null && g("rbPending"))
       g("rbPending").checked = !!s.pending;
+    if (s.valueTilt != null && g("rbValueTilt")) {
+      g("rbValueTilt").value = s.valueTilt;
+      const _lbl = g("rbValueTiltVal");
+      if (_lbl) _lbl.textContent = _rbTiltLabel(s.valueTilt);
+    }
   } catch (e) {}
+}
+// Human label for the value-vs-diversification slider position.
+function _rbTiltLabel(v) {
+  const n = Math.min(100, Math.max(0, parseFloat(v) || 0));
+  if (n <= 10) return "Diversification";
+  if (n >= 90) return "Value";
+  if (n < 45) return "Lean diversification";
+  if (n > 55) return "Lean value";
+  return "Balanced";
 }
 function renderRebalance() {
   const wrap = document.getElementById("rbResult");
