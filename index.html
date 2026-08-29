@@ -457,6 +457,88 @@
             </div>
           </div>
 
+          <!-- Recurring OTHER costs planner (mirrors the car one; drives Other) -->
+          <div class="sec">
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 8px;
+              "
+            >
+              <div style="display: flex; align-items: center; gap: 8px">
+                <button
+                  id="e_otherPlanToggle"
+                  class="btn sec2"
+                  aria-label="Toggle other cost details"
+                  data-tip="Show / hide other cost details"
+                  style="
+                    padding: 2px 9px;
+                    font-size: 13px;
+                    line-height: 1.2;
+                    flex: none;
+                  "
+                >
+                  &#x25BE;
+                </button>
+                <div>
+                  <b style="font-size: 14px">&#x1F3E6; Recurring other costs</b>
+                  <span class="mini" style="font-weight: 500"
+                    >&#x2014; non-car yearly/quarterly costs; we compute what to
+                    save monthly</span
+                  >
+                </div>
+              </div>
+              <div
+                class="mini"
+                id="e_otherPlanNote"
+                style="font-weight: 500"
+              ></div>
+            </div>
+            <div id="e_otherPlanDetails">
+              <div id="e_otherPlanBanner" style="margin: 10px 0"></div>
+              <div style="overflow-x: auto">
+                <table
+                  id="e_otherPlanTbl"
+                  style="min-width: 640px; font-size: 13px"
+                >
+                  <thead>
+                    <tr style="text-align: left; color: var(--muted)">
+                      <th scope="col" style="padding: 4px 6px">Cost</th>
+                      <th
+                        scope="col"
+                        style="padding: 4px 6px; text-align: right"
+                      >
+                        Amount
+                      </th>
+                      <th scope="col" style="padding: 4px 6px">
+                        Months it hits
+                      </th>
+                      <th
+                        scope="col"
+                        style="padding: 4px 6px; text-align: right"
+                      >
+                        Per&nbsp;year
+                      </th>
+                      <th scope="col" style="padding: 4px 6px"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="e_otherPlanBody"></tbody>
+                </table>
+              </div>
+              <div class="e-actions" style="margin-top: 10px">
+                <button class="btn sec2" id="e_otherAdd">
+                  + Add other cost
+                </button>
+                <button class="btn sec2" id="e_otherApply">
+                  Apply to future months
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- Savings log (per-month, per-bucket grid) -->
           <div class="sec">
             <h3 style="border: none; margin: 0 0 2px; padding: 0">
