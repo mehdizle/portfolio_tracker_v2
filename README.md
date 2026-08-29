@@ -1,8 +1,8 @@
 # Portfolio Tracker v2 (Casablanca / MAD)
 
-Version 2 of the client-side Casablanca Stock Exchange portfolio tracker. Same
-features as v1 (positions, FIFO cost basis, tax, valuation signals, rebalancing,
-dividends, expenses, salary) plus the Tier-3 upgrades:
+Client-side Casablanca Stock Exchange portfolio tracker (positions, FIFO cost
+basis, tax, valuation signals, rebalancing, dividends, expenses, salary). Runs
+entirely in the browser on localStorage. Beyond the original feature set it adds:
 
 - **Tested, modular financial core** - fee/tax/FIFO math lives in pure ES modules
   under `src/core/`, unit-tested with Vitest in CI.
@@ -16,6 +16,20 @@ dividends, expenses, salary) plus the Tier-3 upgrades:
   event delegator (modern, CSP-friendly). There are no inline `onclick`
   handlers; elements declare `data-act="fnName"` / `data-args="..."` and one
   document-level listener in `09-boot.js` dispatches them.
+- **Schema registries + consistency guards** - transaction / pending / master
+  fields are declared once (`src/core/*-schema.js`) and drive CSV export/import,
+  the pending form, and the master-import mapping. A connection manifest
+  (`src/core/connection-manifest.js`) + `test/connections.test.js` fail CI if a
+  field loses its HTML input, a price-view isn't refreshed by `render()`, or a
+  data-save doesn't refresh the KPI row - so "added X but forgot to wire Y" bugs
+  are caught before deploy.
+- **Signal engine** - a sector-weighted, missing-data-resilient composite score
+  (valuation, quality, growth-blend, FCF yield, dividend, timing, peer-relative)
+  with per-sector fair-value anchors and buy/sell targets, plus signal-outcome
+  tracking that scores past Buy/Hold/Sell calls vs a same-date benchmark.
+- **Value-vs-Diversification rebalance** - a persisted slider tilts the buy plan
+  between sector-diversification and undervaluation; trims + greedy allocation
+  are fee-aware and delegate cost estimation to the same core as execution.
 
 Live site: https://mehdizle.github.io/portfolio_tracker_v2/
 
@@ -29,22 +43,45 @@ styles.css                 All styles (imported by the entry, fingerprinted by V
 src/
   main.js                  Vite entry: imports css, core-bridge, then the UI bundle.
   core-bridge.js           Sets globalThis.__core BEFORE the UI bundle evaluates.
-  core/                    *** PURE, TESTED FINANCIAL CORE (ES modules) ***
+  core/                    *** PURE, TESTED CORE (ES modules, via __core) ***
     money.js               integer-cents rounding helpers
     fees.js                brokerage / PEA / OPCVM / VAT fee engine
     tax.js                 capital-gains + dividend tax, divRate
     fifo.js                computeRow + FIFO engine (uses money/fees/tax)
     config.js              fee/broker/tax default parameters
     backup-crypto.js       AES-GCM backup encryption (WebCrypto)
+    txn-schema.js          transaction/pending field registry + CSV helpers
+    master-schema.js       master-list import field registry (TV + OPCVM)
+    plan-apply.js          savings-pots recurring-cost -> log recompute (pure)
+    connection-manifest.js declared field/render/save connections (CI-checked)
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
-scripts/concat.mjs         Concatenates js/01..09 into the UI bundle.
-js/01..09-*.js             UI layer (rendering, forms, tabs). Delegates all
+scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
+js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO math to src/core via globalThis.__core.
+  01-core.js               globals, persistence, fee/tax wrappers -> __core
+  02-compute.js            computeRow/runFIFO bridge to the core
+  03-signals.js            valuation & signal engine (scores, fair value, targets)
+  04-render.js             dashboard KPIs, positions, charts, hero, tax summary
+  05-rebalance.js          rebalance engine + stock detail panel
+  06-features.js           signals render, dividends, transactions, interactions
+  06b-import.js            TradingView/OPCVM/CSV import, fee panel, theme, calendar
+  06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, snapshots
+  06d-pending.js           pending orders + indicators + tooltips + range bar
+  07-expenses.js           monthly expenses + savings pots (car/other planners)
+  08-salary.js             salary calc, categories, cash ledger
+  09-boot.js               the single data-act event delegator + boot
 test/
   core.test.js             unit tests (money, fees, tax, FIFO scenarios)
   reference.test.js        runs the real backup through the core; consistency +
                            snapshot of portfolio totals
-  fixtures/backup-real.json  transactions/master/config extracted from a real backup
+  consistency.test.js      cross-path number locks (rebalance == execution, etc.)
+  txn-roundtrip.test.js    transaction CSV export -> import preserves every field
+  pending-roundtrip.test.js pending -> transaction carries every field
+  master-import.test.js    TradingView/OPCVM import field coverage
+  engine-improvements.test.js  FCF factor, growth blend, value-tilt, outcomes
+  plan-apply.test.js       savings-pots recurring-cost recompute (live core)
+  connections.test.js      connection-manifest checker (fields/render/save wired)
+  fixtures/backup-real.json  synthetic transactions/master/config for tests
 .github/workflows/deploy.yml  test -> build -> deploy to GitHub Pages
 ```
 
@@ -52,8 +89,8 @@ test/
 
 The financial math (fees, tax, FIFO) is implemented **once**, in `src/core/`, as
 pure functions with no globals - so it is unit-testable. The large UI layer
-(`js/01..09`) keeps its original structure but its fee/tax/FIFO functions are now
-thin wrappers that call the core via `globalThis.__core` (set by `core-bridge.js`
+(the `js/` files) keeps its original structure but its fee/tax/FIFO functions are
+now thin wrappers that call the core via `globalThis.__core` (set by `core-bridge.js`
 before the UI bundle runs). This gives a tested, single-source money engine
 without rewriting the UI's hundreds of call sites.
 
