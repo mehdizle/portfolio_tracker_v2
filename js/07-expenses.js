@@ -1249,36 +1249,17 @@ function eRenderCarPlanBanner() {
 // Only touches non-realized rows so history is never overwritten. Overwrites the car value of
 // a month only if that month is targeted by the plan (keeps other months' deposits intact).
 function eApplyCarPlan() {
-  const plan = E_STATE.carPlan || [];
-  // month(1-12) -> total cost withdrawn that month
-  const byMonth = {};
-  plan.forEach((c) => {
-    (c.months || []).forEach((m) => {
-      byMonth[m] = (byMonth[m] || 0) + Math.abs(+c.amt || 0);
-    });
-  });
-  const save = eCarMonthlySave(); // monthly set-aside (0 if not entered)
-  let applied = 0;
-  E_STATE.log.forEach((r) => {
-    const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
-    if (!mm) return;
-    // Protect REALIZED months only (real recorded history) - not merely
-    // past-DATED ones. A past month you haven't marked realized yet still has
-    // no actuals, so it should reflect the current plan. This is what lets a
-    // recurring cost added for, say, an already-passed-but-unrealized month
-    // flow into the Car line. (nowYM kept for reference/potential UI use.)
-    if (eRz(r, "car")) return; // realized -> locked, never rewritten
-    const mo = +mm[2];
-    const cost = byMonth[mo] || 0;
-    if (cost > 0) {
-      // payment month: you set aside `save`, then the cost comes out \u2192 net = save - cost
-      r.car = save - cost;
-      r.note = eCarNoteForMonth(mo);
-      applied++;
-    } else if (save > 0) {
-      // non-payment month: reflect the monthly set-aside as a deposit
-      r.car = save;
-    }
+  // Pure recompute lives in the tested core (__core.planApply). Realized months
+  // are protected; every non-realized month reflects the current plan. This
+  // function keeps the side effects (save + re-render).
+  const applied = __core.planApply.applyPlanToLog({
+    plan: E_STATE.carPlan || [],
+    monthlySave: eCarMonthlySave(),
+    log: E_STATE.log || [],
+    valueKey: "car",
+    noteKey: "note",
+    isRealized: (r) => eRz(r, "car"),
+    noteForMonth: (mo) => eCarNoteForMonth(mo),
   });
   eSave();
   eRenderLog();
@@ -1339,30 +1320,15 @@ function eOtherPlanMonths() {
 // Write each recurring OTHER cost into future (today-or-later) months of the log
 // as r.btOther = save - cost on payment months, else save. Past months untouched.
 function eApplyOtherPlan() {
-  const plan = E_STATE.otherPlan || [];
-  const byMonth = {};
-  plan.forEach((c) => {
-    (c.months || []).forEach((m) => {
-      byMonth[m] = (byMonth[m] || 0) + Math.abs(+c.amt || 0);
-    });
-  });
-  const save = eOtherMonthlySave();
-  let applied = 0;
-  E_STATE.log.forEach((r) => {
-    const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
-    if (!mm) return;
-    // Protect REALIZED months only (see eApplyCarPlan). Non-realized months -
-    // past-dated or future - reflect the current plan.
-    if (eRz(r, "btOther")) return;
-    const mo = +mm[2];
-    const cost = byMonth[mo] || 0;
-    if (cost > 0) {
-      r.btOther = save - cost;
-      r.noteBt = eOtherNoteForMonth(mo);
-      applied++;
-    } else if (save > 0) {
-      r.btOther = save;
-    }
+  // Pure recompute via the tested core (mirrors eApplyCarPlan for the Other bucket).
+  const applied = __core.planApply.applyPlanToLog({
+    plan: E_STATE.otherPlan || [],
+    monthlySave: eOtherMonthlySave(),
+    log: E_STATE.log || [],
+    valueKey: "btOther",
+    noteKey: "noteBt",
+    isRealized: (r) => eRz(r, "btOther"),
+    noteForMonth: (mo) => eOtherNoteForMonth(mo),
   });
   eSave();
   eRenderLog();

@@ -666,7 +666,7 @@ function renderRebalance() {
     .map(
       (
         x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbBuyTipHTML(x, _ctx(x.cat)))}">
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbBuyTipHTML(x, _ctx(x.cat)))}">
     <td class="l"><div><b>${x.ticker}</b> ${x.held ? '<span class="tag-in" style="font-size:9px">held</span>' : '<span class="badge b-buy" style="font-size:9px">new</span>'}${aboveTgtBadge(x.px, x.tbuy)} <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
     <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)}</td>
     <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
@@ -695,7 +695,7 @@ function renderRebalance() {
     .map(
       (
         x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
     <td class="l"><div><b>${x.ticker}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
     <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)} \u00B7 ${x.account}</td>
     <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
@@ -1309,7 +1309,7 @@ window.showCompanyDetail = function (tk) {
     '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0' +
     (tip ? ";cursor:help" : "") +
     '" ' +
-    (tip ? 'data-tip="' + encodeURIComponent(tip) + '"' : "") +
+    (tip ? 'data-tip="' + tipRef(tip) + '"' : "") +
     "><span>" +
     l +
     '</span><span class="' +
@@ -1359,27 +1359,27 @@ window.showCompanyDetail = function (tk) {
     let fb =
       '<table style="width:100%;font-size:12px"><thead><tr>' +
       '<th class="l" style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "The 10 scoring factors. Each is normalised to 0-100%, weighted by the sector profile, then blended into the Signal Score.",
       ) +
       '">Factor</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "The underlying raw metric value fed into this factor (e.g. EV/EBITDA for Valuation, ROE for Quality).",
       ) +
       '">Raw</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "How much this factor counts toward the Signal Score for this sector. Weights differ per sector profile (e.g. banks lean on Book & ROE; FCF yield is 0 for financials).",
       ) +
       '">Weight</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "This factor's own 0-100% score. Green >65% favourable, red <35% unfavourable. Blank = no data for this factor (it is skipped and the score re-normalised).",
       ) +
       '">Score</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "Score x Weight = how many points this factor adds to the composite. The row that contributes most is driving the signal.",
       ) +
       '">Contribution</th></tr></thead><tbody>';

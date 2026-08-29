@@ -875,7 +875,7 @@ function pendingFlagBadge(o) {
       : "\u26a0 \u2212" + (f.pct * 100).toFixed(0) + "% vs tgt sell";
   return (
     ' <span class="badge b-abovetgt" style="cursor:help" data-tip="' +
-    encodeURIComponent(f.msg) +
+    tipRef(f.msg) +
     '">' +
     label +
     "</span>"
@@ -1191,7 +1191,7 @@ function renderPending() {
             const _tip = pendingUnitPxTipHTML(o);
             return (
               '<td style="cursor:help;border-bottom:1px dotted var(--border-l)" data-tip="' +
-              encodeURIComponent(_tip) +
+              tipRef(_tip) +
               '">' +
               money(o.price) +
               ' <span style="color:var(--muted)">\u24d8</span></td>'
@@ -1207,7 +1207,7 @@ function renderPending() {
             const _tip = pendingUnitPxTipHTML(o);
             return (
               '<td class="center" style="cursor:help" data-tip="' +
-              encodeURIComponent(_tip) +
+              tipRef(_tip) +
               '"><div style="display:inline-block;vertical-align:middle">' +
               rb.bar +
               "</div></td>"
@@ -1279,7 +1279,7 @@ function renderPending() {
                 '<div class="mini" style="margin-top:4px;color:var(--muted)">Manual total entered \u2014 fees implied.</div>';
             return (
               '<td style="cursor:help" data-tip="' +
-              encodeURIComponent(h) +
+              tipRef(h) +
               '">' +
               money(expTot) +
               ' <span style="color:var(--muted)">\u24D8</span></td>'
@@ -1294,7 +1294,7 @@ function renderPending() {
             const _tip =
               typeof divyTipHTML === "function"
                 ? ' data-tip="' +
-                  encodeURIComponent(
+                  tipRef(
                     divyTipHTML({
                       ticker: o.ticker,
                       m: _m,
@@ -1470,7 +1470,7 @@ function renderPending() {
               "</b>"
             : "<b>" + escapeHtml(o.ticker) + "</b>";
           return `<tr><td class="l">${o.date}</td><td class="l" style="color:var(--text2)">${o.exDate || "\u2014"}</td><td class="l">${_tkCell}${o.pea ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : ""}</td>
-          <td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td><td>${money(o.price)}</td><td class="pos nis-cell" style="cursor:help" data-tip="${encodeURIComponent(tip)}">${money(net)} <span style="color:var(--muted)">\u24D8</span></td>
+          <td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td><td>${money(o.price)}</td><td class="pos nis-cell" style="cursor:help" data-tip="${tipRef(tip)}">${money(net)} <span style="color:var(--muted)">\u24D8</span></td>
           <td class="center" style="font-size:11px">${(BROKERS[o.broker] || {}).name || (o.pea ? "PEA" : "REG")}<br><span class="mini">${o.pea ? "PEA" : "Reg"}</span></td>
           <td class="center" style="white-space:nowrap">
             <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark received \u2192 add to Transactions">\u2713</button>

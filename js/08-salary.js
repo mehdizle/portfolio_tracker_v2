@@ -261,10 +261,13 @@ function renderSalary() {
   }
   // Build a sanitized DOM fragment from tooltip HTML. Returns a DocumentFragment
   // (never an HTML string), so callers use replaceChildren instead of innerHTML.
+  // `html` here is always TRUSTED app output taken from the __TIP registry
+  // (see tipRef below) - never a value read from the DOM - so no untrusted
+  // string is ever parsed as HTML. The whitelist below is defense-in-depth.
   function buildTipNodes(html) {
     // Parse with DOMParser (an inert document - scripts do not run, and no
     // element is ever assigned via innerHTML), then transplant only whitelisted
-    // nodes into the live tooltip. This breaks the untrusted-string -> HTML flow.
+    // nodes into the live tooltip.
     const doc = new DOMParser().parseFromString(String(html), "text/html");
     const OK_TAGS = {
       B: 1,
@@ -328,23 +331,29 @@ function renderSalary() {
     if (!t) {
       return;
     }
-    cur = t;
     var raw = t.getAttribute("data-tip") || "";
-    var txt = raw;
-    if (/%[0-9A-Fa-f]{2}/.test(raw)) {
-      try {
-        txt = decodeURIComponent(raw);
-      } catch (_) {
-        txt = raw;
-      }
-    }
-    if (/<[a-z][\s\S]*>/i.test(txt)) {
-      // Tooltips may contain our own formatting markup (<b>, <span>, <div>).
-      // Parse + sanitize into DOM nodes and attach them - no innerHTML sink,
-      // so untrusted attribute text can never be reinterpreted as live HTML.
-      tip.replaceChildren(buildTipNodes(txt));
+    if (raw === "") return; // empty data-tip -> no tooltip
+    cur = t;
+    // Rich (HTML) tooltips are registered in the trusted __TIP store and the
+    // attribute only carries an opaque token (e.g. "#t42"). Plain-text tooltips
+    // keep their literal string in the attribute. This means untrusted DOM text
+    // is NEVER parsed as HTML - only trusted, app-built HTML from __TIP is.
+    var token = /^#t\d+$/.test(raw) ? raw : null;
+    if (token) {
+      const html = __TIP.get(token);
+      if (html == null) return; // token with no (surviving) content -> skip
+      tip.replaceChildren(buildTipNodes(html));
       tip.style.whiteSpace = "normal";
     } else {
+      // Legacy/plain path: literal text (optionally %-encoded), shown as text.
+      var txt = raw;
+      if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+        try {
+          txt = decodeURIComponent(raw);
+        } catch (_) {
+          txt = raw;
+        }
+      }
       tip.textContent = txt;
       tip.style.whiteSpace = "pre-line";
     }
@@ -737,7 +746,7 @@ function renderCash() {
 
   // Summary cards
   const card = (label, value, cls, tip) =>
-    `<div class="card nis-cell"${tip ? ' style="cursor:help" data-tip="' + encodeURIComponent(tip) + '"' : ""}>` +
+    `<div class="card nis-cell"${tip ? ' style="cursor:help" data-tip="' + tipRef(tip) + '"' : ""}>` +
     `<div class="label">${label}</div>` +
     `<div class="value ${cls || ""}">${value}</div></div>`;
 

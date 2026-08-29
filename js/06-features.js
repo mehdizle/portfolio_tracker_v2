@@ -94,14 +94,14 @@ function renderSignals() {
   const rowHtml = (r) => `<tr class="${r.held ? "held-row" : ""} sig-row">
     <td class="l" style="cursor:pointer" data-tip="Click to draft a pending order for ${escapeHtml(r.ticker)}" data-act="prefillPending" data-args="${r.ticker}" data-stop="true"><b style="color:var(--primary2)">${escapeHtml(r.ticker)}</b>${r.held ? ' <span class="tag-in">held</span>' : ""}</td>
     <td class="l" style="cursor:pointer;color:var(--text2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="${r.ticker}" data-stop="true">${escapeHtml(r.name || "")}</td>
-    <td class="center nis-cell" style="cursor:help" data-tip="${encodeURIComponent(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
-    <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? encodeURIComponent(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? encodeURIComponent(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
-    <td class="${r.tbuy != null ? "nis-cell" : ""}" style="${r.tbuy != null ? "cursor:help" : ""}" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</td>
-    <td class="${r.tsell != null ? "nis-cell" : ""}" style="${r.tsell != null ? "cursor:help" : ""}" data-tip="${r.tsell != null ? encodeURIComponent(tgtSellTipHTML(r)) : ""}">${r.tsell != null ? money(r.tsell) : "\u2014"}</td>
-    <td class="${r.score != null ? "nis-cell" : ""}" style="${r.score != null ? "cursor:help" : ""}" data-tip="${r.score != null ? encodeURIComponent(scoreTipHTML(r)) : ""}">${r.score != null ? (r.score * 100).toFixed(0) + "%" : "\u2014"}</td>
-    <td class="center ${r.sc ? "nis-cell" : ""}" style="${r.sc ? "cursor:help" : ""}" data-tip="${r.sc ? encodeURIComponent(convTipHTML(r)) : ""}">${r.conviction ? `<span class="chip" style="background:${r.conviction === "High" ? "rgba(34,197,94,.15);color:var(--success)" : r.conviction === "Medium" ? "rgba(245,158,11,.15);color:var(--warn)" : "rgba(239,68,68,.15);color:var(--error)"}">${r.conviction}</span>` : "\u2014"}</td>
-    <td class="${r.pir != null ? "nis-cell" : ""}" style="${r.pir != null ? "cursor:help" : ""}" data-tip="${r.pir != null ? encodeURIComponent(pirTipHTML(r)) : ""}">${r.pir != null ? pct(r.pir) : "\u2014"}</td><td class="${r.pe != null ? "nis-cell" : ""}" style="${r.pe != null ? "cursor:help" : ""}" data-tip="${r.pe != null ? encodeURIComponent(peTipHTML(r)) : ""}">${r.pe != null ? money(r.pe, 1) : "\u2014"}</td>
-    <td class="${r.divy != null ? "nis-cell" : ""}" style="${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}">${r.divy != null ? pct(r.divy) : "\u2014"}</td></tr>`;
+    <td class="center nis-cell" style="cursor:help" data-tip="${tipRef(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
+    <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? tipRef(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? tipRef(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
+    <td class="${r.tbuy != null ? "nis-cell" : ""}" style="${r.tbuy != null ? "cursor:help" : ""}" data-tip="${r.tbuy != null ? tipRef(tgtBuyTipHTML(r)) : ""}">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</td>
+    <td class="${r.tsell != null ? "nis-cell" : ""}" style="${r.tsell != null ? "cursor:help" : ""}" data-tip="${r.tsell != null ? tipRef(tgtSellTipHTML(r)) : ""}">${r.tsell != null ? money(r.tsell) : "\u2014"}</td>
+    <td class="${r.score != null ? "nis-cell" : ""}" style="${r.score != null ? "cursor:help" : ""}" data-tip="${r.score != null ? tipRef(scoreTipHTML(r)) : ""}">${r.score != null ? (r.score * 100).toFixed(0) + "%" : "\u2014"}</td>
+    <td class="center ${r.sc ? "nis-cell" : ""}" style="${r.sc ? "cursor:help" : ""}" data-tip="${r.sc ? tipRef(convTipHTML(r)) : ""}">${r.conviction ? `<span class="chip" style="background:${r.conviction === "High" ? "rgba(34,197,94,.15);color:var(--success)" : r.conviction === "Medium" ? "rgba(245,158,11,.15);color:var(--warn)" : "rgba(239,68,68,.15);color:var(--error)"}">${r.conviction}</span>` : "\u2014"}</td>
+    <td class="${r.pir != null ? "nis-cell" : ""}" style="${r.pir != null ? "cursor:help" : ""}" data-tip="${r.pir != null ? tipRef(pirTipHTML(r)) : ""}">${r.pir != null ? pct(r.pir) : "\u2014"}</td><td class="${r.pe != null ? "nis-cell" : ""}" style="${r.pe != null ? "cursor:help" : ""}" data-tip="${r.pe != null ? tipRef(peTipHTML(r)) : ""}">${r.pe != null ? money(r.pe, 1) : "\u2014"}</td>
+    <td class="${r.divy != null ? "nis-cell" : ""}" style="${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? tipRef(divyTipHTML(r)) : ""}">${r.divy != null ? pct(r.divy) : "\u2014"}</td></tr>`;
   const _tb = rows
     .map((r) => {
       let out = "";
@@ -291,7 +291,7 @@ function renderSignalOutcomes() {
   const aggCard = (label, b, tip) => {
     const ex = exAvg(b);
     return (
-      `<div class="card nis-cell" data-tip="${encodeURIComponent(tip)}" style="cursor:help">` +
+      `<div class="card nis-cell" data-tip="${tipRef(tip)}" style="cursor:help">` +
       `<div class="label">${label} <span class="mini">(${b.n})</span></div>` +
       `<div class="value ${b.n ? cls(avg(b)) : ""}">${b.n ? pctS(avg(b)) : "\u2014"}</div>` +
       `<div class="mini" style="margin-top:2px">vs bench: <span class="${ex != null ? cls(ex) : ""}">${ex != null ? pctS(ex) : "\u2014"}</span></div>` +
@@ -302,7 +302,7 @@ function renderSignalOutcomes() {
     '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name). "vs bench" = excess over the average name from the same start date.</span></div>';
   h +=
     '<div class="grid kpis" style="margin-bottom:10px">' +
-    `<div class="card nis-cell" data-tip="${encodeURIComponent("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
+    `<div class="card nis-cell" data-tip="${tipRef("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
     aggCard(
       "Buy-rated",
       agg.buy,
@@ -1215,7 +1215,7 @@ function renderDividends(pos) {
         const eligNow = eligibleSharesAtEx(d);
         const amtCell =
           eligNow > 0
-            ? `<td class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, eligNow))}">${money(d.amount)} <span style="color:var(--muted)">\u24D8</span></td>`
+            ? `<td class="nis-cell" style="cursor:help" data-tip="${tipRef(divEstTipHTML(d, eligNow))}">${money(d.amount)} <span style="color:var(--muted)">\u24D8</span></td>`
             : `<td>${money(d.amount)}</td>`;
         const rowStyle =
           st.t === "\u26A0 Not recorded"
@@ -1359,7 +1359,7 @@ function renderDashDivs(pos) {
           : "";
       })()}</td>
       <td class="l" style="color:var(--text2)">${escapeHtml(d.issuer || "")}</td><td>${money(d.amount)}</td>
-      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
+      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${tipRef(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
     })
     .join("");
 }
@@ -1617,11 +1617,11 @@ function renderTxns(enriched) {
             ? "b-sell"
             : "b-wait";
       const rowStyle = t.auto ? ' style="background:rgba(245,158,11,.10)"' : "";
-      return `<tr${rowStyle}><td class="center"><input type="checkbox" class="txnChk" data-idx="${i}"></td><td class="l">${t.date}</td><td class="l"><b>${escapeHtml(t.ticker)}</b>${t.auto ? ' <span class="chip nis-cell" style="background:rgba(245,158,11,.18);color:var(--warn);cursor:help" data-tip="' + encodeURIComponent(autoDivTip(t)) + '">auto \u24D8</span>' : ""}${typeof t.total === "number" && t.total > 0 ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Manual total \u2014 custom fees (e.g. OPCVM)">manual</span>' : ""}</td>
+      return `<tr${rowStyle}><td class="center"><input type="checkbox" class="txnChk" data-idx="${i}"></td><td class="l">${t.date}</td><td class="l"><b>${escapeHtml(t.ticker)}</b>${t.auto ? ' <span class="chip nis-cell" style="background:rgba(245,158,11,.18);color:var(--warn);cursor:help" data-tip="' + tipRef(autoDivTip(t)) + '">auto \u24D8</span>' : ""}${typeof t.total === "number" && t.total > 0 ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Manual total \u2014 custom fees (e.g. OPCVM)">manual</span>' : ""}</td>
       <td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml((M[t.ticker] && M[t.ticker].name) || "")}">${escapeHtml((M[t.ticker] && M[t.ticker].name) || "\u2014")}</td>
       <td class="l"><span class="badge ${ac}">${t.action}</span></td><td>${money(t.qty, t.qty % 1 ? 3 : 0)}</td>
       <td>${money(t.price)}</td><td>${e.fees != null ? money(e.fees) : "\u2014"}</td><td>${e.tax != null ? money(e.tax) : "\u2014"}</td>
-      <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
+      <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
       <td style="text-align:center">${t.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "Reg"}</td>
       <td style="font-size:10px;text-align:center">${escapeHtml((BROKERS[txnBroker(t)] || {}).name || txnBroker(t))}</td>
       <td class="center" style="white-space:nowrap"><button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editTxn" data-args="${i}" aria-label="Edit transaction" title="Edit transaction">\u270E</button><button class="chip" style="cursor:pointer;border:none" data-act="delTxn" data-args="${i}" aria-label="Delete transaction" title="Delete transaction">\u2715</button></td></tr>`;

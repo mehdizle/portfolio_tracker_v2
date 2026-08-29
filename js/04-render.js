@@ -186,7 +186,7 @@ function kpi(label, val, cls2, tip, nav) {
     : tip
       ? ' style="cursor:help"'
       : "";
-  return `<div class="card nis-cell"${clickable} data-tip="${tip ? encodeURIComponent(tip) : ""}"><div class="label">${label}${nav ? ' <span style="opacity:.5">\u2197</span>' : ""}</div><div class="value ${cls2 || ""}">${val}</div></div>`;
+  return `<div class="card nis-cell"${clickable} data-tip="${tip ? tipRef(tip) : ""}"><div class="label">${label}${nav ? ' <span style="opacity:.5">\u2197</span>' : ""}</div><div class="value ${cls2 || ""}">${val}</div></div>`;
 }
 function gotoTab(v) {
   const b = document.querySelector('.tab[data-view="' + v + '"]');
@@ -905,9 +905,9 @@ function posCells(p, showDivY) {
       : `<td>${p.price != null ? money(p.price) : "\u2014"}</td>`;
   return `<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-tip="Click for return waterfall" data-act="showPosWaterfall" data-args="${p.key}">${escapeHtml((M[p.ticker] && M[p.ticker].name) || "")} <span style="color:var(--muted)">\ud83d\udcca</span></td><td>${money(p.held, p.held % 1 ? 3 : 0)}</td><td>${money(p.avg)}</td>
     <td>${p.held > 0 ? money(p.invested) : "\u2014"}</td>${priceCell}
-    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? encodeURIComponent(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? encodeURIComponent(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
-    <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? encodeURIComponent(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? encodeURIComponent(divTipHTML(p)) : ""}">${money(p.divs)}</td>
-    <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${encodeURIComponent(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
+    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? tipRef(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? tipRef(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
+    <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? tipRef(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? tipRef(divTipHTML(p)) : ""}">${money(p.divs)}</td>
+    <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${tipRef(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
     ${
       showDivY
         ? (function () {
@@ -925,7 +925,7 @@ function posCells(p, showDivY) {
               '<td class="nis-cell ' +
               (_dy > 0 ? "pos" : "") +
               '" style="cursor:help" data-tip="' +
-              encodeURIComponent(divyTipHTML(_r)) +
+              tipRef(divyTipHTML(_r)) +
               '">' +
               pct(_dy) +
               "</td>"
@@ -1519,7 +1519,7 @@ function aboveTgtBadge(px, tbuy) {
   if (a == null || a <= ABOVE_TGT_THRESH) return "";
   return (
     ' <span class="badge b-abovetgt" data-tip="' +
-    encodeURIComponent(
+    tipRef(
       "Live price is " +
         (a * 100).toFixed(0) +
         "% above target buy (" +
@@ -2246,11 +2246,11 @@ function renderTopBuys() {
         <div class="mini" style="color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.name || "")}</div>
         ${aboveTgtBadge(r.price, r.tbuy) ? '<div style="margin-top:2px">' + aboveTgtBadge(r.price, r.tbuy) + "</div>" : ""}
       </div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? encodeURIComponent(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? tipRef(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? tipRef(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? tipRef(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
     </div>`;
   };
   wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">

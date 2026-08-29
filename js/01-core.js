@@ -296,6 +296,37 @@ function escapeHtml(v) {
   });
 }
 
+// ---------- Trusted tooltip registry ----------
+// Rich (HTML) tooltips are our OWN generated markup, but embedding that HTML in
+// a data-tip attribute means it must be re-parsed from the DOM on hover - a
+// tainted "DOM text -> HTML" flow. Instead we keep the trusted HTML in this
+// in-memory store and put only an opaque token ("#t<n>") in the attribute. The
+// tooltip engine (08-salary.js) looks the token up here and builds DOM from the
+// trusted string, so no untrusted attribute value is ever parsed as HTML.
+const __TIP = new Map(); // token -> trusted tooltip HTML
+const __TIP_BY_HTML = new Map(); // html -> token (content-addressed dedupe)
+let __TIP_SEQ = 0;
+// Register trusted tooltip HTML, return the token to place in data-tip="...".
+// Content-addressed: identical HTML reuses the same token, so the store only
+// grows by DISTINCT tooltip content (bounded and small) and never needs a reset
+// that could orphan tokens still referenced by another tab's live DOM.
+// Plain text should NOT use this - pass it directly so it renders as text.
+function tipRef(html) {
+  if (html == null || html === "") return "";
+  const s = String(html);
+  let token = __TIP_BY_HTML.get(s);
+  if (token == null) {
+    token = "#t" + ++__TIP_SEQ;
+    __TIP.set(token, s);
+    __TIP_BY_HTML.set(s, token);
+  }
+  return token;
+}
+if (typeof window !== "undefined") {
+  window.__TIP = __TIP;
+  window.tipRef = tipRef;
+}
+
 // ---------- Highcharts load guard (graceful offline degradation) ----------
 (function () {
   if (typeof Highcharts === "undefined") {
