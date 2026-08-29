@@ -26,7 +26,8 @@ const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
 
 const HTML = read("index.html");
 const RENDER_JS = read("js/04-render.js");
-const FEATURES_JS = read("js/06-features.js");
+// Pending form/orders code was split out of 06-features into 06d-pending.
+const PENDING_JS = read("js/06d-pending.js");
 // Cache of source files read on demand for the save->refresh checks.
 const _srcCache = {};
 const readSrc = (rel) => (_srcCache[rel] = _srcCache[rel] || read(rel));
@@ -77,7 +78,7 @@ describe("connection manifest: CSV columns match the schema header", () => {
 
 describe("connection manifest: form-read functions reference every field id", () => {
   it("readPendingForm resolves each pending input id (schema-driven or direct)", () => {
-    const fn = extractFn(FEATURES_JS, "readPendingForm");
+    const fn = extractFn(PENDING_JS, "readPendingForm");
     expect(fn, "readPendingForm not found").toBeTruthy();
     // The pending form is schema-driven (loops pendingFormFields()), so instead
     // of hard input ids it must reference the schema helper. Assert the wiring
