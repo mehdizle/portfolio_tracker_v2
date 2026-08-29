@@ -745,9 +745,12 @@ function netIfSoldTipHTML(p) {
       );
   } else {
     // Broker-aware stock fee breakdown (Attijari courtage/r\u00E8gl/bourse vs Saham
-    // market/interm\u00E9d/r\u00E8gl + fixed courrier). Same broker resolution as computeRow.
+    // market/interm\u00E9d/r\u00E8gl + fixed courrier). Use the SAME broker the core
+    // used for the netIfSold number (p.broker, always set by runFIFO). Fall back on
+    // the account type (PEA -> attijari) - NOT the fund flag - so PEA stocks show
+    // Attijari fees, matching the actual sell-fee calculation.
     const _bk =
-      BROKERS[p.broker] || BROKERS[p.isFund ? "attijari" : "saham"] || null;
+      BROKERS[p.broker] || BROKERS[p.isPea ? "attijari" : "saham"] || null;
     const _f = _bk && _bk.fees ? _bk.fees : null;
     const _vat = vatRate();
     h += `<div style="color:var(--text2);margin:4px 0 2px;font-size:11px">Trading fees (incl. ${(_vat * 100).toFixed(0)}% VAT):</div>`;
