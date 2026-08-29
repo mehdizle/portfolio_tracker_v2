@@ -1258,16 +1258,16 @@ function eApplyCarPlan() {
     });
   });
   const save = eCarMonthlySave(); // monthly set-aside (0 if not entered)
-  const nowYM = (() => {
-    const d = new Date();
-    return d.getFullYear() * 100 + (d.getMonth() + 1);
-  })();
   let applied = 0;
   E_STATE.log.forEach((r) => {
     const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
     if (!mm) return;
-    const ym = +mm[1] * 100 + +mm[2];
-    if (ym < nowYM) return; // only today or future \u2014 never rewrite the past
+    // Protect REALIZED months only (real recorded history) - not merely
+    // past-DATED ones. A past month you haven't marked realized yet still has
+    // no actuals, so it should reflect the current plan. This is what lets a
+    // recurring cost added for, say, an already-passed-but-unrealized month
+    // flow into the Car line. (nowYM kept for reference/potential UI use.)
+    if (eRz(r, "car")) return; // realized -> locked, never rewritten
     const mo = +mm[2];
     const cost = byMonth[mo] || 0;
     if (cost > 0) {
@@ -1276,7 +1276,7 @@ function eApplyCarPlan() {
       r.note = eCarNoteForMonth(mo);
       applied++;
     } else if (save > 0) {
-      // non-payment future month: reflect the monthly set-aside as a deposit
+      // non-payment month: reflect the monthly set-aside as a deposit
       r.car = save;
     }
   });
@@ -1347,16 +1347,13 @@ function eApplyOtherPlan() {
     });
   });
   const save = eOtherMonthlySave();
-  const nowYM = (() => {
-    const d = new Date();
-    return d.getFullYear() * 100 + (d.getMonth() + 1);
-  })();
   let applied = 0;
   E_STATE.log.forEach((r) => {
     const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
     if (!mm) return;
-    const ym = +mm[1] * 100 + +mm[2];
-    if (ym < nowYM) return; // only today or future \u2014 never rewrite the past
+    // Protect REALIZED months only (see eApplyCarPlan). Non-realized months -
+    // past-dated or future - reflect the current plan.
+    if (eRz(r, "btOther")) return;
     const mo = +mm[2];
     const cost = byMonth[mo] || 0;
     if (cost > 0) {
@@ -1976,21 +1973,21 @@ function eRenderLog() {
       const v = +r[bk.key] || 0;
       const col =
         v < 0 ? "var(--error)" : v > 0 ? "var(--success)" : "var(--text2)";
-      // Lock the Car amount + note when this month is controlled by the recurring-costs planner
-      // AND the month is today or in the future. Past months stay editable so you can fix actuals.
       const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
       const moNum = mm ? +mm[2] : 0;
       const ym = mm ? +mm[1] * 100 + +mm[2] : 0;
-      // Both Car and Other are plan-driven: lock the amount + note when this
-      // month is targeted by the bucket's recurring-costs planner AND is today
-      // or future. Past months stay editable so you can fix actuals.
+      // Both Car and Other are plan-driven. Lock the amount + note when this
+      // month is targeted by the bucket's planner AND is NOT realized yet
+      // (matches eApplyCarPlan/eApplyOtherPlan, which recompute every
+      // non-realized month). Once you mark a month realized it unlocks so you
+      // can record the actual figure - realized months are never auto-rewritten.
       const carLocked =
-        bk.key === "car" && moNum && carPlanMonths.has(moNum) && ym >= nowYM;
+        bk.key === "car" && moNum && carPlanMonths.has(moNum) && !eRz(r, "car");
       const otherLocked =
         bk.key === "btOther" &&
         moNum &&
         otherPlanMonths.has(moNum) &&
-        ym >= nowYM;
+        !eRz(r, "btOther");
       const planLocked = carLocked || otherLocked;
       const _planLabel = carLocked ? "car" : "other";
       const planNote = carLocked
