@@ -11,11 +11,13 @@ import {
   FIELD_CONNECTIONS,
   RENDER_CONNECTIONS,
   SAVE_REFRESH_CONNECTIONS,
+  PLAN_RECOMPUTE_CONNECTIONS,
   txnInputIds,
   pendingInputIds,
   csvColumns,
   requiredRenderCalls,
   requiredSaveRefreshes,
+  requiredPlanRecomputes,
 } from "../src/core/connection-manifest.js";
 import { csvHeader } from "../src/core/txn-schema.js";
 
@@ -122,6 +124,20 @@ describe("connection manifest: data-save functions refresh the KPI row", () => {
   }
 });
 
+describe("connection manifest: savings-pots planners recompute the log", () => {
+  for (const { fn, file, must, reason } of PLAN_RECOMPUTE_CONNECTIONS) {
+    it(`${fn}() (${file}) recomputes via ${must}() (${reason})`, () => {
+      const body = extractFn(readSrc(file), fn);
+      expect(body, `${fn}() not found in ${file}`).toBeTruthy();
+      const called = new RegExp("\\b" + must + "\\s*\\(").test(body || "");
+      expect(
+        called,
+        `${fn}() does not call ${must}() - editing a recurring cost won't update the savings log`,
+      ).toBe(true);
+    });
+  }
+});
+
 describe("connection manifest: internal consistency", () => {
   it("field connections are derived 1:1 from the form-bound schema fields", () => {
     // pending id is the p-prefixed txn id for every field.
@@ -135,6 +151,10 @@ describe("connection manifest: internal consistency", () => {
   });
   it("save-refresh connections are unique by function name", () => {
     const fns = requiredSaveRefreshes().map((c) => c.fn);
+    expect(new Set(fns).size).toBe(fns.length);
+  });
+  it("plan-recompute connections are unique by function name", () => {
+    const fns = requiredPlanRecomputes().map((c) => c.fn);
     expect(new Set(fns).size).toBe(fns.length);
   });
 });
