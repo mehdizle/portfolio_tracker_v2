@@ -26,16 +26,23 @@ function eBillAmt(b) {
   }
   return +b.amt || 0;
 }
+// Display/iteration order for the pots and the savings log: MT, To MD, Car, Other.
+// ("Other" is the former "BT Other" bucket - same underlying key `btOther` and log
+// field, now relabelled and driven by the Recurring other costs planner.)
 const E_BUCKETS = [
-  { key: "btOther", label: "BT Other" },
   { key: "mt", label: "MT" },
-  { key: "car", label: "Car" },
   { key: "toMd", label: "To MD" },
+  { key: "car", label: "Car" },
+  { key: "btOther", label: "Other" },
 ];
 // Recurring Car costs: each = {name, amt (positive $ that gets WITHDRAWN), months:[1..12]}.
 // Seed empty by design \u2014 user's car plan comes from localStorage / backup.
 const E_CARPLAN_SEED = [];
 const E_CARPLAN_VER = 1;
+// Recurring OTHER costs (non-car yearly/quarterly) - same shape as the car plan,
+// drives the "Other" bucket in the savings log the same way the car plan drives Car.
+const E_OTHERPLAN_SEED = [];
+const E_OTHERPLAN_VER = 1;
 let E_STATE = null;
 const E_COMP_OPEN = new Set(); // bill indices whose component editor is expanded
 // Re-seed version. The migration in eLoad is gated on E_DEFAULT_BILLS.length,
@@ -55,6 +62,8 @@ function eFreshState() {
     bills: JSON.parse(JSON.stringify(E_DEFAULT_BILLS)),
     carPlan: JSON.parse(JSON.stringify(E_CARPLAN_SEED)),
     carPlanVer: E_CARPLAN_VER,
+    otherPlan: JSON.parse(JSON.stringify(E_OTHERPLAN_SEED)),
+    otherPlanVer: E_OTHERPLAN_VER,
     log: JSON.parse(JSON.stringify(E_SEED_LOG)),
   };
 }
@@ -82,6 +91,10 @@ function eLoad() {
       let _needSave = false;
       if (!Array.isArray(E_STATE.carPlan)) {
         E_STATE.carPlan = JSON.parse(JSON.stringify(E_CARPLAN_SEED));
+        _needSave = true;
+      }
+      if (!Array.isArray(E_STATE.otherPlan)) {
+        E_STATE.otherPlan = JSON.parse(JSON.stringify(E_OTHERPLAN_SEED));
         _needSave = true;
       }
       if (!Array.isArray(E_STATE.log)) {
@@ -538,6 +551,7 @@ function renderExpenses() {
   // Pots tab renders
   eRenderBuckets();
   eRenderCarPlan();
+  eRenderOtherPlan();
   eRenderLog();
   // This-month tab
   eRenderMonthTab();
@@ -1274,6 +1288,258 @@ function eApplyCarPlan() {
   return applied;
 }
 
+// ============================================================
+// RECURRING OTHER COSTS - a faithful mirror of the car plan, driving the
+// "Other" bucket (log field r.btOther / note r.noteBt) the same way the car
+// plan drives "Car". Same shape {name, amt, months[]} + a monthly set-aside.
+// ============================================================
+function eOtherPlanYearlyTotal() {
+  return (E_STATE.otherPlan || []).reduce(
+    (a, c) => a + Math.abs(+c.amt || 0) * (c.months || []).length,
+    0,
+  );
+}
+function eOtherMonthlySave() {
+  return Math.max(0, +(E_STATE && E_STATE.otherMonthlySave) || 0);
+}
+function eOtherPaidOutYTD() {
+  const plan = (E_STATE && E_STATE.otherPlan) || [];
+  if (!plan.length) return 0;
+  const byMonth = {};
+  plan.forEach((c) => {
+    (c.months || []).forEach((mo) => {
+      byMonth[mo] = (byMonth[mo] || 0) + Math.abs(+c.amt || 0);
+    });
+  });
+  const nowY = new Date().getFullYear();
+  let total = 0;
+  (E_STATE.log || []).forEach((r) => {
+    const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+    if (!mm) return;
+    if (+mm[1] !== nowY) return;
+    if (!eRz(r, "btOther")) return;
+    total += byMonth[+mm[2]] || 0;
+  });
+  return total;
+}
+function eOtherNoteForMonth(mo) {
+  const names = (E_STATE.otherPlan || [])
+    .filter((c) => Math.abs(+c.amt || 0) > 0 && (c.months || []).includes(mo))
+    .map((c) => c.name || "Other cost");
+  return names.join(" + ");
+}
+function eOtherPlanMonths() {
+  const set = new Set();
+  (E_STATE.otherPlan || []).forEach((c) => {
+    if (Math.abs(+c.amt || 0) > 0) (c.months || []).forEach((m) => set.add(m));
+  });
+  return set;
+}
+// Write each recurring OTHER cost into future (today-or-later) months of the log
+// as r.btOther = save - cost on payment months, else save. Past months untouched.
+function eApplyOtherPlan() {
+  const plan = E_STATE.otherPlan || [];
+  const byMonth = {};
+  plan.forEach((c) => {
+    (c.months || []).forEach((m) => {
+      byMonth[m] = (byMonth[m] || 0) + Math.abs(+c.amt || 0);
+    });
+  });
+  const save = eOtherMonthlySave();
+  const nowYM = (() => {
+    const d = new Date();
+    return d.getFullYear() * 100 + (d.getMonth() + 1);
+  })();
+  let applied = 0;
+  E_STATE.log.forEach((r) => {
+    const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
+    if (!mm) return;
+    const ym = +mm[1] * 100 + +mm[2];
+    if (ym < nowYM) return; // only today or future \u2014 never rewrite the past
+    const mo = +mm[2];
+    const cost = byMonth[mo] || 0;
+    if (cost > 0) {
+      r.btOther = save - cost;
+      r.noteBt = eOtherNoteForMonth(mo);
+      applied++;
+    } else if (save > 0) {
+      r.btOther = save;
+    }
+  });
+  eSave();
+  eRenderLog();
+  eRenderBuckets();
+  eRenderSavingsChart();
+  eRenderForward();
+  eRenderOtherPlan();
+  return applied;
+}
+function eOtherPlanCollapsed() {
+  try {
+    const v = localStorage.getItem("casa_otherPlanCollapsed_v1");
+    return v === null ? true : v === "1";
+  } catch (e) {
+    return true;
+  }
+}
+function eApplyOtherPlanCollapsed() {
+  const det = document.getElementById("e_otherPlanDetails");
+  const tog = document.getElementById("e_otherPlanToggle");
+  const collapsed = eOtherPlanCollapsed();
+  if (det) det.style.display = collapsed ? "none" : "";
+  if (tog) {
+    tog.textContent = collapsed ? "\u25B8" : "\u25BE";
+    tog.title = collapsed
+      ? "Show other cost details"
+      : "Hide other cost details";
+  }
+}
+function eRenderOtherPlanBanner() {
+  const b = document.getElementById("e_otherPlanBanner");
+  if (!b) return;
+  const yearly = eOtherPlanYearlyTotal();
+  const need = yearly / 12;
+  const have = eOtherMonthlySave();
+  const gap = have - need;
+  const ok = have > 0 ? gap >= -1 : false;
+  const col =
+    have <= 0 ? "var(--warn)" : ok ? "var(--success)" : "var(--error)";
+  const icon = have <= 0 ? "\u2022" : ok ? "\u2713" : "\u25BC";
+  let verdict;
+  if (have <= 0) {
+    verdict = `Enter how much you set aside for other recurring costs each month. You need <b>${eFmt(need)}</b>/mo to cover <b>${eFmt(yearly)}</b>/yr.`;
+  } else if (ok) {
+    verdict = `On track \u2014 you set aside <b>${eFmt(have)}</b>/mo, covering the <b>${eFmt(need)}</b>/mo needed (<b>${eFmt(have - need)}</b>/mo buffer).`;
+  } else {
+    verdict = `Short by <b>${eFmt(need - have)}</b>/mo \u2014 you set aside <b>${eFmt(have)}</b>/mo but need <b>${eFmt(need)}</b>/mo.`;
+  }
+  b.innerHTML = `<div style="border:1px solid ${col}55;background:${col}14;border-radius:10px;padding:10px 12px;font-size:13px">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+      <span style="display:flex;align-items:center;gap:6px"><span class="mini">I set aside</span>
+        <input id="e_otherSaveInp" type="number" step="50" value="${have || ""}" placeholder="0"
+          style="width:90px;padding:4px 6px;text-align:right;font-family:var(--mono);font-weight:700">
+        <span class="mini">/mo</span></span>
+      <span><span class="mini">Need to save</span> <b style="font-family:var(--mono)">${eFmt(need)}</b>/mo</span>
+      <span><span class="mini">Recurring/yr</span> <b style="font-family:var(--mono)">${eFmt(yearly)}</b></span>
+    </div>
+    <div style="margin-top:6px;color:${col}">${icon} ${verdict}</div>
+  </div>`;
+  const inp = document.getElementById("e_otherSaveInp");
+  if (inp) {
+    inp.oninput = () => {
+      E_STATE.otherMonthlySave = +inp.value || 0;
+      eSave();
+      const yl = eOtherPlanYearlyTotal(),
+        nd = yl / 12,
+        hv = eOtherMonthlySave(),
+        okk = hv > 0 && hv - nd >= -1;
+      const cc =
+        hv <= 0 ? "var(--warn)" : okk ? "var(--success)" : "var(--error)";
+      const ic = hv <= 0 ? "\u2022" : okk ? "\u2713" : "\u25BC";
+      let vt;
+      if (hv <= 0)
+        vt = `Enter how much you set aside for other recurring costs each month. You need <b>${eFmt(nd)}</b>/mo to cover <b>${eFmt(yl)}</b>/yr.`;
+      else if (okk)
+        vt = `On track \u2014 you set aside <b>${eFmt(hv)}</b>/mo, covering the <b>${eFmt(nd)}</b>/mo needed (<b>${eFmt(hv - nd)}</b>/mo buffer).`;
+      else
+        vt = `Short by <b>${eFmt(nd - hv)}</b>/mo \u2014 you set aside <b>${eFmt(hv)}</b>/mo but need <b>${eFmt(nd)}</b>/mo.`;
+      const box = inp.closest("div").parentElement;
+      const vd = box.lastElementChild;
+      if (vd) {
+        vd.style.color = cc;
+        vd.innerHTML = `${ic} ${vt}`;
+      }
+      box.style.borderColor = cc + "55";
+      box.style.background = cc + "14";
+    };
+    inp.onchange = () => {
+      E_STATE.otherMonthlySave = +inp.value || 0;
+      eSave();
+      eApplyOtherPlan();
+    };
+  }
+}
+function eRenderOtherPlan() {
+  const body = document.getElementById("e_otherPlanBody");
+  if (!body) return;
+  const plan = E_STATE.otherPlan || [];
+  body.innerHTML =
+    plan
+      .map((c, i) => {
+        const yr = Math.abs(+c.amt || 0) * (c.months || []).length;
+        const monthChips = E_MONTH_ABBR.map((mn, mi) => {
+          const on = (c.months || []).includes(mi + 1);
+          return `<span data-om="${i}:${mi + 1}" data-tip="${mn}" style="cursor:pointer;user-select:none;display:inline-block;width:30px;text-align:center;margin:1px;padding:2px 0;border-radius:6px;font-size:11px;font-weight:600;
+        border:1px solid ${on ? "var(--primary2)" : "var(--border)"};background:${on ? "var(--primary2)" : "transparent"};color:${on ? "#fff" : "var(--text2)"}">${mn}</span>`;
+        }).join("");
+        return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 6px"><input data-oname="${i}" value="${escapeHtml(c.name || "")}" style="width:100%;min-width:150px;padding:4px 6px"></td>
+      <td style="padding:5px 6px;text-align:right"><input data-oamt="${i}" type="number" step="50" value="${+c.amt || 0}" style="width:90px;padding:4px 6px;text-align:right"></td>
+      <td style="padding:5px 6px">${monthChips}</td>
+      <td data-oyr="${i}" style="padding:5px 6px;text-align:right;font-family:var(--mono);font-weight:700">${eFmt(yr)}</td>
+      <td style="padding:5px 6px;text-align:right"><span data-odel="${i}" data-tip="Remove" style="cursor:pointer;color:var(--error);font-weight:700;padding:0 6px">\u2715</span></td>
+    </tr>`;
+      })
+      .join("") ||
+    `<tr><td colspan="5" class="mini" style="padding:8px 6px">No recurring other costs yet \u2014 add one below.</td></tr>`;
+
+  body.querySelectorAll("[data-oname]").forEach((el) => {
+    el.oninput = () => {
+      E_STATE.otherPlan[+el.dataset.oname].name = el.value;
+      eSave();
+    };
+  });
+  body.querySelectorAll("[data-oamt]").forEach((el) => {
+    el.oninput = () => {
+      const i = +el.dataset.oamt,
+        c = E_STATE.otherPlan[i];
+      c.amt = +el.value || 0;
+      eSave();
+      const yrCell = body.querySelector(`[data-oyr="${i}"]`);
+      if (yrCell)
+        yrCell.textContent = eFmt(Math.abs(c.amt) * (c.months || []).length);
+      eRenderOtherPlanBanner();
+      const note = document.getElementById("e_otherPlanNote");
+      if (note) {
+        note.innerHTML = `Total <b>${eFmt(eOtherPlanYearlyTotal())}</b>/yr`;
+      }
+    };
+    el.onblur = () => {
+      eRenderOtherPlan();
+      eRenderLog();
+    };
+  });
+  body.querySelectorAll("[data-om]").forEach((el) => {
+    el.onclick = () => {
+      const [i, m] = el.dataset.om.split(":").map(Number);
+      const c = E_STATE.otherPlan[i];
+      c.months = c.months || [];
+      if (c.months.includes(m)) c.months = c.months.filter((x) => x !== m);
+      else c.months.push(m);
+      c.months.sort((a, b) => a - b);
+      eSave();
+      eRenderOtherPlan();
+      eRenderLog();
+    };
+  });
+  body.querySelectorAll("[data-odel]").forEach((el) => {
+    el.onclick = () => {
+      E_STATE.otherPlan.splice(+el.dataset.odel, 1);
+      eSave();
+      eRenderOtherPlan();
+      eRenderLog();
+    };
+  });
+
+  eRenderOtherPlanBanner();
+  const note = document.getElementById("e_otherPlanNote");
+  if (note) {
+    const yt = eOtherPlanYearlyTotal();
+    note.innerHTML = `Total <b>${eFmt(yt)}</b>/yr`;
+  }
+  eApplyOtherPlanCollapsed();
+}
+
 // Per-pot stats from the REALIZED log rows:
 //   accumulated = sum of realized amounts (running balance in the pot)
 //   savedIn     = sum of positive realized amounts (money put in)
@@ -1358,8 +1624,8 @@ function eRenderBuckets() {
     },
     btOther: {
       icon: "\u{1f3e6}",
-      label: "BT Other",
-      owner: "BT saves",
+      label: "Other",
+      owner: "recurring",
       kind: "save",
     },
     toMd: {
@@ -1369,7 +1635,7 @@ function eRenderBuckets() {
       kind: "loan",
     },
   };
-  const order = ["mt", "car", "btOther", "toMd"];
+  const order = ["mt", "toMd", "car", "btOther"];
   let cards = "";
   order.forEach((key) => {
     const m = meta[key];
@@ -1670,6 +1936,7 @@ function eRenderLog() {
     const _allRz = rows.length > 0 && rows.every((x) => eRz(x.r, bk.key));
     let body = "";
     const carPlanMonths = eCarPlanMonths();
+    const otherPlanMonths = eOtherPlanMonths();
     const nowYM = (() => {
       const d = new Date();
       return d.getFullYear() * 100 + (d.getMonth() + 1);
@@ -1705,22 +1972,39 @@ function eRenderLog() {
       const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
       const moNum = mm ? +mm[2] : 0;
       const ym = mm ? +mm[1] * 100 + +mm[2] : 0;
+      // Both Car and Other are plan-driven: lock the amount + note when this
+      // month is targeted by the bucket's recurring-costs planner AND is today
+      // or future. Past months stay editable so you can fix actuals.
       const carLocked =
         bk.key === "car" && moNum && carPlanMonths.has(moNum) && ym >= nowYM;
-      const planNote = carLocked ? eCarNoteForMonth(moNum) : "";
-      const amtCell = carLocked
-        ? `<div data-tip="Managed by the Recurring car costs planner \u2014 edit it there, or untick this month to unlock" style="display:flex;align-items:center;justify-content:flex-end;gap:4px">
+      const otherLocked =
+        bk.key === "btOther" &&
+        moNum &&
+        otherPlanMonths.has(moNum) &&
+        ym >= nowYM;
+      const planLocked = carLocked || otherLocked;
+      const _planLabel = carLocked ? "car" : "other";
+      const planNote = carLocked
+        ? eCarNoteForMonth(moNum)
+        : otherLocked
+          ? eOtherNoteForMonth(moNum)
+          : "";
+      const amtCell = planLocked
+        ? `<div data-tip="Managed by the Recurring ${_planLabel} costs planner \u2014 edit it there, or untick this month to unlock" style="display:flex;align-items:center;justify-content:flex-end;gap:4px">
              <span style="opacity:.6;font-size:11px">\uD83D\uDD12</span>
              <input data-li="${i}" data-lk="${bk.key}" type="number" value="${v}" readonly tabindex="-1" style="${inpN};color:${col};opacity:.7;cursor:not-allowed;background:var(--panel2);border-color:var(--border-l)"></div>`
         : `<input data-li="${i}" data-lk="${bk.key}" type="number" step="1" value="${v}" style="${inpN};color:${col}">`;
-      // Note cell: for locked car months, show the recurring cost name(s) read-only.
+      // Note cell: for locked plan months, show the recurring cost name(s)
+      // read-only; otherwise editable. Car uses r.note, Other uses r.noteBt.
       let noteCell = "";
       if (bk.key === "car") {
         noteCell = carLocked
           ? `<input value="${escapeHtml(planNote)}" readonly tabindex="-1" data-tip="Auto-filled from the Recurring car costs planner" style="${inpNote};opacity:.7;cursor:not-allowed;font-style:italic">`
           : `<input data-li="${i}" data-lk="note" value="${escapeHtml(r.note || "")}" style="${inpNote}">`;
       } else if (bk.key === "btOther") {
-        noteCell = `<input data-li="${i}" data-lk="noteBt" value="${escapeHtml(r.noteBt || "")}" style="${inpNote}">`;
+        noteCell = otherLocked
+          ? `<input value="${escapeHtml(planNote)}" readonly tabindex="-1" data-tip="Auto-filled from the Recurring other costs planner" style="${inpNote};opacity:.7;cursor:not-allowed;font-style:italic">`
+          : `<input data-li="${i}" data-lk="noteBt" value="${escapeHtml(r.noteBt || "")}" style="${inpNote}">`;
       }
       // Anomaly flag: this month's amount vs the bucket's trailing average
       let flag = "";
@@ -2324,6 +2608,31 @@ document.addEventListener("click", (ev) => {
       const prev = note.innerHTML;
       note.innerHTML = `\u2713 applied to ${n} future month${n === 1 ? "" : "s"}`;
       setTimeout(() => eRenderCarPlan(), 2200);
+    }
+  }
+  if (t.id === "e_otherPlanToggle") {
+    const now = !eOtherPlanCollapsed();
+    try {
+      localStorage.setItem("casa_otherPlanCollapsed_v1", now ? "1" : "0");
+    } catch (e) {}
+    eApplyOtherPlanCollapsed();
+    return;
+  }
+  if (t.id === "e_otherAdd") {
+    if (!E_STATE) eLoad();
+    E_STATE.otherPlan = E_STATE.otherPlan || [];
+    E_STATE.otherPlan.push({ name: "New other cost", amt: 0, months: [] });
+    eSave();
+    eRenderOtherPlan();
+    eApplyOtherPlan();
+  }
+  if (t.id === "e_otherApply") {
+    if (!E_STATE) eLoad();
+    const n = eApplyOtherPlan();
+    const note = document.getElementById("e_otherPlanNote");
+    if (note) {
+      note.innerHTML = `\u2713 applied to ${n} future month${n === 1 ? "" : "s"}`;
+      setTimeout(() => eRenderOtherPlan(), 2200);
     }
   }
   if (t.id === "e_markThru") {
