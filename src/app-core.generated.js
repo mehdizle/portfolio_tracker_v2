@@ -301,6 +301,37 @@ function escapeHtml(v) {
   });
 }
 
+// ---------- Trusted tooltip registry ----------
+// Rich (HTML) tooltips are our OWN generated markup, but embedding that HTML in
+// a data-tip attribute means it must be re-parsed from the DOM on hover - a
+// tainted "DOM text -> HTML" flow. Instead we keep the trusted HTML in this
+// in-memory store and put only an opaque token ("#t<n>") in the attribute. The
+// tooltip engine (08-salary.js) looks the token up here and builds DOM from the
+// trusted string, so no untrusted attribute value is ever parsed as HTML.
+const __TIP = new Map(); // token -> trusted tooltip HTML
+const __TIP_BY_HTML = new Map(); // html -> token (content-addressed dedupe)
+let __TIP_SEQ = 0;
+// Register trusted tooltip HTML, return the token to place in data-tip="...".
+// Content-addressed: identical HTML reuses the same token, so the store only
+// grows by DISTINCT tooltip content (bounded and small) and never needs a reset
+// that could orphan tokens still referenced by another tab's live DOM.
+// Plain text should NOT use this - pass it directly so it renders as text.
+function tipRef(html) {
+  if (html == null || html === "") return "";
+  const s = String(html);
+  let token = __TIP_BY_HTML.get(s);
+  if (token == null) {
+    token = "#t" + ++__TIP_SEQ;
+    __TIP.set(token, s);
+    __TIP_BY_HTML.set(s, token);
+  }
+  return token;
+}
+if (typeof window !== "undefined") {
+  window.__TIP = __TIP;
+  window.tipRef = tipRef;
+}
+
 // ---------- Highcharts load guard (graceful offline degradation) ----------
 (function () {
   if (typeof Highcharts === "undefined") {
@@ -2093,7 +2124,7 @@ function kpi(label, val, cls2, tip, nav) {
     : tip
       ? ' style="cursor:help"'
       : "";
-  return `<div class="card nis-cell"${clickable} data-tip="${tip ? encodeURIComponent(tip) : ""}"><div class="label">${label}${nav ? ' <span style="opacity:.5">\u2197</span>' : ""}</div><div class="value ${cls2 || ""}">${val}</div></div>`;
+  return `<div class="card nis-cell"${clickable} data-tip="${tip ? tipRef(tip) : ""}"><div class="label">${label}${nav ? ' <span style="opacity:.5">\u2197</span>' : ""}</div><div class="value ${cls2 || ""}">${val}</div></div>`;
 }
 function gotoTab(v) {
   const b = document.querySelector('.tab[data-view="' + v + '"]');
@@ -2812,9 +2843,9 @@ function posCells(p, showDivY) {
       : `<td>${p.price != null ? money(p.price) : "\u2014"}</td>`;
   return `<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-tip="Click for return waterfall" data-act="showPosWaterfall" data-args="${p.key}">${escapeHtml((M[p.ticker] && M[p.ticker].name) || "")} <span style="color:var(--muted)">\ud83d\udcca</span></td><td>${money(p.held, p.held % 1 ? 3 : 0)}</td><td>${money(p.avg)}</td>
     <td>${p.held > 0 ? money(p.invested) : "\u2014"}</td>${priceCell}
-    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? encodeURIComponent(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? encodeURIComponent(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
-    <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? encodeURIComponent(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? encodeURIComponent(divTipHTML(p)) : ""}">${money(p.divs)}</td>
-    <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${encodeURIComponent(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
+    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? tipRef(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? tipRef(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
+    <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? tipRef(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? tipRef(divTipHTML(p)) : ""}">${money(p.divs)}</td>
+    <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${tipRef(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
     ${
       showDivY
         ? (function () {
@@ -2832,7 +2863,7 @@ function posCells(p, showDivY) {
               '<td class="nis-cell ' +
               (_dy > 0 ? "pos" : "") +
               '" style="cursor:help" data-tip="' +
-              encodeURIComponent(divyTipHTML(_r)) +
+              tipRef(divyTipHTML(_r)) +
               '">' +
               pct(_dy) +
               "</td>"
@@ -3426,7 +3457,7 @@ function aboveTgtBadge(px, tbuy) {
   if (a == null || a <= ABOVE_TGT_THRESH) return "";
   return (
     ' <span class="badge b-abovetgt" data-tip="' +
-    encodeURIComponent(
+    tipRef(
       "Live price is " +
         (a * 100).toFixed(0) +
         "% above target buy (" +
@@ -4153,11 +4184,11 @@ function renderTopBuys() {
         <div class="mini" style="color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.name || "")}</div>
         ${aboveTgtBadge(r.price, r.tbuy) ? '<div style="margin-top:2px">' + aboveTgtBadge(r.price, r.tbuy) + "</div>" : ""}
       </div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${encodeURIComponent(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? encodeURIComponent(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
+      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? tipRef(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? tipRef(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
+      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? tipRef(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
     </div>`;
   };
   wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
@@ -5226,7 +5257,7 @@ function renderRebalance() {
     .map(
       (
         x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbBuyTipHTML(x, _ctx(x.cat)))}">
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbBuyTipHTML(x, _ctx(x.cat)))}">
     <td class="l"><div><b>${x.ticker}</b> ${x.held ? '<span class="tag-in" style="font-size:9px">held</span>' : '<span class="badge b-buy" style="font-size:9px">new</span>'}${aboveTgtBadge(x.px, x.tbuy)} <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
     <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)}</td>
     <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
@@ -5255,7 +5286,7 @@ function renderRebalance() {
     .map(
       (
         x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
+      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
     <td class="l"><div><b>${x.ticker}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
     <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)} \u00B7 ${x.account}</td>
     <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
@@ -5869,7 +5900,7 @@ window.showCompanyDetail = function (tk) {
     '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0' +
     (tip ? ";cursor:help" : "") +
     '" ' +
-    (tip ? 'data-tip="' + encodeURIComponent(tip) + '"' : "") +
+    (tip ? 'data-tip="' + tipRef(tip) + '"' : "") +
     "><span>" +
     l +
     '</span><span class="' +
@@ -5919,27 +5950,27 @@ window.showCompanyDetail = function (tk) {
     let fb =
       '<table style="width:100%;font-size:12px"><thead><tr>' +
       '<th class="l" style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "The 10 scoring factors. Each is normalised to 0-100%, weighted by the sector profile, then blended into the Signal Score.",
       ) +
       '">Factor</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "The underlying raw metric value fed into this factor (e.g. EV/EBITDA for Valuation, ROE for Quality).",
       ) +
       '">Raw</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "How much this factor counts toward the Signal Score for this sector. Weights differ per sector profile (e.g. banks lean on Book & ROE; FCF yield is 0 for financials).",
       ) +
       '">Weight</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "This factor's own 0-100% score. Green >65% favourable, red <35% unfavourable. Blank = no data for this factor (it is skipped and the score re-normalised).",
       ) +
       '">Score</th>' +
       '<th style="cursor:help" data-tip="' +
-      encodeURIComponent(
+      tipRef(
         "Score x Weight = how many points this factor adds to the composite. The row that contributes most is driving the signal.",
       ) +
       '">Contribution</th></tr></thead><tbody>';
@@ -6224,14 +6255,14 @@ function renderSignals() {
   const rowHtml = (r) => `<tr class="${r.held ? "held-row" : ""} sig-row">
     <td class="l" style="cursor:pointer" data-tip="Click to draft a pending order for ${escapeHtml(r.ticker)}" data-act="prefillPending" data-args="${r.ticker}" data-stop="true"><b style="color:var(--primary2)">${escapeHtml(r.ticker)}</b>${r.held ? ' <span class="tag-in">held</span>' : ""}</td>
     <td class="l" style="cursor:pointer;color:var(--text2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="${r.ticker}" data-stop="true">${escapeHtml(r.name || "")}</td>
-    <td class="center nis-cell" style="cursor:help" data-tip="${encodeURIComponent(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
-    <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? encodeURIComponent(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? encodeURIComponent(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
-    <td class="${r.tbuy != null ? "nis-cell" : ""}" style="${r.tbuy != null ? "cursor:help" : ""}" data-tip="${r.tbuy != null ? encodeURIComponent(tgtBuyTipHTML(r)) : ""}">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</td>
-    <td class="${r.tsell != null ? "nis-cell" : ""}" style="${r.tsell != null ? "cursor:help" : ""}" data-tip="${r.tsell != null ? encodeURIComponent(tgtSellTipHTML(r)) : ""}">${r.tsell != null ? money(r.tsell) : "\u2014"}</td>
-    <td class="${r.score != null ? "nis-cell" : ""}" style="${r.score != null ? "cursor:help" : ""}" data-tip="${r.score != null ? encodeURIComponent(scoreTipHTML(r)) : ""}">${r.score != null ? (r.score * 100).toFixed(0) + "%" : "\u2014"}</td>
-    <td class="center ${r.sc ? "nis-cell" : ""}" style="${r.sc ? "cursor:help" : ""}" data-tip="${r.sc ? encodeURIComponent(convTipHTML(r)) : ""}">${r.conviction ? `<span class="chip" style="background:${r.conviction === "High" ? "rgba(34,197,94,.15);color:var(--success)" : r.conviction === "Medium" ? "rgba(245,158,11,.15);color:var(--warn)" : "rgba(239,68,68,.15);color:var(--error)"}">${r.conviction}</span>` : "\u2014"}</td>
-    <td class="${r.pir != null ? "nis-cell" : ""}" style="${r.pir != null ? "cursor:help" : ""}" data-tip="${r.pir != null ? encodeURIComponent(pirTipHTML(r)) : ""}">${r.pir != null ? pct(r.pir) : "\u2014"}</td><td class="${r.pe != null ? "nis-cell" : ""}" style="${r.pe != null ? "cursor:help" : ""}" data-tip="${r.pe != null ? encodeURIComponent(peTipHTML(r)) : ""}">${r.pe != null ? money(r.pe, 1) : "\u2014"}</td>
-    <td class="${r.divy != null ? "nis-cell" : ""}" style="${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? encodeURIComponent(divyTipHTML(r)) : ""}">${r.divy != null ? pct(r.divy) : "\u2014"}</td></tr>`;
+    <td class="center nis-cell" style="cursor:help" data-tip="${tipRef(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
+    <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? tipRef(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? tipRef(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
+    <td class="${r.tbuy != null ? "nis-cell" : ""}" style="${r.tbuy != null ? "cursor:help" : ""}" data-tip="${r.tbuy != null ? tipRef(tgtBuyTipHTML(r)) : ""}">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</td>
+    <td class="${r.tsell != null ? "nis-cell" : ""}" style="${r.tsell != null ? "cursor:help" : ""}" data-tip="${r.tsell != null ? tipRef(tgtSellTipHTML(r)) : ""}">${r.tsell != null ? money(r.tsell) : "\u2014"}</td>
+    <td class="${r.score != null ? "nis-cell" : ""}" style="${r.score != null ? "cursor:help" : ""}" data-tip="${r.score != null ? tipRef(scoreTipHTML(r)) : ""}">${r.score != null ? (r.score * 100).toFixed(0) + "%" : "\u2014"}</td>
+    <td class="center ${r.sc ? "nis-cell" : ""}" style="${r.sc ? "cursor:help" : ""}" data-tip="${r.sc ? tipRef(convTipHTML(r)) : ""}">${r.conviction ? `<span class="chip" style="background:${r.conviction === "High" ? "rgba(34,197,94,.15);color:var(--success)" : r.conviction === "Medium" ? "rgba(245,158,11,.15);color:var(--warn)" : "rgba(239,68,68,.15);color:var(--error)"}">${r.conviction}</span>` : "\u2014"}</td>
+    <td class="${r.pir != null ? "nis-cell" : ""}" style="${r.pir != null ? "cursor:help" : ""}" data-tip="${r.pir != null ? tipRef(pirTipHTML(r)) : ""}">${r.pir != null ? pct(r.pir) : "\u2014"}</td><td class="${r.pe != null ? "nis-cell" : ""}" style="${r.pe != null ? "cursor:help" : ""}" data-tip="${r.pe != null ? tipRef(peTipHTML(r)) : ""}">${r.pe != null ? money(r.pe, 1) : "\u2014"}</td>
+    <td class="${r.divy != null ? "nis-cell" : ""}" style="${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? tipRef(divyTipHTML(r)) : ""}">${r.divy != null ? pct(r.divy) : "\u2014"}</td></tr>`;
   const _tb = rows
     .map((r) => {
       let out = "";
@@ -6421,7 +6452,7 @@ function renderSignalOutcomes() {
   const aggCard = (label, b, tip) => {
     const ex = exAvg(b);
     return (
-      `<div class="card nis-cell" data-tip="${encodeURIComponent(tip)}" style="cursor:help">` +
+      `<div class="card nis-cell" data-tip="${tipRef(tip)}" style="cursor:help">` +
       `<div class="label">${label} <span class="mini">(${b.n})</span></div>` +
       `<div class="value ${b.n ? cls(avg(b)) : ""}">${b.n ? pctS(avg(b)) : "\u2014"}</div>` +
       `<div class="mini" style="margin-top:2px">vs bench: <span class="${ex != null ? cls(ex) : ""}">${ex != null ? pctS(ex) : "\u2014"}</span></div>` +
@@ -6432,7 +6463,7 @@ function renderSignalOutcomes() {
     '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name). "vs bench" = excess over the average name from the same start date.</span></div>';
   h +=
     '<div class="grid kpis" style="margin-bottom:10px">' +
-    `<div class="card nis-cell" data-tip="${encodeURIComponent("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
+    `<div class="card nis-cell" data-tip="${tipRef("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
     aggCard(
       "Buy-rated",
       agg.buy,
@@ -7345,7 +7376,7 @@ function renderDividends(pos) {
         const eligNow = eligibleSharesAtEx(d);
         const amtCell =
           eligNow > 0
-            ? `<td class="nis-cell" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, eligNow))}">${money(d.amount)} <span style="color:var(--muted)">\u24D8</span></td>`
+            ? `<td class="nis-cell" style="cursor:help" data-tip="${tipRef(divEstTipHTML(d, eligNow))}">${money(d.amount)} <span style="color:var(--muted)">\u24D8</span></td>`
             : `<td>${money(d.amount)}</td>`;
         const rowStyle =
           st.t === "\u26A0 Not recorded"
@@ -7489,7 +7520,7 @@ function renderDashDivs(pos) {
           : "";
       })()}</td>
       <td class="l" style="color:var(--text2)">${escapeHtml(d.issuer || "")}</td><td>${money(d.amount)}</td>
-      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${encodeURIComponent(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
+      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${tipRef(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
     })
     .join("");
 }
@@ -7747,11 +7778,11 @@ function renderTxns(enriched) {
             ? "b-sell"
             : "b-wait";
       const rowStyle = t.auto ? ' style="background:rgba(245,158,11,.10)"' : "";
-      return `<tr${rowStyle}><td class="center"><input type="checkbox" class="txnChk" data-idx="${i}"></td><td class="l">${t.date}</td><td class="l"><b>${escapeHtml(t.ticker)}</b>${t.auto ? ' <span class="chip nis-cell" style="background:rgba(245,158,11,.18);color:var(--warn);cursor:help" data-tip="' + encodeURIComponent(autoDivTip(t)) + '">auto \u24D8</span>' : ""}${typeof t.total === "number" && t.total > 0 ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Manual total \u2014 custom fees (e.g. OPCVM)">manual</span>' : ""}</td>
+      return `<tr${rowStyle}><td class="center"><input type="checkbox" class="txnChk" data-idx="${i}"></td><td class="l">${t.date}</td><td class="l"><b>${escapeHtml(t.ticker)}</b>${t.auto ? ' <span class="chip nis-cell" style="background:rgba(245,158,11,.18);color:var(--warn);cursor:help" data-tip="' + tipRef(autoDivTip(t)) + '">auto \u24D8</span>' : ""}${typeof t.total === "number" && t.total > 0 ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Manual total \u2014 custom fees (e.g. OPCVM)">manual</span>' : ""}</td>
       <td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml((M[t.ticker] && M[t.ticker].name) || "")}">${escapeHtml((M[t.ticker] && M[t.ticker].name) || "\u2014")}</td>
       <td class="l"><span class="badge ${ac}">${t.action}</span></td><td>${money(t.qty, t.qty % 1 ? 3 : 0)}</td>
       <td>${money(t.price)}</td><td>${e.fees != null ? money(e.fees) : "\u2014"}</td><td>${e.tax != null ? money(e.tax) : "\u2014"}</td>
-      <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? encodeURIComponent(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
+      <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
       <td style="text-align:center">${t.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "Reg"}</td>
       <td style="font-size:10px;text-align:center">${escapeHtml((BROKERS[txnBroker(t)] || {}).name || txnBroker(t))}</td>
       <td class="center" style="white-space:nowrap"><button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editTxn" data-args="${i}" aria-label="Edit transaction" title="Edit transaction">\u270E</button><button class="chip" style="cursor:pointer;border:none" data-act="delTxn" data-args="${i}" aria-label="Delete transaction" title="Delete transaction">\u2715</button></td></tr>`;
@@ -12186,7 +12217,7 @@ function pendingFlagBadge(o) {
       : "\u26a0 \u2212" + (f.pct * 100).toFixed(0) + "% vs tgt sell";
   return (
     ' <span class="badge b-abovetgt" style="cursor:help" data-tip="' +
-    encodeURIComponent(f.msg) +
+    tipRef(f.msg) +
     '">' +
     label +
     "</span>"
@@ -12502,7 +12533,7 @@ function renderPending() {
             const _tip = pendingUnitPxTipHTML(o);
             return (
               '<td style="cursor:help;border-bottom:1px dotted var(--border-l)" data-tip="' +
-              encodeURIComponent(_tip) +
+              tipRef(_tip) +
               '">' +
               money(o.price) +
               ' <span style="color:var(--muted)">\u24d8</span></td>'
@@ -12518,7 +12549,7 @@ function renderPending() {
             const _tip = pendingUnitPxTipHTML(o);
             return (
               '<td class="center" style="cursor:help" data-tip="' +
-              encodeURIComponent(_tip) +
+              tipRef(_tip) +
               '"><div style="display:inline-block;vertical-align:middle">' +
               rb.bar +
               "</div></td>"
@@ -12590,7 +12621,7 @@ function renderPending() {
                 '<div class="mini" style="margin-top:4px;color:var(--muted)">Manual total entered \u2014 fees implied.</div>';
             return (
               '<td style="cursor:help" data-tip="' +
-              encodeURIComponent(h) +
+              tipRef(h) +
               '">' +
               money(expTot) +
               ' <span style="color:var(--muted)">\u24D8</span></td>'
@@ -12605,7 +12636,7 @@ function renderPending() {
             const _tip =
               typeof divyTipHTML === "function"
                 ? ' data-tip="' +
-                  encodeURIComponent(
+                  tipRef(
                     divyTipHTML({
                       ticker: o.ticker,
                       m: _m,
@@ -12781,7 +12812,7 @@ function renderPending() {
               "</b>"
             : "<b>" + escapeHtml(o.ticker) + "</b>";
           return `<tr><td class="l">${o.date}</td><td class="l" style="color:var(--text2)">${o.exDate || "\u2014"}</td><td class="l">${_tkCell}${o.pea ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : ""}</td>
-          <td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td><td>${money(o.price)}</td><td class="pos nis-cell" style="cursor:help" data-tip="${encodeURIComponent(tip)}">${money(net)} <span style="color:var(--muted)">\u24D8</span></td>
+          <td>${money(o.qty, o.qty % 1 ? 3 : 0)}</td><td>${money(o.price)}</td><td class="pos nis-cell" style="cursor:help" data-tip="${tipRef(tip)}">${money(net)} <span style="color:var(--muted)">\u24D8</span></td>
           <td class="center" style="font-size:11px">${(BROKERS[o.broker] || {}).name || (o.pea ? "PEA" : "REG")}<br><span class="mini">${o.pea ? "PEA" : "Reg"}</span></td>
           <td class="center" style="white-space:nowrap">
             <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark received \u2192 add to Transactions">\u2713</button>
@@ -15908,10 +15939,13 @@ function renderSalary() {
   }
   // Build a sanitized DOM fragment from tooltip HTML. Returns a DocumentFragment
   // (never an HTML string), so callers use replaceChildren instead of innerHTML.
+  // `html` here is always TRUSTED app output taken from the __TIP registry
+  // (see tipRef below) - never a value read from the DOM - so no untrusted
+  // string is ever parsed as HTML. The whitelist below is defense-in-depth.
   function buildTipNodes(html) {
     // Parse with DOMParser (an inert document - scripts do not run, and no
     // element is ever assigned via innerHTML), then transplant only whitelisted
-    // nodes into the live tooltip. This breaks the untrusted-string -> HTML flow.
+    // nodes into the live tooltip.
     const doc = new DOMParser().parseFromString(String(html), "text/html");
     const OK_TAGS = {
       B: 1,
@@ -15975,23 +16009,29 @@ function renderSalary() {
     if (!t) {
       return;
     }
-    cur = t;
     var raw = t.getAttribute("data-tip") || "";
-    var txt = raw;
-    if (/%[0-9A-Fa-f]{2}/.test(raw)) {
-      try {
-        txt = decodeURIComponent(raw);
-      } catch (_) {
-        txt = raw;
-      }
-    }
-    if (/<[a-z][\s\S]*>/i.test(txt)) {
-      // Tooltips may contain our own formatting markup (<b>, <span>, <div>).
-      // Parse + sanitize into DOM nodes and attach them - no innerHTML sink,
-      // so untrusted attribute text can never be reinterpreted as live HTML.
-      tip.replaceChildren(buildTipNodes(txt));
+    if (raw === "") return; // empty data-tip -> no tooltip
+    cur = t;
+    // Rich (HTML) tooltips are registered in the trusted __TIP store and the
+    // attribute only carries an opaque token (e.g. "#t42"). Plain-text tooltips
+    // keep their literal string in the attribute. This means untrusted DOM text
+    // is NEVER parsed as HTML - only trusted, app-built HTML from __TIP is.
+    var token = /^#t\d+$/.test(raw) ? raw : null;
+    if (token) {
+      const html = __TIP.get(token);
+      if (html == null) return; // token with no (surviving) content -> skip
+      tip.replaceChildren(buildTipNodes(html));
       tip.style.whiteSpace = "normal";
     } else {
+      // Legacy/plain path: literal text (optionally %-encoded), shown as text.
+      var txt = raw;
+      if (/%[0-9A-Fa-f]{2}/.test(raw)) {
+        try {
+          txt = decodeURIComponent(raw);
+        } catch (_) {
+          txt = raw;
+        }
+      }
       tip.textContent = txt;
       tip.style.whiteSpace = "pre-line";
     }
@@ -16384,7 +16424,7 @@ function renderCash() {
 
   // Summary cards
   const card = (label, value, cls, tip) =>
-    `<div class="card nis-cell"${tip ? ' style="cursor:help" data-tip="' + encodeURIComponent(tip) + '"' : ""}>` +
+    `<div class="card nis-cell"${tip ? ' style="cursor:help" data-tip="' + tipRef(tip) + '"' : ""}>` +
     `<div class="label">${label}</div>` +
     `<div class="value ${cls || ""}">${value}</div></div>`;
 
