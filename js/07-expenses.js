@@ -1218,6 +1218,15 @@ function eRenderCarPlanBanner() {
       box.style.borderColor = cc + "55";
       box.style.background = cc + "14";
     };
+    // On COMMIT (blur / Enter), recompute the savings log's future car months
+    // from the new monthly set-aside. Done on change (not oninput) so we don't
+    // rebuild the log on every keystroke and steal input focus. Future-only, so
+    // realized/past months are never rewritten.
+    inp.onchange = () => {
+      E_STATE.carMonthlySave = +inp.value || 0;
+      eSave();
+      eApplyCarPlan();
+    };
   }
 }
 
@@ -2302,6 +2311,10 @@ document.addEventListener("click", (ev) => {
     E_STATE.carPlan.push({ name: "New car cost", amt: 0, months: [] });
     eSave();
     eRenderCarPlan();
+    // Recompute the savings log's FUTURE car months from the live plan so the
+    // Car line in the log stays in sync. eApplyCarPlan only rewrites today-or-
+    // future months (history is preserved) and re-renders the log + buckets.
+    eApplyCarPlan();
   }
   if (t.id === "e_carApply") {
     if (!E_STATE) eLoad();
