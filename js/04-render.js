@@ -714,7 +714,57 @@ function divTipHTML(p) {
   return h;
 }
 
+// "Net if sold" tooltip. A position may span multiple accounts (e.g. PEA at
+// Attijari + Regular at Saham). Each account has its OWN broker/fee structure,
+// so we render a per-account split (one block per account) instead of forcing a
+// single broker. Single-account positions render one block, unchanged.
 function netIfSoldTipHTML(p) {
+  // _tipParts = the per-account sub-positions that contribute a netIfSold
+  // (set by mergePositions). Absent for already-single-account positions.
+  const parts =
+    p._tipParts && p._tipParts.length
+      ? p._tipParts
+      : p.children && p.children.length
+        ? p.children.filter((c) => c.netIfSold != null && c.value > 0)
+        : null;
+  if (parts && parts.length > 1) {
+    let combNet = 0,
+      combFees = 0,
+      combTax = 0;
+    const blocks = parts
+      .slice()
+      .sort((a, b) => (a.isPea ? 0 : 1) - (b.isPea ? 0 : 1))
+      .map((c) => {
+        combNet += c.netIfSold || 0;
+        combFees += c.sellFees || 0;
+        combTax += c.sellTax || 0;
+        const bkName =
+          (BROKERS[c.broker] && BROKERS[c.broker].name) ||
+          (c.isPea ? "Attijari" : "Saham");
+        return (
+          `<div style="font-weight:700;margin:2px 0 4px;color:var(--info)">${escapeHtml(c.account)} \u00B7 ${escapeHtml(bkName)}</div>` +
+          _nisSingle(c, true)
+        );
+      })
+      .join(
+        '<div style="border-top:1px solid var(--border);margin:7px 0"></div>',
+      );
+    return (
+      blocks +
+      `<div style="border-top:2px solid var(--border);margin:8px 0 4px"></div>` +
+      `<div style="display:flex;justify-content:space-between;gap:20px;font-weight:700"><span>Combined net if sold</span><span style="font-family:var(--mono)">${money(combNet)} MAD</span></div>` +
+      `<div style="display:flex;justify-content:space-between;gap:20px;color:var(--text2)"><span class="mini">Total fees / tax across accounts</span><span class="mini" style="font-family:var(--mono)">\u2212${money(combFees)} / \u2212${money(combTax)}</span></div>`
+    );
+  }
+  // Single account: render the one contributing sub-position if present so the
+  // broker/fees always match where the shares actually sit.
+  const only = parts && parts.length === 1 ? parts[0] : p;
+  return _nisSingle(only, false);
+}
+
+// Single-account "net if sold" breakdown for position `p`. `compact` trims the
+// header (used when rendered inside a per-account split block).
+function _nisSingle(p, compact) {
   // Itemized breakdown: gross -> each fee component -> tax -> net
   const gross = p.value;
   const tax = p.sellTax || 0;
@@ -723,7 +773,9 @@ function netIfSoldTipHTML(p) {
   const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
   const meta = M[p.ticker];
   const isOpcvm = !!(meta && meta.cat === "OPCVM");
-  let h = `<div style="font-weight:700;margin-bottom:6px">If sold today \u00B7 ${p.account} account</div>`;
+  let h = compact
+    ? ""
+    : `<div style="font-weight:700;margin-bottom:6px">If sold today \u00B7 ${escapeHtml(p.account)} account</div>`;
   h += row("Gross (market value)", money(gross) + " MAD");
   if (isOpcvm) {
     const sf = meta.sellFee != null ? meta.sellFee : null;
@@ -1061,6 +1113,10 @@ function mergePositions(arr) {
     g.children = (g._children || [])
       .slice()
       .sort((a, b) => (a.isPea ? 0 : 1) - (b.isPea ? 0 : 1));
+    // Per-account sub-positions that contribute a "net if sold" estimate. The
+    // tooltip uses these to show a per-account fee split (each with its own
+    // broker), so the main row never forces a single broker's fees.
+    g._tipParts = g.children.filter((c) => c.netIfSold != null && c.value > 0);
     delete g._accts;
     delete g._heldAccts;
     delete g._hasNet;
