@@ -117,3 +117,37 @@ export const SAVE_REFRESH_CONNECTIONS = [
 export function requiredSaveRefreshes() {
   return SAVE_REFRESH_CONNECTIONS.slice();
 }
+
+/**
+ * PLAN_RECOMPUTE_CONNECTIONS: the Savings-Pots recurring-cost planners are the
+ * single source for the Car/Other columns of the savings log. Editing a cost
+ * (amount, months, add, delete) or the monthly set-aside must RECOMPUTE the log
+ * via eApplyCarPlan()/eApplyOtherPlan() - not merely re-render stale stored
+ * values. This was the exact "added a car cost but the log didn't change" bug.
+ * The renderer functions below own the per-row edit handlers, so each MUST
+ * reference its apply function.
+ *
+ *  - fn:     the renderer function whose edit handlers must recompute
+ *  - file:   the source file it lives in
+ *  - must:   the apply call that must appear in its body
+ */
+export const PLAN_RECOMPUTE_CONNECTIONS = [
+  {
+    fn: "eRenderCarPlan",
+    file: "js/07-expenses.js",
+    must: "eApplyCarPlan",
+    reason:
+      "car-cost edits must recompute the log's Car column, not restale it",
+  },
+  {
+    fn: "eRenderOtherPlan",
+    file: "js/07-expenses.js",
+    must: "eApplyOtherPlan",
+    reason: "other-cost edits must recompute the log's Other column",
+  },
+];
+
+/** The plan-recompute connections the checker must verify. */
+export function requiredPlanRecomputes() {
+  return PLAN_RECOMPUTE_CONNECTIONS.slice();
+}
