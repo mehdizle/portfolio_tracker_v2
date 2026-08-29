@@ -11,6 +11,7 @@ import * as backupCrypto from "./core/backup-crypto.js";
 import * as txnSchema from "./core/txn-schema.js";
 import * as masterSchema from "./core/master-schema.js";
 import * as connections from "./core/connection-manifest.js";
+import * as planApply from "./core/plan-apply.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -27,5 +28,6 @@ globalThis.__core = {
   txnSchema,
   masterSchema,
   connections,
+  planApply,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };
