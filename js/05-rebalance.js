@@ -897,90 +897,8 @@ function rbDraftAll() {
 }
 
 // \u2500\u2500 Company Detail Page (full overlay, triggered from Signals tab name click) \u2500\u2500
-window.showCompanyDetail = function (tk) {
-  const m = M[tk];
-  if (!m) return;
-  const sc = typeof factorScores === "function" ? factorScores(m) : null;
-  const fv = typeof fairValue === "function" ? fairValue(m) : null;
-  const fvParts = typeof fairValueParts === "function" ? fairValueParts(m) : [];
-  const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
-  const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
-  const sig =
-    typeof signal === "function"
-      ? signal(m, sc, heldSharesOf(runFIFO().pos, tk) > 0)
-      : null;
-  const eq =
-    typeof earningsQuality === "function"
-      ? earningsQuality(m)
-      : { ok: true, flags: [] };
-  const _pr = typeof peerRelScore === "function" ? peerRelScore(m) : null;
-  const ds = typeof divSafety === "function" ? divSafety(m) : null;
-  const pir = typeof posInRange === "function" ? posInRange(m) : null;
-  const prof =
-    typeof sectorProfile === "function" ? sectorProfile(m.cat) : null;
-  const row = (l, v, cl) =>
-    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>' +
-    l +
-    '</span><span class="' +
-    (cl || "") +
-    '" style="font-family:var(--mono)">' +
-    v +
-    "</span></div>";
-  const sec = (title, body) =>
-    '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"><div style="font-weight:700;margin-bottom:8px;font-size:13px">' +
-    title +
-    "</div>" +
-    body +
-    "</div>";
-
-  let h = "";
-  // Header
-  h +=
-    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">';
-  h +=
-    '<div><h2 style="margin:0">' +
-    escapeHtml(tk) +
-    " \u2014 " +
-    escapeHtml(m.name || "") +
-    "</h2>";
-  h +=
-    '<div class="mini" style="margin-top:4px;color:var(--text2)">' +
-    (m.cat || "\u2014") +
-    " \u00B7 " +
-    (m.cycle || "\u2014") +
-    " \u00B7 " +
-    (m.style || "\u2014") +
-    " \u00B7 Profile: " +
-    (prof ? prof.label : "\u2014") +
-    "</div></div>";
-  h +=
-    '<button class="btn sec2" data-act="closeCompanyDetail" style="padding:4px 12px">\u2715 Close</button></div>';
-  // Signal badge
-  if (sig)
-    h +=
-      '<div style="margin-bottom:12px"><span class="badge ' +
-      sig.c +
-      '">' +
-      sig.t +
-      "</span></div>";
-
-  // Grid: 2 columns
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
-
-  // Col 1: Metrics (color-coded with educational tooltip: what it means + why the color)
-  // trow = row with a data-tip explaining the metric definition, threshold logic, and color reason
-  const trow = (l, v, cl, tip) =>
-    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0' +
-    (tip ? ";cursor:help" : "") +
-    '" ' +
-    (tip ? 'data-tip="' + encodeURIComponent(tip) + '"' : "") +
-    "><span>" +
-    l +
-    '</span><span class="' +
-    (cl || "") +
-    '" style="font-family:var(--mono)">' +
-    v +
-    "</span></div>";
+// Extracted from showCompanyDetail: Key Metrics column (byte-identical block).
+function _cdKeyMetrics(m, pir, trow) {
   let m1 = "";
   m1 += trow(
     "Live Price",
@@ -1223,9 +1141,11 @@ window.showCompanyDetail = function (tk) {
         "\n\nAlso validates PEG: PEG = P/E \u00f7 Growth. If growth is negative, PEG is misleading.",
     );
   }
-  h += sec("\ud83d\udcca Key Metrics", m1);
+  return m1;
+}
 
-  // Col 2: Valuation + Signal (with educational tooltips)
+// Extracted from showCompanyDetail: Valuation & Signal column (byte-identical block).
+function _cdValuationSignal(m, sc, fv, fvParts, tb, ts, trow) {
   let m2 = "";
   m2 += trow(
     "<b>Fair Value</b>",
@@ -1310,6 +1230,98 @@ window.showCompanyDetail = function (tk) {
       'Quality = Weighted blend of ROE + Safety + Growth, penalized by earnings-quality red flags.\n\nIsolates "is this a good business?" from "is it cheap?" A cheap stock with low quality = value trap.\n\nGreen (>60%): strong business.\nRed (<35%): weak \u2192 may block BUY.\nNeutral: adequate.',
     );
   }
+  return m2;
+}
+
+window.showCompanyDetail = function (tk) {
+  const m = M[tk];
+  if (!m) return;
+  const sc = typeof factorScores === "function" ? factorScores(m) : null;
+  const fv = typeof fairValue === "function" ? fairValue(m) : null;
+  const fvParts = typeof fairValueParts === "function" ? fairValueParts(m) : [];
+  const tb = typeof targetBuy === "function" ? targetBuy(m, sc) : null;
+  const ts = typeof targetSell === "function" ? targetSell(m, sc) : null;
+  const sig =
+    typeof signal === "function"
+      ? signal(m, sc, heldSharesOf(runFIFO().pos, tk) > 0)
+      : null;
+  const eq =
+    typeof earningsQuality === "function"
+      ? earningsQuality(m)
+      : { ok: true, flags: [] };
+  const _pr = typeof peerRelScore === "function" ? peerRelScore(m) : null;
+  const ds = typeof divSafety === "function" ? divSafety(m) : null;
+  const pir = typeof posInRange === "function" ? posInRange(m) : null;
+  const prof =
+    typeof sectorProfile === "function" ? sectorProfile(m.cat) : null;
+  const row = (l, v, cl) =>
+    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>' +
+    l +
+    '</span><span class="' +
+    (cl || "") +
+    '" style="font-family:var(--mono)">' +
+    v +
+    "</span></div>";
+  const sec = (title, body) =>
+    '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"><div style="font-weight:700;margin-bottom:8px;font-size:13px">' +
+    title +
+    "</div>" +
+    body +
+    "</div>";
+
+  let h = "";
+  // Header
+  h +=
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">';
+  h +=
+    '<div><h2 style="margin:0">' +
+    escapeHtml(tk) +
+    " \u2014 " +
+    escapeHtml(m.name || "") +
+    "</h2>";
+  h +=
+    '<div class="mini" style="margin-top:4px;color:var(--text2)">' +
+    (m.cat || "\u2014") +
+    " \u00B7 " +
+    (m.cycle || "\u2014") +
+    " \u00B7 " +
+    (m.style || "\u2014") +
+    " \u00B7 Profile: " +
+    (prof ? prof.label : "\u2014") +
+    "</div></div>";
+  h +=
+    '<button class="btn sec2" data-act="closeCompanyDetail" style="padding:4px 12px">\u2715 Close</button></div>';
+  // Signal badge
+  if (sig)
+    h +=
+      '<div style="margin-bottom:12px"><span class="badge ' +
+      sig.c +
+      '">' +
+      sig.t +
+      "</span></div>";
+
+  // Grid: 2 columns
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+  // Col 1: Metrics (color-coded with educational tooltip: what it means + why the color)
+  // trow = row with a data-tip explaining the metric definition, threshold logic, and color reason
+  const trow = (l, v, cl, tip) =>
+    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0' +
+    (tip ? ";cursor:help" : "") +
+    '" ' +
+    (tip ? 'data-tip="' + encodeURIComponent(tip) + '"' : "") +
+    "><span>" +
+    l +
+    '</span><span class="' +
+    (cl || "") +
+    '" style="font-family:var(--mono)">' +
+    v +
+    "</span></div>";
+  const m1 = _cdKeyMetrics(m, pir, trow);
+  h += sec("\ud83d\udcca Key Metrics", m1);
+
+  // Col 2: Valuation + Signal (with educational tooltips)
+  const m2 = _cdValuationSignal(m, sc, fv, fvParts, tb, ts, trow);
   h += sec("\ud83c\udfaf Valuation & Signal", m2);
 
   h += "</div>"; // close grid
