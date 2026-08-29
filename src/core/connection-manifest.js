@@ -100,7 +100,7 @@ export const SAVE_REFRESH_CONNECTIONS = [
   },
   {
     fn: "savePending",
-    file: "js/06-features.js",
+    file: "js/06d-pending.js",
     must: "refreshKpiRow",
     reason:
       "pending orders drive Cash Available, Pending Orders, Upcoming Dividends",
