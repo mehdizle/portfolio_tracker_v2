@@ -1119,9 +1119,10 @@ function eRenderCarPlan() {
       }
     };
     el.onblur = () => {
-      eRenderCarPlan();
-      eRenderLog();
-    }; // full refresh once editing is done (also updates log locks)
+      // Recompute the log's future car months from the edited amount (not just
+      // re-render the stale stored values). eApplyCarPlan re-renders everything.
+      eApplyCarPlan();
+    };
   });
   body.querySelectorAll("[data-cm]").forEach((el) => {
     el.onclick = () => {
@@ -1132,16 +1133,16 @@ function eRenderCarPlan() {
       else c.months.push(m);
       c.months.sort((a, b) => a - b);
       eSave();
-      eRenderCarPlan();
-      eRenderLog();
+      // Recompute the log so this month's car value reflects the new schedule.
+      eApplyCarPlan();
     };
   });
   body.querySelectorAll("[data-cdel]").forEach((el) => {
     el.onclick = () => {
       E_STATE.carPlan.splice(+el.dataset.cdel, 1);
       eSave();
-      eRenderCarPlan();
-      eRenderLog();
+      // Recompute so the removed cost stops affecting future months.
+      eApplyCarPlan();
     };
   });
 
@@ -1505,8 +1506,8 @@ function eRenderOtherPlan() {
       }
     };
     el.onblur = () => {
-      eRenderOtherPlan();
-      eRenderLog();
+      // Recompute the log's future Other months from the edited amount.
+      eApplyOtherPlan();
     };
   });
   body.querySelectorAll("[data-om]").forEach((el) => {
@@ -1518,16 +1519,14 @@ function eRenderOtherPlan() {
       else c.months.push(m);
       c.months.sort((a, b) => a - b);
       eSave();
-      eRenderOtherPlan();
-      eRenderLog();
+      eApplyOtherPlan();
     };
   });
   body.querySelectorAll("[data-odel]").forEach((el) => {
     el.onclick = () => {
       E_STATE.otherPlan.splice(+el.dataset.odel, 1);
       eSave();
-      eRenderOtherPlan();
-      eRenderLog();
+      eApplyOtherPlan();
     };
   });
 
@@ -1690,16 +1689,20 @@ function eRenderBuckets() {
       </div>`;
     } else {
       // Target source per pot:
-      //  - car: AUTO from the recurring car costs (read-only, updates with the planner)
-      //  - mt : NO yearly target (loan-driven pot; we show in-account instead)
-      //  - others (btOther): user-editable yearly target
-      const autoTarget = key === "car";
+      //  - car:    AUTO from the recurring car costs (read-only, planner-driven)
+      //  - btOther:AUTO from the recurring other costs (read-only, planner-driven)
+      //  - mt :    NO yearly target (loan-driven pot; we show in-account instead)
+      // No pot has a manually-typed yearly target anymore - the planners are the
+      // single source, so there can't be two conflicting values.
+      const autoTarget = key === "car" || key === "btOther";
       const noTarget = key === "mt";
       const target = noTarget
         ? 0
-        : autoTarget
+        : key === "car"
           ? eCarPlanYearlyTotal()
-          : +T[key] || 0;
+          : key === "btOther"
+            ? eOtherPlanYearlyTotal()
+            : +T[key] || 0;
       const basis =
         target > 0 ? Math.min(100, Math.max(0, (s.acc / target) * 100)) : 0;
       const over = target > 0 && s.acc > target;
@@ -1726,7 +1729,7 @@ function eRenderBuckets() {
             : autoTarget
               ? `<div class="pot-bar ${over ? "over" : ""}"><i style="width:${basis.toFixed(0)}%"></i></div>
         <div class="potrow"><span>Yearly target</span><span class="mono">${money(target, 0)}</span></div>
-        <div class="mini" style="color:var(--muted);margin-top:-2px">from recurring car costs</div>`
+        <div class="mini" style="color:var(--muted);margin-top:-2px">from recurring ${key === "car" ? "car" : "other"} costs</div>`
               : target > 0
                 ? `<div class="pot-bar ${over ? "over" : ""}"><i style="width:${basis.toFixed(0)}%"></i></div>
         <div class="potrow"><span>Yearly target</span><span><input class="target-inp" type="number" step="100" value="${target}" data-pottgt="${key}"></span></div>`
@@ -1736,10 +1739,16 @@ function eRenderBuckets() {
           // Car pot: "Need / mo" = the same monthly set-aside shown under Recurring
           // car costs (yearly plan total \u00F7 12 = target \u00F7 12, single source). "Paid out"
           // = actual plan cost for realized months this year.
-          const saveMo = key === "car" ? target / 12 : s.monthlySave;
-          const paidYTD = key === "car" ? eCarPaidOutYTD() : s.paidOutYTD;
-          const saveLabel =
-            key === "car" ? "Need / mo (target \u00F7 12)" : "Saving / mo";
+          const saveMo = autoTarget ? target / 12 : s.monthlySave;
+          const paidYTD =
+            key === "car"
+              ? eCarPaidOutYTD()
+              : key === "btOther"
+                ? eOtherPaidOutYTD()
+                : s.paidOutYTD;
+          const saveLabel = autoTarget
+            ? "Need / mo (target \u00F7 12)"
+            : "Saving / mo";
           return (
             '<div class="potrow"><span>' +
             saveLabel +
