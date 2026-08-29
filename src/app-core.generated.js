@@ -15847,32 +15847,69 @@ function renderSalary() {
     tip.style.left = x + "px";
     tip.style.top = y + "px";
   }
-  // Sanitize tooltip HTML: parse in a detached document, then strip dangerous
-  // nodes/attributes. Whitelist keeps only inline formatting we actually use.
-  function sanitizeTipHtml(html) {
-    const tpl = document.createElement("template");
-    tpl.innerHTML = String(html);
-    const walk = (node) => {
-      const kids = Array.prototype.slice.call(node.childNodes);
-      for (const el of kids) {
-        if (el.nodeType !== 1) continue; // keep text nodes
-        const tag = el.tagName.toLowerCase();
-        if (tag === "script" || tag === "style") {
-          el.remove();
+  // Build a sanitized DOM fragment from tooltip HTML. Returns a DocumentFragment
+  // (never an HTML string), so callers use replaceChildren instead of innerHTML.
+  function buildTipNodes(html) {
+    // Parse with DOMParser (an inert document - scripts do not run, and no
+    // element is ever assigned via innerHTML), then transplant only whitelisted
+    // nodes into the live tooltip. This breaks the untrusted-string -> HTML flow.
+    const doc = new DOMParser().parseFromString(String(html), "text/html");
+    const OK_TAGS = {
+      B: 1,
+      I: 1,
+      U: 1,
+      EM: 1,
+      STRONG: 1,
+      SPAN: 1,
+      DIV: 1,
+      BR: 1,
+      SMALL: 1,
+      P: 1,
+      UL: 1,
+      OL: 1,
+      LI: 1,
+      TABLE: 1,
+      THEAD: 1,
+      TBODY: 1,
+      TR: 1,
+      TD: 1,
+      TH: 1,
+    };
+    const OK_ATTR = { style: 1, class: 1 };
+    const clean = (src, dest) => {
+      for (const node of Array.prototype.slice.call(src.childNodes)) {
+        if (node.nodeType === 3) {
+          dest.appendChild(document.createTextNode(node.nodeValue));
           continue;
         }
-        for (const attr of Array.prototype.slice.call(el.attributes)) {
+        if (node.nodeType !== 1) continue;
+        if (!OK_TAGS[node.tagName]) {
+          // Unknown/unsafe element: keep its text, drop the element itself.
+          const span = document.createElement("span");
+          clean(node, span);
+          while (span.firstChild) dest.appendChild(span.firstChild);
+          continue;
+        }
+        const el = document.createElement(node.tagName.toLowerCase());
+        for (const attr of Array.prototype.slice.call(node.attributes)) {
           const n = attr.name.toLowerCase();
           const v = String(attr.value);
-          if (n.startsWith("on") || /^(javascript|data):/i.test(v.trim())) {
-            el.removeAttribute(attr.name);
+          if (!OK_ATTR[n]) continue;
+          if (
+            /(javascript|data|vbscript):/i.test(v) ||
+            /expression\s*\(/i.test(v)
+          ) {
+            continue;
           }
+          el.setAttribute(n, v);
         }
-        walk(el);
+        clean(node, el);
+        dest.appendChild(el);
       }
     };
-    walk(tpl.content);
-    return tpl.innerHTML;
+    const frag = document.createDocumentFragment();
+    clean(doc.body, frag);
+    return frag;
   }
   document.addEventListener("mouseover", (e) => {
     const t = e.target.closest("[data-tip]");
@@ -15891,10 +15928,9 @@ function renderSalary() {
     }
     if (/<[a-z][\s\S]*>/i.test(txt)) {
       // Tooltips may contain our own formatting markup (<b>, <span>, <div>).
-      // User-derived values inside them are escaped at the builder (detTip etc.),
-      // but sanitize here as defense-in-depth: drop script/style tags, inline
-      // event handlers, and javascript: URLs before it reaches innerHTML.
-      tip.innerHTML = sanitizeTipHtml(txt);
+      // Parse + sanitize into DOM nodes and attach them - no innerHTML sink,
+      // so untrusted attribute text can never be reinterpreted as live HTML.
+      tip.replaceChildren(buildTipNodes(txt));
       tip.style.whiteSpace = "normal";
     } else {
       tip.textContent = txt;
