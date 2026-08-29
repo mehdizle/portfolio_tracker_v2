@@ -259,6 +259,33 @@ function renderSalary() {
     tip.style.left = x + "px";
     tip.style.top = y + "px";
   }
+  // Sanitize tooltip HTML: parse in a detached document, then strip dangerous
+  // nodes/attributes. Whitelist keeps only inline formatting we actually use.
+  function sanitizeTipHtml(html) {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = String(html);
+    const walk = (node) => {
+      const kids = Array.prototype.slice.call(node.childNodes);
+      for (const el of kids) {
+        if (el.nodeType !== 1) continue; // keep text nodes
+        const tag = el.tagName.toLowerCase();
+        if (tag === "script" || tag === "style") {
+          el.remove();
+          continue;
+        }
+        for (const attr of Array.prototype.slice.call(el.attributes)) {
+          const n = attr.name.toLowerCase();
+          const v = String(attr.value);
+          if (n.startsWith("on") || /^(javascript|data):/i.test(v.trim())) {
+            el.removeAttribute(attr.name);
+          }
+        }
+        walk(el);
+      }
+    };
+    walk(tpl.content);
+    return tpl.innerHTML;
+  }
   document.addEventListener("mouseover", (e) => {
     const t = e.target.closest("[data-tip]");
     if (!t) {
@@ -275,7 +302,11 @@ function renderSalary() {
       }
     }
     if (/<[a-z][\s\S]*>/i.test(txt)) {
-      tip.innerHTML = txt;
+      // Tooltips may contain our own formatting markup (<b>, <span>, <div>).
+      // User-derived values inside them are escaped at the builder (detTip etc.),
+      // but sanitize here as defense-in-depth: drop script/style tags, inline
+      // event handlers, and javascript: URLs before it reaches innerHTML.
+      tip.innerHTML = sanitizeTipHtml(txt);
       tip.style.whiteSpace = "normal";
     } else {
       tip.textContent = txt;

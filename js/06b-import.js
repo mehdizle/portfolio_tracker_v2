@@ -376,13 +376,13 @@ document.getElementById("clearTV").onclick = () => {
     return rows;
   }
   function decodeXml(s) {
-    return s
-      .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d))
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'");
+    // Single-pass decode so no replacement's output is re-processed by a later
+    // rule (e.g. "&amp;lt;" must decode to "&lt;", not "<").
+    const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+    return String(s).replace(/&(#\d+|amp|lt|gt|quot|apos);/g, (m, ent) => {
+      if (ent[0] === "#") return String.fromCharCode(+ent.slice(1));
+      return NAMED[ent];
+    });
   }
 
   let FUNDS = []; // parsed file rows: {isin,name,vl,buyFee,sellFee,mgmt}
@@ -457,9 +457,9 @@ document.getElementById("clearTV").onclick = () => {
               '"' +
               (i === sel ? " selected" : "") +
               ">" +
-              f.name +
+              escapeHtml(f.name) +
               " (" +
-              f.isin +
+              escapeHtml(f.isin) +
               ")</option>",
           ),
         )
@@ -487,9 +487,9 @@ document.getElementById("clearTV").onclick = () => {
       h +=
         '<tr style="border-top:1px solid var(--border)">' +
         '<td style="padding:5px 4px"><b>' +
-        row.fundName +
+        escapeHtml(row.fundName) +
         '</b> <span class="mini" style="color:var(--muted)">' +
-        row.ticker +
+        escapeHtml(row.ticker) +
         "</span>" +
         (row.fuzzy != null && row.chosenIdx >= 0
           ? ' <span class="mini" title="Matched by name similarity \u2014 please verify" style="color:var(--warn)">~fuzzy ' +
@@ -498,7 +498,7 @@ document.getElementById("clearTV").onclick = () => {
           : "") +
         (row.amb && row.chosenIdx >= 0
           ? ' <span class="mini" title="Close runner-up: ' +
-            String(row.secName || "").replace(/"/g, "&quot;") +
+            escapeHtml(row.secName || "") +
             " (" +
             Math.round((row.secScore || 0) * 100) +
             '%). Two funds scored similarly \u2014 verify the right one is selected." style="color:var(--danger,#e5484d);font-weight:600">\u26A0 ambiguous</span>'
@@ -1594,7 +1594,7 @@ document.getElementById("dlCalTemplate").onclick = () => {
 let CUR_BROKER = "saham"; // currently selected broker tab
 function parsePct(str) {
   if (str == null) return null;
-  let s = String(str).replace(",", ".").replace("%", "").trim();
+  let s = String(str).replace(/,/g, ".").replace(/%/g, "").trim();
   if (s === "") return null;
   let v = parseFloat(s);
   if (isNaN(v)) return null;
@@ -2069,4 +2069,3 @@ document.getElementById("toggleClosed").onclick = () => {
     : "Hide closed";
   rerenderPositions();
 };
-

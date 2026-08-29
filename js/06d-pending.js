@@ -541,7 +541,7 @@ document.getElementById("pendEditSel").onclick = () => {
     body = document.getElementById("bulkEditBody");
   const tickerOpts = Object.keys(M)
     .sort()
-    .map((t) => `<option value="${t}">`)
+    .map((t) => `<option value="${escapeHtml(t)}">`)
     .join("");
   const brokerOpts = (cur) =>
     Object.keys(BROKERS)
@@ -559,8 +559,8 @@ document.getElementById("pendEditSel").onclick = () => {
       const isOpc =
         o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
       return `<div class="behdr" data-idx="${i}" style="${GRID}">
-      <input type="date" class="beDate" value="${o.date}" style="width:100%;box-sizing:border-box">
-      <input list="beTickersPend" class="beTicker" value="${o.ticker}" placeholder="ticker" style="width:100%;box-sizing:border-box">
+      <input type="date" class="beDate" value="${escapeHtml(o.date)}" style="width:100%;box-sizing:border-box">
+      <input list="beTickersPend" class="beTicker" value="${escapeHtml(o.ticker)}" placeholder="ticker" style="width:100%;box-sizing:border-box">
       <select class="beAction" style="width:100%;box-sizing:border-box"><option${o.action === "BUY" ? " selected" : ""}>BUY</option><option${o.action === "SELL" ? " selected" : ""}>SELL</option><option${o.action === "DIV" ? " selected" : ""}>DIV</option></select>
       <input type="number" step="any" class="beQty" value="${o.qty}" placeholder="qty" style="width:100%;box-sizing:border-box">
       <input type="number" step="any" class="bePrice" value="${o.price != null ? o.price : ""}" placeholder="price" style="width:100%;box-sizing:border-box">

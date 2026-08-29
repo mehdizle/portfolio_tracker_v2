@@ -542,7 +542,7 @@ function renderDivDashboard(pos) {
       [...arr]
         .sort((a, b) => (a.date < b.date ? -1 : 1))
         .forEach((x) => {
-          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${x.ticker} <span class="mini">${x.date}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
+          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${escapeHtml(x.ticker)} <span class="mini">${escapeHtml(x.date)}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
         });
     } else h += '<div class="mini" style="margin-top:6px">No dividends.</div>';
     return h;
@@ -831,8 +831,8 @@ function renderDivDashboard(pos) {
       tb.innerHTML =
         tks
           .map(
-            (tk) => `<tr><td class="l"><b>${tk}</b></td>
-        <td class="l" style="color:var(--text2)">${(M[tk] && M[tk].name) || ""}</td>
+            (tk) => `<tr><td class="l"><b>${escapeHtml(tk)}</b></td>
+        <td class="l" style="color:var(--text2)">${escapeHtml((M[tk] && M[tk].name) || "")}</td>
         <td class="center">${byTk[tk].count}</td>
         <td class="pos">${money(byTk[tk].net)}</td>
         <td>${grand > 0 ? ((byTk[tk].net / grand) * 100).toFixed(1) + "%" : "\u2014"}</td></tr>`,
@@ -2363,4 +2363,3 @@ document.querySelectorAll("#sigTable th[data-k]").forEach(
       renderSignals();
     }),
 );
-
