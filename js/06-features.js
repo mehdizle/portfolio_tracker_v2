@@ -946,8 +946,13 @@ function renderDivCalGrid(pos) {
   const yr = new Date().getFullYear();
   let cal = DIVCAL;
   if (_projOn) {
+    // Exclude Exceptional (one-off) dividends from the projection - only
+    // ordinary dividends are expected to recur next year.
     const shifted = DIVCAL.filter(
-      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+      (d) =>
+        d.pay_date &&
+        d.pay_date.startsWith(String(yr)) &&
+        String(d.div_type || "").toLowerCase() !== "exceptional",
     ).map((d) => ({
       ...d,
       pay_date: d.pay_date.replace(/^\d{4}/, String(yr + 1)),

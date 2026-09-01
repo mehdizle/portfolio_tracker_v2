@@ -255,8 +255,13 @@ function dashUpcomingDiv3mo() {
   try {
     if (typeof DIVCAL === "undefined" || !Array.isArray(DIVCAL)) return 0;
     const yr = new Date().getFullYear();
+    // Exclude Exceptional (one-off) dividends from the projection - only
+    // ordinary dividends are expected to recur next year.
     const shifted = DIVCAL.filter(
-      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+      (d) =>
+        d.pay_date &&
+        d.pay_date.startsWith(String(yr)) &&
+        String(d.div_type || "").toLowerCase() !== "exceptional",
     ).map((d) => ({
       ...d,
       pay_date: d.pay_date.replace(/^\d{4}/, String(yr + 1)),
