@@ -471,11 +471,16 @@ function renderDivDashboard(pos) {
     .checked;
   // If projecting, clone THIS YEAR's calendar entries shifted +12 months.
   // "This year" = entries whose pay_date is in the current calendar year.
+  // Exceptional (one-off) dividends are NOT recurring, so they are excluded
+  // from the projection - only ordinary dividends are expected to repeat.
   let _projCal = DIVCAL;
   if (_divProject) {
     const yr = TODAY.getFullYear();
     const shifted = DIVCAL.filter(
-      (d) => d.pay_date && d.pay_date.startsWith(String(yr)),
+      (d) =>
+        d.pay_date &&
+        d.pay_date.startsWith(String(yr)) &&
+        String(d.div_type || "").toLowerCase() !== "exceptional",
     ).map((d) => {
       const nd = d.pay_date.replace(/^\d{4}/, String(yr + 1));
       const ne = d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null;

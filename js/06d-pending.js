@@ -1623,11 +1623,11 @@ function renderRecentlySold() {
 }
 
 // ---------- top-level app switcher (placeholders) ----------
-document.querySelectorAll(".app-btn").forEach(
+document.querySelectorAll(".app-btn[data-app]").forEach(
   (b) =>
     (b.onclick = () => {
       document
-        .querySelectorAll(".app-btn")
+        .querySelectorAll(".app-btn[data-app]")
         .forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
       const app = b.dataset.app;
