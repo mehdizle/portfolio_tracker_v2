@@ -215,6 +215,17 @@
         >
           &#x1F4BC; Salary Calculation
         </button>
+        <button
+          class="app-btn"
+          id="marketSessionBtn"
+          type="button"
+          data-act="openMarketSession"
+          aria-label="Casablanca market session status"
+          data-tip="Live Casablanca Stock Exchange session status (Continuous & Fixing groups)"
+          style="margin-left: auto"
+        >
+          &#x1F551; <span id="marketSessionBtnLabel">Market</span>
+        </button>
       </div>
 
       <div id="salaryView" style="display: none">
@@ -2622,6 +2633,65 @@
             </div>
             <div id="catReview" style="margin-top: 10px"></div>
           </div>
+        </div>
+      </div>
+      <div
+        id="marketSessionModal"
+        data-modal-backdrop
+        role="dialog"
+        aria-modal="true"
+        aria-label="Casablanca market session status"
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 57;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            max-width: 640px;
+            width: calc(100% - 32px);
+            max-height: 88vh;
+            overflow: auto;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+          "
+        >
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              gap: 12px;
+              padding: 14px 18px;
+              border-bottom: 1px solid var(--border);
+              position: sticky;
+              top: 0;
+              background: var(--panel);
+            "
+          >
+            <div>
+              <div style="font-weight: 700; font-size: 15px">
+                &#x1F551; Casablanca Stock Exchange &mdash; Session Status
+              </div>
+              <div class="mini" id="msClock" style="color: var(--text2)"></div>
+            </div>
+            <button
+              class="btn sec2"
+              type="button"
+              data-act="closeMarketSession"
+              aria-label="Close"
+            >
+              &#x2715; Close
+            </button>
+          </div>
+          <div id="marketSessionBody" style="padding: 16px 18px"></div>
         </div>
       </div>
       <div
