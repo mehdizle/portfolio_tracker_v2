@@ -1735,6 +1735,13 @@
                   >
                     Broker
                   </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Order ID &mdash; fills sharing an ID belong to one broker order (split executions), so the per-order courtage minimum is charged once."
+                  >
+                    Order
+                  </th>
                   <th scope="col"></th>
                 </tr>
               </thead>
@@ -2040,6 +2047,13 @@
                     data-tip="Broker used for this order's fee model."
                   >
                     Broker
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Order ID &mdash; validating this order (in one or more split fills) tags each resulting transaction with this ID, so the per-order courtage minimum is charged once."
+                  >
+                    Order
                   </th>
                   <th scope="col" class="center">Actions</th>
                 </tr>
