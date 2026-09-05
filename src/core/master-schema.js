@@ -54,6 +54,33 @@ export const OPCVM_FIELDS = [
   { key: "mgmt", store: "mgmt", weeklyOnly: true },
 ];
 
+/**
+ * CAL_FIELDS: the canonical shape of a dividend-calendar entry (what the
+ * calendar parser emits and what the downloadable template advertises). The
+ * parser itself is intentionally format-FLEXIBLE (tab/space/block layouts,
+ * column-order-independent), so it does not bind to a fixed header - but the
+ * OUTPUT shape and the template header derive from this one list so they can
+ * never drift. `header` is the human column label used in the template.
+ */
+export const CAL_FIELDS = [
+  { key: "ticker", header: "Ticker" },
+  { key: "issuer", header: "Issuer" },
+  { key: "amount", header: "Amount" },
+  { key: "ex_date", header: "Ex-date" },
+  { key: "pay_date", header: "Payment date" },
+  { key: "div_type", header: "Type" },
+];
+
+/** Column headers (in order) for the dividend-calendar template. */
+export function calTemplateHeader() {
+  return CAL_FIELDS.map((f) => f.header);
+}
+
+/** Field keys of a calendar entry (for coverage tests). */
+export function calFieldKeys() {
+  return CAL_FIELDS.map((f) => f.key);
+}
+
 const isNum = (v) => v != null && !isNaN(v);
 
 /**

@@ -243,6 +243,16 @@ export function requiredKeys() {
   return TXN_FIELDS.filter((f) => f.required).map((f) => f.key);
 }
 
+/** CSV column names that MUST be present for an import row to be valid. */
+export function requiredCsvColumns() {
+  return TXN_FIELDS.filter((f) => f.required).map((f) => f.csv);
+}
+
+/** CSV column names that are optional on import (everything not required). */
+export function optionalCsvColumns() {
+  return TXN_FIELDS.filter((f) => !f.required).map((f) => f.csv);
+}
+
 /** Form-bound fields (have a DOM id) - for schema-driven form prefill. */
 export function formFields() {
   return TXN_FIELDS.filter((f) => f.form);
