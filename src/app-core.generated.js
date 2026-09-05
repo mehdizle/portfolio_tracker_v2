@@ -9272,8 +9272,14 @@ document.getElementById("importCsv").onchange = (e) => {
       const S = __core.txnSchema;
       const ix = S.buildCsvIx(hdr);
       if (S.requiredKeys().some((k) => ix[k] < 0)) {
+        // Column names come from the schema so this message can never go stale
+        // when a field is added/renamed.
         document.getElementById("csvResult").textContent =
-          "\u274C CSV needs columns: date,ticker,action,qty,price (pea,opcvm,total,broker optional)";
+          "\u274C CSV needs columns: " +
+          S.requiredCsvColumns().join(", ") +
+          " (" +
+          S.optionalCsvColumns().join(", ") +
+          " optional)";
         return;
       }
       const parseCtx = { brokers: BROKERS };
@@ -10175,8 +10181,12 @@ document.getElementById("dlTxnTemplate").onclick = () => {
   downloadText("transactions_template.csv", lines.join("\n"));
 };
 document.getElementById("dlCalTemplate").onclick = () => {
+  // SCHEMA-DRIVEN header: comes from __core.masterSchema.calTemplateHeader() so
+  // the template can't drift from the calendar entry shape. The parser stays
+  // format-flexible; only the advertised column order binds to the schema.
+  const header = __core.masterSchema.calTemplateHeader().join("\t");
   const t = [
-    "Ticker\tIssuer\tAmount\tEx-date\tPayment date\tType",
+    header,
     "ATW\tAttijariwafa Bank\t22,00\t18/06/2026\t08/07/2026\tOrdinary",
     "IAM\tMaroc Telecom\t4,00\t04/09/2026\t15/09/2026\tOrdinary",
     "AFI\tAfric Industries\t20,00\t19/06/2026\t30/06/2026\tOrdinary",
