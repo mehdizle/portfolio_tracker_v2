@@ -192,3 +192,69 @@ describe("no schema drift: CSV-emitting code binds to the schema", () => {
     expect(/txnToCsvRow\(/.test(body)).toBe(true);
   });
 });
+
+// General drift net: scan the actual UI source for a HARDCODED transaction CSV
+// header - i.e. a string literal that lists 3+ schema column names in a row,
+// comma- or tab-separated. Any such literal is a place that will silently go
+// stale when a field is added (exactly how the template dropped "orderid").
+// The ONLY legitimate home for the column list is the schema module, so the
+// UI files (js/*.js) must contain none. If this fails, replace the hardcoded
+// list with __core.txnSchema.csvHeader() (or requiredCsvColumns() for prose).
+describe("no schema drift: UI source contains no hardcoded transaction CSV header", () => {
+  const UI_FILES = [
+    "js/01-core.js",
+    "js/02-compute.js",
+    "js/03-signals.js",
+    "js/04-render.js",
+    "js/05-rebalance.js",
+    "js/06-features.js",
+    "js/06b-import.js",
+    "js/06c-backup.js",
+    "js/06d-pending.js",
+    "js/07-expenses.js",
+    "js/08-salary.js",
+    "js/09-boot.js",
+  ];
+  // Column names that identify the transaction shape.
+  const COLS = csvHeader(); // e.g. date,ticker,action,qty,price,pea,opcvm,total,broker,orderid,...
+  const COLSET = new Set(COLS.map((c) => c.toLowerCase()));
+
+  // A "hardcoded header" = a run of >=3 known column tokens separated only by
+  // commas or tabs (allowing surrounding quotes/space). We look inside string
+  // literals for a comma/tab list where >=3 tokens are schema columns.
+  function findHardcodedHeader(src) {
+    // Grab quoted string literals (single/double), then test their contents.
+    const strs = src.match(/"[^"\n]*"|'[^'\n]*'/g) || [];
+    for (const raw of strs) {
+      const inner = raw.slice(1, -1);
+      if (!/[,\t]/.test(inner)) continue;
+      const tokens = inner
+        .split(/[,\t]/)
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean);
+      if (tokens.length < 3) continue;
+      let run = 0,
+        best = 0;
+      for (const t of tokens) {
+        if (COLSET.has(t)) {
+          run++;
+          best = Math.max(best, run);
+        } else run = 0;
+      }
+      if (best >= 3) return inner;
+    }
+    return null;
+  }
+
+  for (const rel of UI_FILES) {
+    it(`${rel} has no hardcoded transaction CSV header`, () => {
+      const hit = findHardcodedHeader(read(rel));
+      expect(
+        hit,
+        hit
+          ? `${rel} contains a hardcoded transaction column list ("${hit}") - derive it from __core.txnSchema.csvHeader() instead`
+          : "",
+      ).toBeNull();
+    });
+  }
+});
