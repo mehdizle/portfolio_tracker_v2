@@ -7800,6 +7800,7 @@ function renderTxns(enriched) {
       <td class="${e.ttc != null ? "nis-cell" : ""}" style="${e.ttc != null ? "cursor:help" : ""}" data-tip="${e.ttc != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.ttc != null ? money(e.ttc) : "\u2014"} ${e.ttc != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td><td class="${cls(e.net)} ${e.net != null ? "nis-cell" : ""}" style="${e.net != null ? "cursor:help" : ""}" data-tip="${e.net != null ? tipRef(ttcTipHTML(t, e)) : ""}">${e.net != null ? money(e.net) : "\u2014"} ${e.net != null ? '<span style="color:var(--muted)">\u24D8</span>' : ""}</td>
       <td style="text-align:center">${t.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "Reg"}</td>
       <td style="font-size:10px;text-align:center">${escapeHtml((BROKERS[txnBroker(t)] || {}).name || txnBroker(t))}</td>
+      <td class="center" style="font-size:10px;color:var(--text2)">${t._ord ? escapeHtml(String(t._ord)) : "\u2014"}</td>
       <td class="center" style="white-space:nowrap"><button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editTxn" data-args="${i}" aria-label="Edit transaction" title="Edit transaction">\u270E</button><button class="chip" style="cursor:pointer;border:none" data-act="delTxn" data-args="${i}" aria-label="Delete transaction" title="Delete transaction">\u2715</button></td></tr>`;
     })
     .join("");
@@ -10639,6 +10640,7 @@ const APP_LS_KEYS = [
   "casa_cash_v1",
   "casa_brokers_v1",
   "casa_signal_hist_v1",
+  "casa_order_seq_v1",
 ];
 let _backupBusy = false;
 document.getElementById("backupAll").onclick = () => {
@@ -11353,7 +11355,6 @@ document.addEventListener("click", function (e) {
 });
 
 
-
 // ===== 06d-pending.js =====
 // 06d-pending.js - split from 06-features.js (pending orders + indicators + tooltips, recently sold/bought). Shared scope.
 // ---------- pending indicators (dashboard banner + positions) ----------
@@ -11400,6 +11401,25 @@ function savePending() {
   if (typeof refreshKpiRow === "function") refreshKpiRow();
 }
 let PEND_EDIT = null;
+
+// ---------- Order ID (groups split fills of ONE order) ----------
+// Human-readable sequential id (ID1, ID2, ...) assigned when a pending item is
+// created. Every fill validated from that item carries the SAME id, so the fee
+// engine applies the per-order courtage minimum once per order. The counter is
+// persisted so ids keep incrementing across sessions and never collide - even
+// for two separate orders on the same stock/price/day.
+function _nextOrderId() {
+  let n = 0;
+  try {
+    n = parseInt(localStorage.getItem("casa_order_seq_v1") || "0", 10) || 0;
+  } catch (e) {}
+  n += 1;
+  try {
+    safeSetItem("casa_order_seq_v1", String(n));
+  } catch (e) {}
+  return "ID" + n;
+}
+
 function readPendingForm() {
   const g = (id) => document.getElementById(id);
   // Schema-driven: the field list (and each field's p-prefixed input id + kind)
@@ -11522,12 +11542,20 @@ document.getElementById("addPending").onclick = () => {
     }
   }
   if (PEND_EDIT != null) {
+    // Keep the existing order id when editing (don't renumber an order).
+    if (PENDING[PEND_EDIT] && PENDING[PEND_EDIT]._ord != null)
+      o._ord = PENDING[PEND_EDIT]._ord;
     PENDING[PEND_EDIT] = o;
     PEND_EDIT = null;
     document.getElementById("addPending").textContent = "Add order";
     document.getElementById("cancelPendingEdit").style.display = "none";
     document.getElementById("pendHint").textContent = "";
-  } else PENDING.push(o);
+  } else {
+    // New order -> assign a fresh sequential Order ID (unless one is already set,
+    // e.g. carried by a prefill). BUY/SELL only; dividends aren't broker orders.
+    if (o._ord == null && o.action !== "DIV") o._ord = _nextOrderId();
+    PENDING.push(o);
+  }
   savePending();
   ["pQty", "pPrice", "pTotal"].forEach(
     (id) => (document.getElementById(id).value = ""),
@@ -11760,10 +11788,11 @@ window.validatePending = async function (i) {
   };
   // Tag split fills of the SAME pending order with a shared order id so the fee
   // engine applies the courtage minimum once per order (not per fill), even when
-  // the fills execute on different days. Assigned once, on first partial fill.
+  // the fills execute on different days. The id is normally assigned when the
+  // pending item is CREATED; this is a fallback for legacy items created before
+  // Order IDs existed (assigned once, on first fill, then reused by later fills).
   if (!isDiv) {
-    if (o._ord == null)
-      o._ord = "o" + Date.now() + Math.floor(Math.random() * 1000);
+    if (o._ord == null) o._ord = _nextOrderId();
     t._ord = o._ord;
   }
   for (const k of __core.txnSchema.pendingCarryKeys()) {
@@ -12497,7 +12526,7 @@ function renderPending() {
   if (tb) {
     if (!trades.length) {
       tb.innerHTML =
-        '<tr><td colspan="16" class="l" style="color:var(--muted)">No pending buy/sell orders.</td></tr>';
+        '<tr><td colspan="17" class="l" style="color:var(--muted)">No pending buy/sell orders.</td></tr>';
     } else {
       const rows = trades.sort((a, b) => (a.o.date < b.o.date ? 1 : -1));
       tb.innerHTML = rows
@@ -12704,6 +12733,7 @@ function renderPending() {
           })()}
           <td class="center">${o.pea ? '<span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : "REG"}</td>
           <td class="center" style="font-size:10px">${escapeHtml((BROKERS[txnBroker(o)] || {}).name || txnBroker(o))}</td>
+          <td class="center" style="font-size:10px;color:var(--text2)">${o._ord ? escapeHtml(String(o._ord)) : "\u2014"}</td>
           <td class="center" style="white-space:nowrap">
             <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark executed \u2192 add to Transactions">\u2713</button>
             <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" title="Edit order">\u270E</button>
