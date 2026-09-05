@@ -476,34 +476,41 @@ function renderDashAllocBars(arr) {
     return;
   }
   // Pie chart (compact regardless of sector count) instead of stacked weight
-  // bars, which grew very tall with many sectors.
+  // bars, which grew very tall with many sectors. No legend: with many sectors
+  // the legend paginated (the "1/3" page indicator rendered black/invisible in
+  // dark mode). Instead the pie fills the space and each slice is labelled with
+  // its sector name + %; the tooltip gives the MAD value.
   el.innerHTML = "";
-  el.style.minHeight = "280px";
+  el.style.height = "300px";
+  el.style.minHeight = "300px";
   const tx = themeColor("text");
-  const tx2 = themeColor("text2");
   try {
     CH_dashAlloc = Highcharts.chart(el, {
-      chart: { type: "pie", backgroundColor: "transparent" },
+      chart: { type: "pie", backgroundColor: "transparent", height: 300 },
       title: { text: null },
       credits: { enabled: false },
-      legend: {
-        enabled: true,
-        itemStyle: { color: tx2, fontSize: "11px" },
-        maxHeight: 90,
-        navigation: { activeColor: tx, inactiveColor: tx2 },
-      },
+      legend: { enabled: false },
       tooltip: {
         pointFormat: "<b>{point.y:,.0f} MAD</b> ({point.percentage:.1f}%)",
       },
       plotOptions: {
         pie: {
-          innerSize: "55%",
-          showInLegend: true,
+          innerSize: "50%",
+          size: "88%",
+          borderWidth: 1,
+          borderColor: themeColor("panel") || "transparent",
           dataLabels: {
             enabled: true,
             style: { color: tx, fontSize: "10px", textOutline: "none" },
-            format: "{point.percentage:.0f}%",
-            distance: 4,
+            // Show the sector name + % on larger slices; % only on small ones
+            // so labels don't overlap.
+            formatter: function () {
+              return this.percentage >= 6
+                ? this.point.name + ": " + this.percentage.toFixed(0) + "%"
+                : this.percentage.toFixed(0) + "%";
+            },
+            distance: 10,
+            connectorWidth: 1,
           },
         },
       },
@@ -1208,9 +1215,36 @@ function renderMissingMaster() {
       <div style="font-size:13px;line-height:1.9">${items}</div>
     </div>`;
 }
+// Emoji icon for a sector name. Matched by keyword so variants (e.g. "Real
+// Estate (REIT)", "Transport & Logistics") still resolve. Falls back to a tag.
+function sectorIcon(name) {
+  const s = String(name || "").toLowerCase();
+  const rules = [
+    [/bank|financ/, "\uD83C\uDFE6"], // bank / financial services
+    [/insur/, "\uD83D\uDEE1\uFE0F"], // insurance
+    [/real estate|reit|construc|building/, "\uD83C\uDFD7\uFE0F"], // real estate / construction / building materials
+    [/telecom/, "\uD83D\uDCF6"], // telecom
+    [/tech/, "\uD83D\uDCBB"], // technology
+    [/energy|utilit/, "\u26A1"], // energy / utilities
+    [/mining/, "\u26CF\uFE0F"], // mining
+    [/auto/, "\uD83D\uDE97"], // automotive
+    [/beverage|food|consumer/, "\uD83C\uDF7D\uFE0F"], // beverages / food / consumer goods
+    [/agri|forest|paper/, "\uD83C\uDF3E"], // agri / forestry & paper
+    [/chemical/, "\uD83E\uDDEA"], // chemicals
+    [/health|pharma/, "\uD83C\uDFE5"], // healthcare
+    [/transport|logistic/, "\uD83D\uDE9B"], // transport & logistics
+    [/tourism|hotel|leisure/, "\uD83C\uDFD6\uFE0F"], // tourism
+    [/retail/, "\uD83D\uDED2"], // retail
+    [/industr/, "\uD83C\uDFED"], // industrial goods
+    [/holding/, "\uD83C\uDFE2"], // holding
+    [/opcvm|fund/, "\uD83C\uDFE6"], // funds
+  ];
+  for (const [re, ic] of rules) if (re.test(s)) return ic;
+  return "\uD83C\uDFF7\uFE0F"; // default tag
+}
 // Build stock rows grouped under sector headers. Each sector gets a header row
-// (name + holdings value + portfolio weight) followed by its positions (sorted
-// by the active posSort). Sectors are ordered by total held value, descending.
+// (icon + name + holdings value + portfolio weight) followed by its positions
+// (sorted by the active posSort). Sectors are ordered by total held value, desc.
 // `showDivY` is passed through to posRow (stocks table = true).
 function groupBySectorHTML(list, showDivY) {
   const bySec = {};
@@ -1234,7 +1268,7 @@ function groupBySectorHTML(list, showDivY) {
     html +=
       `<tr class="sector-hdr" style="background:var(--panel2)">` +
       `<td colspan="${COLS}" class="l" style="padding:6px 8px;font-weight:700;color:var(--text)">` +
-      `\uD83C\uDFF7\uFE0F ${escapeHtml(sec)} ` +
+      `${sectorIcon(sec)} ${escapeHtml(sec)} ` +
       `<span class="mini" style="font-weight:500;color:var(--text2)">\u00B7 ${rows.length} holding${rows.length > 1 ? "s" : ""} \u00B7 ${money(secVal, 0)} MAD \u00B7 ${w.toFixed(1)}%</span>` +
       `</td></tr>`;
     html += rows.map((p) => posRow(p, showDivY)).join("");
