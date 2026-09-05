@@ -401,6 +401,14 @@ window.validatePending = async function (i) {
     qty: fillQty,
     price: px,
   };
+  // Tag split fills of the SAME pending order with a shared order id so the fee
+  // engine applies the courtage minimum once per order (not per fill), even when
+  // the fills execute on different days. Assigned once, on first partial fill.
+  if (!isDiv) {
+    if (o._ord == null)
+      o._ord = "o" + Date.now() + Math.floor(Math.random() * 1000);
+    t._ord = o._ord;
+  }
   for (const k of __core.txnSchema.pendingCarryKeys()) {
     if (k === "broker") {
       t.broker = o.broker || txnBroker(o);
