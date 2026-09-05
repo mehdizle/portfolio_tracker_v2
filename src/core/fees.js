@@ -42,21 +42,44 @@ export function brokerFeeRate(bk, vat) {
 export function brokerFixedFee(bk, vat) {
   return bk.fees.courier * (1 + vat);
 }
-export function brokerStockFees(gross, bk, vat) {
+// Brokerage (PEA-type) stock fee. `courtageOverride`, when a finite number, is
+// used INSTEAD of max(gross*courtage, courtageMin) - this is how split orders
+// work: the courtage minimum is a PER-ORDER floor, so the per-fill courtage is
+// pre-computed by the order grouper and passed in here. Regl and bourse remain
+// per-fill percentages (that matches the real Attijari statement).
+export function brokerStockFees(gross, bk, vat, courtageOverride) {
   const f = bk.fees;
-  const court = Math.max(gross * f.courtage, f.courtageMin);
+  const court =
+    typeof courtageOverride === "number" && isFinite(courtageOverride)
+      ? courtageOverride
+      : Math.max(gross * f.courtage, f.courtageMin);
   return roundMoney((court + gross * f.regl + gross * f.bourse) * (1 + vat));
 }
 
 /**
  * Universal fee calculator: given gross, action, broker object -> fees (MAD).
  * `fpFallback` is the legacy regular FP used when no broker is supplied.
+ * `courtageOverride` (optional) forces the courtage component for PEA-type
+ * brokers (used for split orders so the courtage minimum applies once/order).
  */
-export function calcBrokerFees(gross, action, bk, isOpcvm, vat, fpFallback) {
-  if (!bk) return roundMoney(gross * feeRate(fpFallback, vat) + fixedFee(fpFallback, vat));
+export function calcBrokerFees(
+  gross,
+  action,
+  bk,
+  isOpcvm,
+  vat,
+  fpFallback,
+  courtageOverride,
+) {
+  if (!bk)
+    return roundMoney(
+      gross * feeRate(fpFallback, vat) + fixedFee(fpFallback, vat),
+    );
   if (isOpcvm) {
     if (action === "DIV")
-      return bk.fees.divComm ? roundMoney(gross * bk.fees.divComm * (1 + vat)) : 0;
+      return bk.fees.divComm
+        ? roundMoney(gross * bk.fees.divComm * (1 + vat))
+        : 0;
     return bk.fees.opcvmOrder ? roundMoney(bk.fees.opcvmOrder * (1 + vat)) : 0;
   }
   if (action === "DIV" && bk.fees.divComm) {
@@ -65,7 +88,7 @@ export function calcBrokerFees(gross, action, bk, isOpcvm, vat, fpFallback) {
   if (bk.feeType === "regular") {
     return roundMoney(gross * brokerFeeRate(bk, vat) + brokerFixedFee(bk, vat));
   }
-  return brokerStockFees(gross, bk, vat);
+  return brokerStockFees(gross, bk, vat, courtageOverride);
 }
 
 /** Flat OPCVM order surcharge (Attijari): opcvmOrder + VAT (~11 MAD). */

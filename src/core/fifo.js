@@ -48,14 +48,30 @@ export function computeRow(t, avgCostForSell, ctx) {
 
   // Manual Total override (e.g. OPCVM with own fee structure).
   const mt =
-    typeof t.total === "number" && isFinite(t.total) && t.total > 0 ? t.total : null;
+    typeof t.total === "number" && isFinite(t.total) && t.total > 0
+      ? t.total
+      : null;
   if (mt != null) {
     // OPCVM PEA (non-DIV) falls through to standard OPCVM fee path below.
     if (!(isOpcvm && t.pea && t.action !== "DIV")) {
       const feesInfo = roundMoney(Math.abs(gross - mt));
       if (t.action === "BUY")
-        return { fees: feesInfo, tax: 0, ttc: mt / t.qty, net: -mt, manual: true, opcvm: isOpcvm };
-      return { fees: feesInfo, tax: 0, ttc: mt / t.qty, net: mt, manual: true, opcvm: isOpcvm };
+        return {
+          fees: feesInfo,
+          tax: 0,
+          ttc: mt / t.qty,
+          net: -mt,
+          manual: true,
+          opcvm: isOpcvm,
+        };
+      return {
+        fees: feesInfo,
+        tax: 0,
+        ttc: mt / t.qty,
+        net: mt,
+        manual: true,
+        opcvm: isOpcvm,
+      };
     }
   }
 
@@ -82,7 +98,15 @@ export function computeRow(t, avgCostForSell, ctx) {
       );
     }
   } else if (broker) {
-    fees = calcBrokerFees(gross, t.action, broker, false, vat, fp);
+    fees = calcBrokerFees(
+      gross,
+      t.action,
+      broker,
+      false,
+      vat,
+      fp,
+      t._courtageOverride,
+    );
   } else {
     fees = t.pea
       ? t.action === "DIV"
@@ -99,7 +123,13 @@ export function computeRow(t, avgCostForSell, ctx) {
     const rate = divRate(yr, divtax, tpcvm);
     const tax = dividendTax(gross, t.pea, vat, rate);
     const net = roundMoney(gross - fees - tax);
-    return { fees, tax, ttc: (gross - fees - tax) / t.qty, net, opcvm: isOpcvm };
+    return {
+      fees,
+      tax,
+      ttc: (gross - fees - tax) / t.qty,
+      net,
+      opcvm: isOpcvm,
+    };
   }
   // SELL
   const costBasis = t.qty * (avgCostForSell || 0);
@@ -108,15 +138,113 @@ export function computeRow(t, avgCostForSell, ctx) {
   return { fees, tax, ttc: (gross - fees - tax) / t.qty, net, opcvm: isOpcvm };
 }
 
+// Fills of one order may execute across a few consecutive days, so existing
+// (un-tagged) fills are grouped only when their pay dates are within this many
+// days of each other. Fills tagged with an explicit `_ord` id bypass the window.
+const ORDER_FILL_WINDOW_DAYS = 3;
+
+function daysApart(a, b) {
+  return Math.abs((new Date(a) - new Date(b)) / 86400000);
+}
+
+/**
+ * Annotate transactions with a per-fill courtage override for split orders.
+ *
+ * The Attijari (PEA-type) courtage is 1% of the ORDER with a per-order minimum
+ * (e.g. 10 MAD). When one order is executed in several fills, the minimum must
+ * apply ONCE to the whole order, not to each fill. This sets `_courtageOverride`
+ * so the group's courtage sums to max(orderGross * courtage, courtageMin) -
+ * matching the broker statement: each fill gets max(fillGross*rate, min), and
+ * the LARGEST-gross fill absorbs the excess so the order total is exactly the
+ * per-order courtage. Regl and bourse stay per-fill (no per-order minimum).
+ *
+ * Grouping: an explicit `_ord` id (stamped at fill time) groups exactly; older
+ * un-tagged fills are grouped by ticker|action|pea|broker and clustered when
+ * their dates fall within ORDER_FILL_WINDOW_DAYS, so genuinely separate
+ * purchases months apart are NOT merged. Only PEA-type BUY/SELL are affected;
+ * OPCVM, regular broker, manual-total and single fills are untouched. The
+ * override is only applied when a sub-floor fill actually inflated the total.
+ */
+export function annotateOrderCourtage(rows, ctx) {
+  const { brokers } = ctx;
+  const eligible = [];
+  for (const t of rows) {
+    if (t.action !== "BUY" && t.action !== "SELL") continue;
+    if (t.opcvm === true) continue;
+    if (typeof t.total === "number" && isFinite(t.total) && t.total > 0)
+      continue;
+    const bkId = txnBroker(t, brokers);
+    const bk = brokers && brokers[bkId];
+    if (!bk || bk.feeType !== "pea") continue;
+    eligible.push({ t, bk, bkId, gross: roundMoney(t.price * t.qty) });
+  }
+
+  const explicit = {};
+  const loose = {};
+  for (const e of eligible) {
+    if (e.t._ord != null) {
+      const k = "ord:" + e.t._ord;
+      (explicit[k] || (explicit[k] = [])).push(e);
+    } else {
+      const k = [e.t.ticker, e.t.action, e.t.pea ? 1 : 0, e.bkId].join("|");
+      (loose[k] || (loose[k] = [])).push(e);
+    }
+  }
+  const groups = Object.values(explicit);
+  for (const k in loose) {
+    const arr = loose[k]
+      .slice()
+      .sort((a, b) => (a.t.date < b.t.date ? -1 : a.t.date > b.t.date ? 1 : 0));
+    let cluster = [];
+    for (const e of arr) {
+      if (
+        cluster.length &&
+        daysApart(cluster[cluster.length - 1].t.date, e.t.date) >
+          ORDER_FILL_WINDOW_DAYS
+      ) {
+        groups.push(cluster);
+        cluster = [];
+      }
+      cluster.push(e);
+    }
+    if (cluster.length) groups.push(cluster);
+  }
+
+  for (const g of groups) {
+    if (g.length < 2) continue; // single fill: normal per-txn courtage
+    const f = g[0].bk.fees;
+    const rate = f.courtage || 0;
+    const min = f.courtageMin || 0;
+    const grosses = g.map((x) => x.gross);
+    const orderGross = grosses.reduce((s, v) => s + v, 0);
+    const orderCourt = Math.max(orderGross * rate, min);
+    const perFill = grosses.map((v) => Math.max(v * rate, min));
+    const sumPer = perFill.reduce((s, v) => s + v, 0);
+    // Only adjust when per-fill minimums inflated the total above the true
+    // per-order courtage (i.e. at least one fill was below the floor).
+    if (sumPer - orderCourt > 0.005) {
+      let li = 0;
+      for (let i = 1; i < grosses.length; i++)
+        if (grosses[i] > grosses[li]) li = i;
+      perFill[li] = perFill[li] - (sumPer - orderCourt);
+      g.forEach((x, i) => {
+        x.t._courtageOverride = roundMoney(perFill[i]);
+      });
+    }
+  }
+  return rows;
+}
+
 /**
  * FIFO engine. Returns { pos, enriched }.
  * Account key = ticker + "||PEA"/"||REG"; FIFO runs independently per account.
  */
 export function runFIFO(txns, ctx) {
   const { master } = ctx;
-  const rows = [...txns].sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0,
-  );
+  const rows = annotateOrderCourtage(
+    [...txns].map((t) => ({ ...t })),
+    ctx,
+  ).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const lots = {}; // key -> [[qty, ttcPerShare], ...]
   const acc = {};
   const enriched = [];
@@ -199,9 +327,13 @@ export function runFIFO(txns, ctx) {
     const pea = acctag === "PEA";
     const L = lots[k] || [];
     const held = L.reduce((s, l) => s + l[0], 0);
-    const avg = held > QTY_EPS ? L.reduce((s, l) => s + l[0] * l[1], 0) / held : 0;
+    const avg =
+      held > QTY_EPS ? L.reduce((s, l) => s + l[0] * l[1], 0) / held : 0;
     const a = acc[k] || { realized: 0, divs: 0, soldQty: 0, totalBuyCost: 0 };
-    const price = master && master[tk] && master[tk].price != null ? master[tk].price : null;
+    const price =
+      master && master[tk] && master[tk].price != null
+        ? master[tk].price
+        : null;
     const invested = roundMoney(held * avg);
     const value = held > 0 && price != null ? roundMoney(held * price) : 0;
     const unreal = held > 0 && price != null ? roundMoney(value - invested) : 0;
