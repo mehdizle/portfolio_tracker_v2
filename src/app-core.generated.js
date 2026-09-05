@@ -301,6 +301,72 @@ function escapeHtml(v) {
   });
 }
 
+// ---------- Ticker badge (monogram fallback + optional real logo) ----------
+// Renders a small inline badge for a ticker:
+//   - a deterministic colored monogram (always works, offline, private), PLUS
+//   - an <img> that tries logos/<TICKER>.png; if it loads it reveals itself and
+//     hides the monogram; if it 404s the monogram stays. No inline handlers -
+//     a delegated load/error listener (in 09-boot.js) wires the swap, keeping
+//     the app's "no inline onclick/onerror" model intact.
+// Drop real logos into public/logos/<TICKER>.png (case-insensitive stored key)
+// and they override the monogram automatically.
+function _tickerHue(tk) {
+  // Stable hash -> hue (0..359). Same ticker always gets the same color.
+  let h = 0;
+  const s = String(tk || "");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+function _tickerInitials(tk) {
+  const s = String(tk || "").replace(/[^A-Za-z0-9]/g, "");
+  if (!s) return "?";
+  // Up to 3 chars for readability (e.g. "NKL", "ATW", "SBM").
+  return s.slice(0, 3).toUpperCase();
+}
+// Filesystem-safe logo key for a ticker (spaces/punct -> underscore, upper).
+function _tickerLogoKey(tk) {
+  return String(tk || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+// size = badge diameter in px (default 20). Returns an inline-block HTML string.
+function tickerBadge(tk, size) {
+  const px = size || 20;
+  const key = _tickerLogoKey(tk);
+  if (!key) return "";
+  const hue = _tickerHue(key);
+  const initials = escapeHtml(_tickerInitials(tk));
+  const fontPx = Math.max(
+    7,
+    Math.round(px * (initials.length >= 3 ? 0.34 : 0.42)),
+  );
+  // logos/ is relative to the page, so it resolves under the GitHub Pages base
+  // (/portfolio_tracker_v2/logos/...) and locally, with no build-time base var.
+  const src = "logos/" + key + ".png";
+  return (
+    '<span class="tkr-badge" style="width:' +
+    px +
+    "px;height:" +
+    px +
+    'px;position:relative;display:inline-flex;flex:none;vertical-align:middle;margin-right:6px;border-radius:6px;overflow:hidden;align-items:center;justify-content:center">' +
+    // monogram (visible fallback)
+    '<span class="tkr-mono" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:' +
+    fontPx +
+    "px;color:#fff;background:hsl(" +
+    hue +
+    ',62%,42%);letter-spacing:.02em">' +
+    initials +
+    "</span>" +
+    // real logo (hidden until it successfully loads)
+    '<img class="tkr-logo" alt="" loading="lazy" src="' +
+    escapeHtml(src) +
+    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:none">' +
+    "</span>"
+  );
+}
+
 // ---------- Trusted tooltip registry ----------
 // Rich (HTML) tooltips are our OWN generated markup, but embedding that HTML in
 // a data-tip attribute means it must be re-parsed from the DOM on hover - a
@@ -2931,7 +2997,7 @@ function posRow(p, showDivY) {
       ? '<span style="display:inline-block;width:12px"></span> '
       : "";
   const parent = `<tr${expandable ? ' data-cmb="' + rowId + '"' : ""}>
-    <td class="l">${caret}<b>${p.ticker}</b>${posChips(p)}</td>${posCells(p, showDivY)}</tr>`;
+    <td class="l">${caret}${tickerBadge(p.ticker)}<b>${p.ticker}</b>${posChips(p)}</td>${posCells(p, showDivY)}</tr>`;
   if (!expandable) return parent;
   // Per-account child rows (hidden by default). Reuse posCells; give them a REG/PEA chip and indented ticker.
   const kids = p.children
@@ -5977,11 +6043,13 @@ window.showCompanyDetail = function (tk) {
   h +=
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">';
   h +=
-    '<div><h2 style="margin:0">' +
+    '<div><h2 style="margin:0;display:flex;align-items:center;gap:2px">' +
+    tickerBadge(tk, 36) +
+    "<span>" +
     escapeHtml(tk) +
     " \u2014 " +
     escapeHtml(m.name || "") +
-    "</h2>";
+    "</span></h2>";
   h +=
     '<div class="mini" style="margin-top:4px;color:var(--text2)">' +
     (m.cat || "\u2014") +
@@ -6270,6 +6338,7 @@ window.draftPendingFromDetail = function (tk) {
   if (typeof prefillPending === "function") prefillPending(tk);
 };
 
+
 // ===== 06-features.js =====
 // ============================================================
 // 06-features.js
@@ -6365,7 +6434,7 @@ function renderSignals() {
     `<tr><td colspan="12" style="background:var(--panel2);color:var(--text2);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px">${txt}</td></tr>`;
   let lastGrp = null;
   const rowHtml = (r) => `<tr class="${r.held ? "held-row" : ""} sig-row">
-    <td class="l" style="cursor:pointer" data-tip="Click to draft a pending order for ${escapeHtml(r.ticker)}" data-act="prefillPending" data-args="${r.ticker}" data-stop="true"><b style="color:var(--primary2)">${escapeHtml(r.ticker)}</b>${r.held ? ' <span class="tag-in">held</span>' : ""}</td>
+    <td class="l" style="cursor:pointer" data-tip="Click to draft a pending order for ${escapeHtml(r.ticker)}" data-act="prefillPending" data-args="${r.ticker}" data-stop="true">${tickerBadge(r.ticker)}<b style="color:var(--primary2)">${escapeHtml(r.ticker)}</b>${r.held ? ' <span class="tag-in">held</span>' : ""}</td>
     <td class="l" style="cursor:pointer;color:var(--text2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="${r.ticker}" data-stop="true">${escapeHtml(r.name || "")}</td>
     <td class="center nis-cell" style="cursor:help" data-tip="${tipRef(signalTipHTML(r))}"><span class="badge ${r.sig.c}">${r.sig.t}</span> <span style="color:var(--muted)">\u24D8</span></td>
     <td class="${r.price != null ? "nis-cell" : ""}" style="${r.price != null ? "cursor:help" : ""}" data-tip="${r.price != null ? tipRef(priceTipHTML(r)) : ""}">${r.price != null ? money(r.price) : "\u2014"}${r.price != null && r.fv != null && r.fv > 0 ? (r.price < r.fv ? ' <span style=\"color:var(--success)\" title=\"Below fair value\">\u25B2</span>' : r.price > r.fv ? ' <span style=\"color:var(--error)\" title=\"Above fair value\">\u25BC</span>' : "") : ""}</td><td class="${r.fv != null ? "nis-cell" : ""}" style="${r.fv != null ? "cursor:help" : ""}" data-tip="${r.fv != null ? tipRef(fvTipHTML(r)) : ""}">${r.fv != null ? money(r.fv) : "\u2014"}</td>
@@ -17117,6 +17186,33 @@ render();
   document.addEventListener("click", (e) => dispatch(e, "click"));
   document.addEventListener("change", (e) => dispatch(e, "change"));
   document.addEventListener("input", (e) => dispatch(e, "input"));
+
+  // Ticker badge: when a real logo (logos/<TICKER>.png) actually loads, reveal
+  // it and hide the monogram fallback. Delegated on the capture phase because
+  // the img "load" event does not bubble. No inline onerror/onload handlers,
+  // keeping the app's no-inline-handler model. If the logo 404s the monogram
+  // simply stays visible.
+  document.addEventListener(
+    "load",
+    function (e) {
+      const img = e.target;
+      if (
+        !img ||
+        img.tagName !== "IMG" ||
+        !img.classList ||
+        !img.classList.contains("tkr-logo")
+      )
+        return;
+      // Guard against zero-size / broken decodes.
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        img.style.display = "block";
+        const wrap = img.parentNode;
+        const mono = wrap && wrap.querySelector(".tkr-mono");
+        if (mono) mono.style.display = "none";
+      }
+    },
+    true,
+  );
 
   // Modal helpers (replace inline onclick on the static modals in index.html).
   // - [data-modal-backdrop]: clicking the backdrop itself (not its contents)
