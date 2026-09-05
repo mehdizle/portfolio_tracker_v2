@@ -133,6 +133,25 @@ describe("txn schema: export -> import round-trip preserves every field", () => 
     expect(back.action).toBe("DIV");
   });
 
+  it("Order ID (_ord) round-trips via the orderid column", () => {
+    const t = {
+      date: "2026-09-03",
+      ticker: "ZDJ",
+      action: "BUY",
+      qty: 2,
+      price: 305,
+      pea: true,
+      opcvm: false,
+      broker: "attijari",
+      _ord: "ID42",
+    };
+    const [back] = roundTrip([t]);
+    expect(back._ord).toBe("ID42");
+    // absent when not set (kept lean via omitIf)
+    const [bare] = roundTrip([{ ...t, _ord: undefined }]);
+    expect("_ord" in bare).toBe(false);
+  });
+
   it("broker blank in CSV -> resolves to undefined (falls back to txnBroker downstream)", () => {
     // Simulate an import row with an empty broker cell.
     const ix = buildCsvIx(csvHeader());
