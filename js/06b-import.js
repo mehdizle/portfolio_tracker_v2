@@ -1558,19 +1558,76 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 document.getElementById("dlTxnTemplate").onclick = () => {
-  const t = [
-    "date,ticker,action,qty,price,pea,opcvm,total,broker",
-    "2026-01-15,ATW,BUY,10,680,no,no,,saham",
-    "2026-03-20,ATW,SELL,5,720,no,no,,saham",
-    "2026-06-22,ATW,DIV,10,22,no,no,,saham",
-    "2026-02-04,FCP A,BUY,8.435,831.8,no,yes,7025,attijari",
-    "2026-02-04,FCP B,BUY,2.34,,no,yes,2990.35,attijari",
+  // SCHEMA-DRIVEN: header + sample rows are generated from __core.txnSchema so a
+  // new transaction field (e.g. Order ID) appears in the template automatically
+  // and can never drift from the real import/export columns.
+  const S = __core.txnSchema;
+  const ctx = {
+    resolveBroker: (t) => t.broker || (t.opcvm ? "attijari" : "saham"),
+  };
+  const samples = [
+    {
+      date: "2026-01-15",
+      ticker: "ATW",
+      action: "BUY",
+      qty: 10,
+      price: 680,
+      pea: false,
+      opcvm: false,
+      broker: "saham",
+    },
+    {
+      date: "2026-03-20",
+      ticker: "ATW",
+      action: "SELL",
+      qty: 5,
+      price: 720,
+      pea: false,
+      opcvm: false,
+      broker: "saham",
+    },
+    {
+      date: "2026-06-22",
+      ticker: "ATW",
+      action: "DIV",
+      qty: 10,
+      price: 22,
+      pea: false,
+      opcvm: false,
+      broker: "saham",
+    },
+    {
+      date: "2026-02-04",
+      ticker: "FCP A",
+      action: "BUY",
+      qty: 8.435,
+      price: 831.8,
+      pea: false,
+      opcvm: true,
+      total: 7025,
+      broker: "attijari",
+    },
+    {
+      date: "2026-02-04",
+      ticker: "FCP B",
+      action: "BUY",
+      qty: 2.34,
+      pea: false,
+      opcvm: true,
+      total: 2990.35,
+      broker: "attijari",
+    },
+  ];
+  const lines = [S.csvHeader().join(",")];
+  for (const s of samples) lines.push(S.txnToCsvRow(s, ctx).join(","));
+  lines.push(
     "# date=YYYY-MM-DD \u00B7 action=BUY/SELL/DIV \u00B7 pea=yes/no \u00B7 opcvm=yes/no (fund? auto-detected for known funds) \u00B7 total=OPCVM total TTC (optional, blank for stocks) \u00B7 qty=shares (or share count for DIV)  price=unit price MAD (or dividend/share for DIV)",
     "# broker=saham/attijari (optional). Blank -> auto: funds->attijari, stocks->saham. It sets the fee model, so fill it if you use a specific broker.",
+    "# orderid=optional. Fills of ONE broker order (split executions) share the same Order ID so the per-order courtage minimum is charged once. Leave blank for single fills.",
     "# OPCVM funds: you can leave price BLANK and give total only \u2014 unit price is derived as total/qty on import (see FCP B row above).",
-    "# Export adds 3 more optional columns for auto-recorded dividends (exdate,eligbasis,auto); they re-import automatically. You don't need to fill them by hand.",
-  ].join("\n");
-  downloadText("transactions_template.csv", t);
+    "# Optional columns for auto-recorded dividends (exdate,eligbasis,auto) re-import automatically \u2014 you don't need to fill them by hand.",
+  );
+  downloadText("transactions_template.csv", lines.join("\n"));
 };
 document.getElementById("dlCalTemplate").onclick = () => {
   const t = [
