@@ -993,7 +993,7 @@ function posRow(p, showDivY) {
       ? '<span style="display:inline-block;width:12px"></span> '
       : "";
   const parent = `<tr${expandable ? ' data-cmb="' + rowId + '"' : ""}>
-    <td class="l">${caret}<b>${p.ticker}</b>${posChips(p)}</td>${posCells(p, showDivY)}</tr>`;
+    <td class="l">${caret}${tickerBadge(p.ticker)}<b>${p.ticker}</b>${posChips(p)}</td>${posCells(p, showDivY)}</tr>`;
   if (!expandable) return parent;
   // Per-account child rows (hidden by default). Reuse posCells; give them a REG/PEA chip and indented ticker.
   const kids = p.children

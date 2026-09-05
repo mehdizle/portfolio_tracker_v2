@@ -1274,11 +1274,13 @@ window.showCompanyDetail = function (tk) {
   h +=
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">';
   h +=
-    '<div><h2 style="margin:0">' +
+    '<div><h2 style="margin:0;display:flex;align-items:center;gap:2px">' +
+    tickerBadge(tk, 36) +
+    "<span>" +
     escapeHtml(tk) +
     " \u2014 " +
     escapeHtml(m.name || "") +
-    "</h2>";
+    "</span></h2>";
   h +=
     '<div class="mini" style="margin-top:4px;color:var(--text2)">' +
     (m.cat || "\u2014") +

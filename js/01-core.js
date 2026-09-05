@@ -296,6 +296,72 @@ function escapeHtml(v) {
   });
 }
 
+// ---------- Ticker badge (monogram fallback + optional real logo) ----------
+// Renders a small inline badge for a ticker:
+//   - a deterministic colored monogram (always works, offline, private), PLUS
+//   - an <img> that tries logos/<TICKER>.png; if it loads it reveals itself and
+//     hides the monogram; if it 404s the monogram stays. No inline handlers -
+//     a delegated load/error listener (in 09-boot.js) wires the swap, keeping
+//     the app's "no inline onclick/onerror" model intact.
+// Drop real logos into public/logos/<TICKER>.png (case-insensitive stored key)
+// and they override the monogram automatically.
+function _tickerHue(tk) {
+  // Stable hash -> hue (0..359). Same ticker always gets the same color.
+  let h = 0;
+  const s = String(tk || "");
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+  return h;
+}
+function _tickerInitials(tk) {
+  const s = String(tk || "").replace(/[^A-Za-z0-9]/g, "");
+  if (!s) return "?";
+  // Up to 3 chars for readability (e.g. "NKL", "ATW", "SBM").
+  return s.slice(0, 3).toUpperCase();
+}
+// Filesystem-safe logo key for a ticker (spaces/punct -> underscore, upper).
+function _tickerLogoKey(tk) {
+  return String(tk || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+// size = badge diameter in px (default 20). Returns an inline-block HTML string.
+function tickerBadge(tk, size) {
+  const px = size || 20;
+  const key = _tickerLogoKey(tk);
+  if (!key) return "";
+  const hue = _tickerHue(key);
+  const initials = escapeHtml(_tickerInitials(tk));
+  const fontPx = Math.max(
+    7,
+    Math.round(px * (initials.length >= 3 ? 0.34 : 0.42)),
+  );
+  // logos/ is relative to the page, so it resolves under the GitHub Pages base
+  // (/portfolio_tracker_v2/logos/...) and locally, with no build-time base var.
+  const src = "logos/" + key + ".png";
+  return (
+    '<span class="tkr-badge" style="width:' +
+    px +
+    "px;height:" +
+    px +
+    'px;position:relative;display:inline-flex;flex:none;vertical-align:middle;margin-right:6px;border-radius:6px;overflow:hidden;align-items:center;justify-content:center">' +
+    // monogram (visible fallback)
+    '<span class="tkr-mono" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:' +
+    fontPx +
+    "px;color:#fff;background:hsl(" +
+    hue +
+    ',62%,42%);letter-spacing:.02em">' +
+    initials +
+    "</span>" +
+    // real logo (hidden until it successfully loads)
+    '<img class="tkr-logo" alt="" loading="lazy" src="' +
+    escapeHtml(src) +
+    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:none">' +
+    "</span>"
+  );
+}
+
 // ---------- Trusted tooltip registry ----------
 // Rich (HTML) tooltips are our OWN generated markup, but embedding that HTML in
 // a data-tip attribute means it must be re-parsed from the DOM on hover - a

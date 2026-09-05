@@ -143,6 +143,33 @@
   document.addEventListener("change", (e) => dispatch(e, "change"));
   document.addEventListener("input", (e) => dispatch(e, "input"));
 
+  // Ticker badge: when a real logo (logos/<TICKER>.png) actually loads, reveal
+  // it and hide the monogram fallback. Delegated on the capture phase because
+  // the img "load" event does not bubble. No inline onerror/onload handlers,
+  // keeping the app's no-inline-handler model. If the logo 404s the monogram
+  // simply stays visible.
+  document.addEventListener(
+    "load",
+    function (e) {
+      const img = e.target;
+      if (
+        !img ||
+        img.tagName !== "IMG" ||
+        !img.classList ||
+        !img.classList.contains("tkr-logo")
+      )
+        return;
+      // Guard against zero-size / broken decodes.
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        img.style.display = "block";
+        const wrap = img.parentNode;
+        const mono = wrap && wrap.querySelector(".tkr-mono");
+        if (mono) mono.style.display = "none";
+      }
+    },
+    true,
+  );
+
   // Modal helpers (replace inline onclick on the static modals in index.html).
   // - [data-modal-backdrop]: clicking the backdrop itself (not its contents)
   //   hides the modal.
