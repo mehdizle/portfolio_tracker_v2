@@ -1414,7 +1414,7 @@ function ttcTipHTML(t, e) {
   if (e.opcvm) {
     const meta = M[t.ticker] || {};
     const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
-    h += `<div style="color:var(--info);font-size:11px;margin:4px 0 2px;font-weight:700">\uD83C\uDFE6 OPCVM fund${meta.name ? " \u2014 " + meta.name : ""}</div>`;
+    h += `<div style="color:var(--info);font-size:11px;margin:4px 0 2px;font-weight:700">\uD83C\uDFE6 OPCVM fund${meta.name ? " \u2014 " + escapeHtml(meta.name) : ""}</div>`;
     if (t.action === "BUY") {
       const hasFee = meta.buyFee != null;
       h += row(

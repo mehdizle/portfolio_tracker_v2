@@ -1678,7 +1678,7 @@ function renderBrokerTabs() {
     .map((id) => {
       const b = BROKERS[id];
       const active = id === CUR_BROKER;
-      return `<button class="btn ${active ? "" : "sec2"} bkTab" data-bk="${id}" style="font-size:12px;padding:5px 14px;border-radius:14px">${b.name}</button>`;
+      return `<button class="btn ${active ? "" : "sec2"} bkTab" data-bk="${escapeHtml(id)}" style="font-size:12px;padding:5px 14px;border-radius:14px">${escapeHtml(b.name)}</button>`;
     })
     .join("");
   el.querySelectorAll(".bkTab").forEach((btn) => {

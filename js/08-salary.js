@@ -862,8 +862,8 @@ function renderCash() {
     <td>${r.date}${r._future ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Future-dated \u2014 not counted in the current balance until this date">\u23F3 upcoming</span>' : ""}</td>
     <td><span class="${typeCls[r.type] || ""}">${typeLabel[r.type] || r.type}</span></td>
     <td class="${r._amt >= 0 ? "pos" : "neg"}">${money(r._amt)} MAD</td>
-    <td style="font-size:11px;opacity:.8">${(BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg")} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
-    <td>${r.note || "\u2014"}</td>
+    <td style="font-size:11px;opacity:.8">${escapeHtml((BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg"))} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
+    <td>${escapeHtml(r.note || "\u2014")}</td>
     <td style="font-weight:600">${r._bal == null ? "\u2014" : money(r._bal) + " MAD"}</td>
     <td><button class="btn-sm" data-act="editCashRow" data-args="${r._idx}" title="Edit">\u270e</button> <button class="btn-sm" data-act="deleteCashRow" data-args="${r._idx}" title="Delete">\u2715</button></td>
   </tr>`,
