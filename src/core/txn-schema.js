@@ -147,6 +147,22 @@ export const TXN_FIELDS = [
       return match || undefined;
     },
   },
+  // --- Order ID (side-channel; no form control) ---------------------------
+  // Identifies which fills belong to ONE broker order. Auto-assigned when a
+  // pending item is created (ID1, ID2, ...) and carried onto every executed
+  // (possibly split) transaction, so the fee engine applies a per-order
+  // courtage minimum once per order. Round-trips through CSV as "orderid".
+  {
+    key: "_ord",
+    csv: "orderid",
+    form: null,
+    omitIf: (v) => v == null || v === "",
+    toCsv: (v) => (v == null ? "" : String(v)),
+    fromCsv: (c) => {
+      const s = (c || "").trim();
+      return s || undefined;
+    },
+  },
   // --- DIV side-channel fields (no form control; round-tripped via CSV) ---
   {
     key: "exDate",
