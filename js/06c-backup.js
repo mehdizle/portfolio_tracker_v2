@@ -21,6 +21,7 @@ const APP_LS_KEYS = [
   "casa_cash_v1",
   "casa_brokers_v1",
   "casa_signal_hist_v1",
+  "casa_order_seq_v1",
 ];
 let _backupBusy = false;
 document.getElementById("backupAll").onclick = () => {
@@ -733,4 +734,3 @@ document.addEventListener("click", function (e) {
   const ch = h.querySelector(".collap-ch");
   if (ch) ch.textContent = open ? "\u25B8 Show" : "\u25BE Hide";
 });
-
