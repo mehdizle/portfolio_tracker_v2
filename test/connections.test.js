@@ -167,11 +167,27 @@ describe("connection manifest: internal consistency", () => {
 describe("no schema drift: CSV-emitting code binds to the schema", () => {
   const IMPORT_JS = read("js/06b-import.js");
 
+  // Extract a click-handler body by brace-matching from a "<id>").onclick"
+  // marker (robust to formatting - no fixed char window that can truncate).
+  function handlerBody(src, marker) {
+    const at = src.indexOf(marker);
+    if (at < 0) return null;
+    const open = src.indexOf("{", at);
+    if (open < 0) return null;
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") {
+        depth--;
+        if (depth === 0) return src.slice(open, i + 1);
+      }
+    }
+    return null;
+  }
+
   it("the transactions template is generated from the schema (csvHeader), not a hardcoded header", () => {
-    // Locate the dlTxnTemplate handler body.
-    const start = IMPORT_JS.indexOf('dlTxnTemplate").onclick');
-    expect(start, "dlTxnTemplate handler not found").toBeGreaterThan(-1);
-    const body = IMPORT_JS.slice(start, start + 1200);
+    const body = handlerBody(IMPORT_JS, 'dlTxnTemplate").onclick');
+    expect(body, "dlTxnTemplate handler not found").toBeTruthy();
     // Must derive the header from the schema...
     expect(
       /csvHeader\(\)/.test(body),
@@ -184,10 +200,18 @@ describe("no schema drift: CSV-emitting code binds to the schema", () => {
     ).toBe(false);
   });
 
+  it("the dividend-calendar template header comes from the schema (calTemplateHeader)", () => {
+    const body = handlerBody(IMPORT_JS, 'dlCalTemplate").onclick');
+    expect(body, "dlCalTemplate handler not found").toBeTruthy();
+    expect(
+      /calTemplateHeader\(\)/.test(body),
+      "calendar template must call calTemplateHeader()",
+    ).toBe(true);
+  });
+
   it("CSV export is generated from the schema (csvHeader + txnToCsvRow)", () => {
-    const start = IMPORT_JS.indexOf('exportCsv").onclick');
-    expect(start, "exportCsv handler not found").toBeGreaterThan(-1);
-    const body = IMPORT_JS.slice(start, start + 800);
+    const body = handlerBody(IMPORT_JS, 'exportCsv").onclick');
+    expect(body, "exportCsv handler not found").toBeTruthy();
     expect(/csvHeader\(\)/.test(body)).toBe(true);
     expect(/txnToCsvRow\(/.test(body)).toBe(true);
   });
