@@ -17,7 +17,12 @@ import {
   fixedFee,
 } from "../src/core/fees.js";
 import { divRate, capitalGainsTax, dividendTax } from "../src/core/tax.js";
-import { computeRow, runFIFO, txnBroker } from "../src/core/fifo.js";
+import {
+  computeRow,
+  runFIFO,
+  txnBroker,
+  annotateOrderCourtage,
+} from "../src/core/fifo.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -324,5 +329,141 @@ describe("runFIFO basic scenarios", () => {
     const p = pos["FCP A||REG"];
     expect(Math.abs(p.held)).toBeLessThan(1e-9);
     expect(p.status).toBe("Closed");
+  });
+});
+
+describe("split-order courtage (Attijari per-order minimum)", () => {
+  const CTX_PEA = { ...CTX, brokers: BROKER_DEFAULTS };
+
+  it("applies the courtage minimum ONCE per split order (ZDJ case)", () => {
+    // One order: 10 sh @ 305 (=3050 gross), filled 2 sh then 8 sh across 2 days.
+    // Broker: courtage = 1% of 3050 = 30.50; the 2-sh fill hits the 10 floor,
+    // the 8-sh fill absorbs the remainder (20.50). Regl 0.2% + bourse 0.1% per
+    // fill, +10% VAT. Expected fees: 2-sh 13.01, 8-sh 30.60.
+    const rows = annotateOrderCourtage(
+      [
+        {
+          date: "2026-09-03",
+          ticker: "ZDJ",
+          action: "BUY",
+          qty: 2,
+          price: 305,
+          pea: true,
+          broker: "attijari",
+        },
+        {
+          date: "2026-09-04",
+          ticker: "ZDJ",
+          action: "BUY",
+          qty: 8,
+          price: 305,
+          pea: true,
+          broker: "attijari",
+        },
+      ].map((t) => ({ ...t })),
+      CTX_PEA,
+    );
+    const small = rows.find((r) => r.qty === 2);
+    const big = rows.find((r) => r.qty === 8);
+    expect(small._courtageOverride).toBeCloseTo(10.0, 2);
+    expect(big._courtageOverride).toBeCloseTo(20.5, 2);
+    const fSmall = computeRow(small, 0, CTX_PEA);
+    const fBig = computeRow(big, 0, CTX_PEA);
+    expect(fSmall.fees).toBeCloseTo(13.01, 2);
+    expect(fBig.fees).toBeCloseTo(30.6, 2);
+    // total net matches the broker statement (623.01 + 2470.60)
+    expect(-(fSmall.net + fBig.net)).toBeCloseTo(3093.61, 2);
+  });
+
+  it("does NOT change split orders where every fill clears the floor (ARD case)", () => {
+    // 3@439 + 3@438.9: each fill's 1% (~13.17) already exceeds the 10 floor,
+    // so no per-order adjustment; fees identical to per-fill.
+    const rows = annotateOrderCourtage(
+      [
+        {
+          date: "2026-09-02",
+          ticker: "ARD",
+          action: "BUY",
+          qty: 3,
+          price: 439,
+          pea: true,
+          broker: "attijari",
+        },
+        {
+          date: "2026-09-02",
+          ticker: "ARD",
+          action: "BUY",
+          qty: 3,
+          price: 438.9,
+          pea: true,
+          broker: "attijari",
+        },
+      ].map((t) => ({ ...t })),
+      CTX_PEA,
+    );
+    rows.forEach((r) => expect(r._courtageOverride).toBeUndefined());
+    const fees = rows.map((r) => computeRow(r, 0, CTX_PEA).fees);
+    expect(fees[0]).toBeCloseTo(18.83, 2);
+    expect(fees[1]).toBeCloseTo(18.83, 2);
+  });
+
+  it("does NOT merge separate purchases months apart", () => {
+    // Two genuinely separate orders (>3 days apart) must stay independent even
+    // for the same ticker/account, so neither gets an override.
+    const rows = annotateOrderCourtage(
+      [
+        {
+          date: "2026-01-10",
+          ticker: "ATW",
+          action: "BUY",
+          qty: 1,
+          price: 700,
+          pea: true,
+          broker: "attijari",
+        },
+        {
+          date: "2026-06-20",
+          ticker: "ATW",
+          action: "BUY",
+          qty: 1,
+          price: 720,
+          pea: true,
+          broker: "attijari",
+        },
+      ].map((t) => ({ ...t })),
+      CTX_PEA,
+    );
+    rows.forEach((r) => expect(r._courtageOverride).toBeUndefined());
+  });
+
+  it("groups by explicit _ord id regardless of dates", () => {
+    // A shared _ord id links fills even across a wide date gap (future fills).
+    const rows = annotateOrderCourtage(
+      [
+        {
+          date: "2026-09-01",
+          ticker: "ZDJ",
+          action: "BUY",
+          qty: 2,
+          price: 305,
+          pea: true,
+          broker: "attijari",
+          _ord: "oX",
+        },
+        {
+          date: "2026-09-20",
+          ticker: "ZDJ",
+          action: "BUY",
+          qty: 8,
+          price: 305,
+          pea: true,
+          broker: "attijari",
+          _ord: "oX",
+        },
+      ].map((t) => ({ ...t })),
+      CTX_PEA,
+    );
+    const small = rows.find((r) => r.qty === 2);
+    expect(small._courtageOverride).toBeCloseTo(10.0, 2);
   });
 });
