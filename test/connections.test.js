@@ -159,3 +159,36 @@ describe("connection manifest: internal consistency", () => {
     expect(new Set(fns).size).toBe(fns.length);
   });
 });
+
+// Guard against derived-surface DRIFT: any code that emits the transaction CSV
+// (export AND the downloadable template) must build its columns from the schema
+// (csvHeader / txnToCsvRow), never a hand-typed column list. This is the class
+// of bug where the template silently omitted a newly-added field ("orderid").
+describe("no schema drift: CSV-emitting code binds to the schema", () => {
+  const IMPORT_JS = read("js/06b-import.js");
+
+  it("the transactions template is generated from the schema (csvHeader), not a hardcoded header", () => {
+    // Locate the dlTxnTemplate handler body.
+    const start = IMPORT_JS.indexOf('dlTxnTemplate").onclick');
+    expect(start, "dlTxnTemplate handler not found").toBeGreaterThan(-1);
+    const body = IMPORT_JS.slice(start, start + 1200);
+    // Must derive the header from the schema...
+    expect(
+      /csvHeader\(\)/.test(body),
+      "template must call csvHeader() so new fields appear automatically",
+    ).toBe(true);
+    // ...and must NOT hardcode the old column list.
+    expect(
+      /"date,ticker,action,qty,price,pea,opcvm,total,broker"/.test(IMPORT_JS),
+      "template must not hardcode the CSV header string",
+    ).toBe(false);
+  });
+
+  it("CSV export is generated from the schema (csvHeader + txnToCsvRow)", () => {
+    const start = IMPORT_JS.indexOf('exportCsv").onclick');
+    expect(start, "exportCsv handler not found").toBeGreaterThan(-1);
+    const body = IMPORT_JS.slice(start, start + 800);
+    expect(/csvHeader\(\)/.test(body)).toBe(true);
+    expect(/txnToCsvRow\(/.test(body)).toBe(true);
+  });
+});
