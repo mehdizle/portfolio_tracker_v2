@@ -30,6 +30,29 @@ entirely in the browser on localStorage. Beyond the original feature set it adds
 - **Value-vs-Diversification rebalance** - a persisted slider tilts the buy plan
   between sector-diversification and undervaluation; trims + greedy allocation
   are fee-aware and delegate cost estimation to the same core as execution.
+- **Per-order broker fees (split-aware)** - Attijari-style courtage has a
+  per-order minimum. When one order fills in several executions, each fill is a
+  separate transaction sharing an **Order ID**; the fee engine charges the
+  courtage minimum once per order (largest fill absorbs the remainder), matching
+  the broker statement. Order ID is a real, persisted, CSV-round-tripped field
+  (auto-assigned at pending creation, e.g. `ID1`, `ID2`), and orders can also be
+  grouped by a date window for legacy fills that predate it.
+- **Casablanca session tracker** - a far-right "Market" button opens a live
+  popup showing the current CSE phase (pre-open / opening auction / continuous /
+  closing auction / trading-at-last for Group 1; accumulation / fixing /
+  post-fixing for Group 3), what's passed and what's next, in Africa/Casablanca
+  time regardless of the viewer's timezone.
+- **Ticker badges** - every ticker shows a deterministic colored monogram
+  (initials on a stable per-ticker color); dropping a PNG into `public/logos/`
+  (named by ticker) overrides it with a real logo. No external calls - offline
+  and private; a delegated load listener swaps the logo in only if it loads.
+- **Positions: group by sector + sector pie** - the Positions tab has a
+  Group/Ungroup toggle (sector header rows with per-sector totals + icons), and
+  the Dashboard sector allocation is a pie.
+- **Schema-drift guards** - the transaction CSV surfaces (export, import, the
+  downloadable template, the import error message) all derive their columns from
+  the schema; a CI test scans the UI source and fails if any hardcoded column
+  list reappears, so a new field can't silently drift out of one surface.
 
 Live site: https://mehdizle.github.io/portfolio_tracker_v2/
 
@@ -40,6 +63,8 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
 ```
 index.html                 HTML shell. Loads Highcharts (CDN) + the Vite entry.
 styles.css                 All styles (imported by the entry, fingerprinted by Vite).
+public/                    Static files copied verbatim to the site root by Vite.
+  logos/                   Optional per-ticker logos (<TICKER>.png); monogram fallback.
 src/
   main.js                  Vite entry: imports css, core-bridge, then the UI bundle.
   core-bridge.js           Sets globalThis.__core BEFORE the UI bundle evaluates.
@@ -51,7 +76,7 @@ src/
     config.js              fee/broker/tax default parameters
     backup-crypto.js       AES-GCM backup encryption (WebCrypto)
     txn-schema.js          transaction/pending field registry + CSV helpers
-    master-schema.js       master-list import field registry (TV + OPCVM)
+    master-schema.js       master-list import field registry (TV + OPCVM) + calendar shape
     plan-apply.js          savings-pots recurring-cost -> log recompute (pure)
     connection-manifest.js declared field/render/save connections (CI-checked)
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
@@ -61,15 +86,15 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   01-core.js               globals, persistence, fee/tax wrappers -> __core
   02-compute.js            computeRow/runFIFO bridge to the core
   03-signals.js            valuation & signal engine (scores, fair value, targets)
-  04-render.js             dashboard KPIs, positions, charts, hero, tax summary
+  04-render.js             dashboard KPIs, positions (group-by-sector, badges), charts, sector pie
   05-rebalance.js          rebalance engine + stock detail panel
   06-features.js           signals render, dividends, transactions, interactions
-  06b-import.js            TradingView/OPCVM/CSV import, fee panel, theme, calendar
+  06b-import.js            TradingView/OPCVM/CSV import + templates, fee panel, theme, calendar
   06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, snapshots
-  06d-pending.js           pending orders + indicators + tooltips + range bar
+  06d-pending.js           pending orders (Order IDs), indicators, tooltips, range bar
   07-expenses.js           monthly expenses + savings pots (car/other planners)
-  08-salary.js             salary calc, categories, cash ledger
-  09-boot.js               the single data-act event delegator + boot
+  08-salary.js             salary calc, categories, cash ledger, quick-tooltip engine
+  09-boot.js               data-act delegator, ticker-logo load-swap, market session, boot
 test/
   core.test.js             unit tests (money, fees, tax, FIFO scenarios)
   reference.test.js        runs the real backup through the core; consistency +
@@ -131,7 +156,19 @@ auto-detects it and asks for the password. There is no password recovery - if yo
 forget it, that backup cannot be restored. Encrypted v2 backups are not readable
 by v1.
 
+## Ticker logos
+
+Every ticker shows a small badge. By default it's a deterministic colored
+monogram (the ticker's initials on a stable color) - always available, offline,
+and private. To show a real logo instead, drop a PNG into `public/logos/` named
+after the ticker: uppercased, non-alphanumeric characters replaced by `_`, e.g.
+`NKL.png`, `ATJ_ACT.png`, `FCP_B.png`. Vite copies `public/` to the site root, so
+the file is served at `/portfolio_tracker_v2/logos/<TICKER>.png`. If the file is
+missing the monogram is used - there are no external logo requests.
+
 ## Data and privacy
 
 All data is stored in the browser's localStorage. Unencrypted backups are plain
-JSON. Use encrypted backups if the file may leave your device.
+JSON. Use encrypted backups if the file may leave your device. The app makes no
+outbound requests except loading Highcharts from its CDN; it never sends your
+portfolio anywhere.
