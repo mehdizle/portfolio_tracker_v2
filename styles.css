@@ -65,7 +65,21 @@ h3 {
 .title {
   font-size: 22px;
   font-weight: 800;
-  background: linear-gradient(90deg, #fff, #9aa7b4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Chart emoji: render in full color (NOT clipped by the gradient text-fill,
+   which previously wiped it to a blank square). */
+.title-icon {
+  -webkit-text-fill-color: initial;
+  font-size: 1.05em;
+  line-height: 1;
+}
+/* Brand name: theme-aware gradient (uses text -> primary accent). In light mode
+   the tokens are dark, so it stays readable instead of white-on-white. */
+.title-name {
+  background: linear-gradient(90deg, var(--text), var(--primary2, #9aa7b4));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
