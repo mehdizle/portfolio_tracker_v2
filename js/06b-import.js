@@ -2138,13 +2138,23 @@ document.getElementById("toggleClosed").onclick = () => {
 };
 {
   const _gb = document.getElementById("toggleGroupSector");
+  // Reflect GROUP_SECTOR on the button (label + active state). Called on load so
+  // the restored preference shows correctly, and after each toggle.
+  const _syncGroupBtn = () => {
+    if (!_gb) return;
+    _gb.textContent = GROUP_SECTOR
+      ? "\uD83D\uDCCB Ungroup"
+      : "\uD83D\uDDC2\uFE0F Group by sector";
+    _gb.classList.toggle("active", GROUP_SECTOR);
+  };
+  _syncGroupBtn(); // restore saved state's label on load
   if (_gb)
     _gb.onclick = () => {
       GROUP_SECTOR = !GROUP_SECTOR;
-      _gb.textContent = GROUP_SECTOR
-        ? "\uD83D\uDCCB Ungroup"
-        : "\uD83D\uDDC2\uFE0F Group by sector";
-      _gb.classList.toggle("active", GROUP_SECTOR);
+      try {
+        localStorage.setItem("casa_group_sector_v1", GROUP_SECTOR ? "1" : "0");
+      } catch (e) {}
+      _syncGroupBtn();
       rerenderPositions();
     };
 }

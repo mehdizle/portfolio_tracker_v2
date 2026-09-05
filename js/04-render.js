@@ -1052,7 +1052,15 @@ function subtotalRow(label, rows) {
     <td class="${s.div > 0 ? "pos" : ""}">${money(s.div)}</td><td class="${cls(s.life)}">${money(s.life)}</td><td></td><td></td></tr>`;
 }
 let HIDE_CLOSED = true;
-let GROUP_SECTOR = false; // Positions tab: group stocks under sector headers
+// Positions tab: group stocks under sector headers. Persisted so the user's
+// last choice survives a refresh (and rides in backup via casa_group_sector_v1).
+let GROUP_SECTOR = (() => {
+  try {
+    return localStorage.getItem("casa_group_sector_v1") === "1";
+  } catch (e) {
+    return false;
+  }
+})();
 function totalsOf(list) {
   return list.reduce(
     (a, p) => ({

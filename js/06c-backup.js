@@ -22,6 +22,7 @@ const APP_LS_KEYS = [
   "casa_brokers_v1",
   "casa_signal_hist_v1",
   "casa_order_seq_v1",
+  "casa_group_sector_v1",
 ];
 let _backupBusy = false;
 document.getElementById("backupAll").onclick = () => {
