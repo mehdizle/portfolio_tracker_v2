@@ -1703,6 +1703,8 @@ document.querySelectorAll(".tab[data-view]").forEach(
         localStorage.setItem("casa_last_app_v1", "portfolio");
       } catch (e) {}
       if (CH_break) CH_break.reflow();
+      if (typeof CH_dashAlloc !== "undefined" && CH_dashAlloc)
+        setTimeout(() => CH_dashAlloc.reflow(), 10);
       if (typeof CH_divIncome !== "undefined" && CH_divIncome)
         setTimeout(() => CH_divIncome.reflow(), 10);
       if (typeof CH_divReceived !== "undefined" && CH_divReceived)

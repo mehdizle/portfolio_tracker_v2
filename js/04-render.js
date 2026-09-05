@@ -101,6 +101,7 @@ function renderConcentration() {
 
 // ---------- rendering ----------
 let CH_break = null,
+  CH_dashAlloc = null,
   sortState = {};
 /* robustness: global error boundary */
 window.addEventListener("error", function (e) {
@@ -463,20 +464,54 @@ function renderDashAllocBars(arr) {
     const cat = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
     byCat[cat] = (byCat[cat] || 0) + p.value;
   });
-  const total = Object.values(byCat).reduce((a, b) => a + b, 0);
   const data = Object.keys(byCat)
-    .map((k) => ({ name: k, y: byCat[k] }))
+    .map((k) => ({ name: k, y: +byCat[k].toFixed(2) }))
     .sort((a, b) => b.y - a.y);
   if (!data.length) {
+    if (CH_dashAlloc) {
+      CH_dashAlloc.destroy();
+      CH_dashAlloc = null;
+    }
     el.innerHTML = '<div class="mini">No holdings yet.</div>';
     return;
   }
-  el.innerHTML = data
-    .map((d) => {
-      const w = total ? (d.y / total) * 100 : 0;
-      return `<div class="wbar"><div class="wbar-top"><span>${escapeHtml(d.name)}</span><span style="font-family:var(--mono)">${w.toFixed(1)}% \u00B7 ${money(d.y, 0)}</span></div><div class="wbar-track"><div class="wbar-fill" style="width:${w.toFixed(1)}%"></div></div></div>`;
-    })
-    .join("");
+  // Pie chart (compact regardless of sector count) instead of stacked weight
+  // bars, which grew very tall with many sectors.
+  el.innerHTML = "";
+  el.style.minHeight = "280px";
+  const tx = themeColor("text");
+  const tx2 = themeColor("text2");
+  try {
+    CH_dashAlloc = Highcharts.chart(el, {
+      chart: { type: "pie", backgroundColor: "transparent" },
+      title: { text: null },
+      credits: { enabled: false },
+      legend: {
+        enabled: true,
+        itemStyle: { color: tx2, fontSize: "11px" },
+        maxHeight: 90,
+        navigation: { activeColor: tx, inactiveColor: tx2 },
+      },
+      tooltip: {
+        pointFormat: "<b>{point.y:,.0f} MAD</b> ({point.percentage:.1f}%)",
+      },
+      plotOptions: {
+        pie: {
+          innerSize: "55%",
+          showInLegend: true,
+          dataLabels: {
+            enabled: true,
+            style: { color: tx, fontSize: "10px", textOutline: "none" },
+            format: "{point.percentage:.0f}%",
+            distance: 4,
+          },
+        },
+      },
+      series: [{ name: "Value", data: data }],
+    });
+  } catch (e) {
+    console.error("dashAlloc", e);
+  }
 }
 
 // ---- Income outlook (forward dividends 90d / 12mo + received YTD) ----
@@ -1010,6 +1045,7 @@ function subtotalRow(label, rows) {
     <td class="${s.div > 0 ? "pos" : ""}">${money(s.div)}</td><td class="${cls(s.life)}">${money(s.life)}</td><td></td><td></td></tr>`;
 }
 let HIDE_CLOSED = true;
+let GROUP_SECTOR = false; // Positions tab: group stocks under sector headers
 function totalsOf(list) {
   return list.reduce(
     (a, p) => ({
@@ -1172,6 +1208,39 @@ function renderMissingMaster() {
       <div style="font-size:13px;line-height:1.9">${items}</div>
     </div>`;
 }
+// Build stock rows grouped under sector headers. Each sector gets a header row
+// (name + holdings value + portfolio weight) followed by its positions (sorted
+// by the active posSort). Sectors are ordered by total held value, descending.
+// `showDivY` is passed through to posRow (stocks table = true).
+function groupBySectorHTML(list, showDivY) {
+  const bySec = {};
+  for (const p of list) {
+    const sec = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
+    (bySec[sec] || (bySec[sec] = [])).push(p);
+  }
+  const grand = list.reduce((s, p) => s + (p.value || 0), 0);
+  const secNames = Object.keys(bySec).sort((a, b) => {
+    const va = bySec[a].reduce((s, p) => s + (p.value || 0), 0);
+    const vb = bySec[b].reduce((s, p) => s + (p.value || 0), 0);
+    return vb - va;
+  });
+  // Column count for the stocks table (matches emptyRowS colspan="15").
+  const COLS = 15;
+  let html = "";
+  for (const sec of secNames) {
+    const rows = bySec[sec].slice().sort(posSort);
+    const secVal = rows.reduce((s, p) => s + (p.value || 0), 0);
+    const w = grand > 0 ? (secVal / grand) * 100 : 0;
+    html +=
+      `<tr class="sector-hdr" style="background:var(--panel2)">` +
+      `<td colspan="${COLS}" class="l" style="padding:6px 8px;font-weight:700;color:var(--text)">` +
+      `\uD83C\uDFF7\uFE0F ${escapeHtml(sec)} ` +
+      `<span class="mini" style="font-weight:500;color:var(--text2)">\u00B7 ${rows.length} holding${rows.length > 1 ? "s" : ""} \u00B7 ${money(secVal, 0)} MAD \u00B7 ${w.toFixed(1)}%</span>` +
+      `</td></tr>`;
+    html += rows.map((p) => posRow(p, showDivY)).join("");
+  }
+  return html;
+}
 function renderPositions(arr, t) {
   if (COMBINE_ACCT) arr = mergePositions(arr);
   let vis = HIDE_CLOSED ? arr.filter((p) => p.status !== "Closed") : arr;
@@ -1290,9 +1359,13 @@ function renderPositions(arr, t) {
     `<tr><td colspan="14" class="l" style="color:var(--muted)">${txt}</td></tr>`;
   const emptyRowS = (txt) =>
     `<tr><td colspan="15" class="l" style="color:var(--muted)">${txt}</td></tr>`;
+  // Stock rows: flat, or grouped under sector headers when GROUP_SECTOR is on.
+  const stockRowsHTML = GROUP_SECTOR
+    ? groupBySectorHTML(stocks, true)
+    : stocks.map((p) => posRow(p, true)).join("");
   document.querySelector("#stocksTable tbody").innerHTML =
     (stocks.length
-      ? stocks.map((p) => posRow(p, true)).join("")
+      ? stockRowsHTML
       : stocksAll.length
         ? emptyRowS("All stock positions are closed (hidden).")
         : emptyRowS("No stock positions.")) +

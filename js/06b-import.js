@@ -2136,3 +2136,15 @@ document.getElementById("toggleClosed").onclick = () => {
     : "Hide closed";
   rerenderPositions();
 };
+{
+  const _gb = document.getElementById("toggleGroupSector");
+  if (_gb)
+    _gb.onclick = () => {
+      GROUP_SECTOR = !GROUP_SECTOR;
+      _gb.textContent = GROUP_SECTOR
+        ? "\uD83D\uDCCB Ungroup"
+        : "\uD83D\uDDC2\uFE0F Group by sector";
+      _gb.classList.toggle("active", GROUP_SECTOR);
+      rerenderPositions();
+    };
+}
