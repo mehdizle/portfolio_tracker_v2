@@ -7776,7 +7776,7 @@ function ttcTipHTML(t, e) {
   if (e.opcvm) {
     const meta = M[t.ticker] || {};
     const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
-    h += `<div style="color:var(--info);font-size:11px;margin:4px 0 2px;font-weight:700">\uD83C\uDFE6 OPCVM fund${meta.name ? " \u2014 " + meta.name : ""}</div>`;
+    h += `<div style="color:var(--info);font-size:11px;margin:4px 0 2px;font-weight:700">\uD83C\uDFE6 OPCVM fund${meta.name ? " \u2014 " + escapeHtml(meta.name) : ""}</div>`;
     if (t.action === "BUY") {
       const hasFee = meta.buyFee != null;
       h += row(
@@ -10421,7 +10421,7 @@ function renderBrokerTabs() {
     .map((id) => {
       const b = BROKERS[id];
       const active = id === CUR_BROKER;
-      return `<button class="btn ${active ? "" : "sec2"} bkTab" data-bk="${id}" style="font-size:12px;padding:5px 14px;border-radius:14px">${b.name}</button>`;
+      return `<button class="btn ${active ? "" : "sec2"} bkTab" data-bk="${escapeHtml(id)}" style="font-size:12px;padding:5px 14px;border-radius:14px">${escapeHtml(b.name)}</button>`;
     })
     .join("");
   el.querySelectorAll(".bkTab").forEach((btn) => {
@@ -16881,8 +16881,8 @@ function renderCash() {
     <td>${r.date}${r._future ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)" data-tip="Future-dated \u2014 not counted in the current balance until this date">\u23F3 upcoming</span>' : ""}</td>
     <td><span class="${typeCls[r.type] || ""}">${typeLabel[r.type] || r.type}</span></td>
     <td class="${r._amt >= 0 ? "pos" : "neg"}">${money(r._amt)} MAD</td>
-    <td style="font-size:11px;opacity:.8">${(BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg")} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
-    <td>${r.note || "\u2014"}</td>
+    <td style="font-size:11px;opacity:.8">${escapeHtml((BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg"))} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
+    <td>${escapeHtml(r.note || "\u2014")}</td>
     <td style="font-weight:600">${r._bal == null ? "\u2014" : money(r._bal) + " MAD"}</td>
     <td><button class="btn-sm" data-act="editCashRow" data-args="${r._idx}" title="Edit">\u270e</button> <button class="btn-sm" data-act="deleteCashRow" data-args="${r._idx}" title="Delete">\u2715</button></td>
   </tr>`,
