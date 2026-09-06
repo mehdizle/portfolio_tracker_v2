@@ -7764,7 +7764,7 @@ function renderDivForecast(pos) {
       // HISTORY: show the most recent HIST_INLINE years inline; if there are
       // more, add a "+N more" chip and put the FULL series in a tooltip (so 10+
       // years never overflow the column).
-      const HIST_INLINE = 4;
+      const HIST_INLINE = 3;
       const yearsAsc = r.years.slice();
       const shownYears = yearsAsc.slice(-HIST_INLINE);
       const hiddenCount = yearsAsc.length - shownYears.length;
