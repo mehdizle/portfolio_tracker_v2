@@ -3227,44 +3227,11 @@ function renderMissingMaster() {
       <div style="font-size:13px;line-height:1.9">${items}</div>
     </div>`;
 }
-// Emoji icon for a sector name. Matched by keyword so variants (e.g. "Real
-// Estate (REIT)", "Transport & Logistics") still resolve. Falls back to a tag.
+// Emoji icon for a sector name. The keyword-matched mapping lives in the pure,
+// tested core (src/core/sector-icon.js); this thin wrapper delegates to it via
+// __core so the UI and the coverage test share one source of truth.
 function sectorIcon(name) {
-  const s = String(name || "").toLowerCase();
-  // Ordered MOST-SPECIFIC first so distinct sectors get distinct icons and
-  // don't collide on a broad keyword (e.g. "Building Materials" must be caught
-  // before the generic "materials", "Financial Services" before "bank").
-  const rules = [
-    [/reit/, "\uD83C\uDFEC"], // REIT -> department store building
-    [/real estate/, "\uD83C\uDFE0"], // real estate -> house
-    [/building material|building|cement/, "\uD83E\uDDF1"], // building materials -> brick
-    [/construc/, "\uD83C\uDFD7\uFE0F"], // construction -> crane
-    [/insur/, "\uD83D\uDEE1\uFE0F"], // insurance -> shield
-    [/telecom/, "\uD83D\uDCF6"], // telecom -> signal bars
-    [/tech/, "\uD83D\uDCBB"], // technology -> laptop
-    [/bank/, "\uD83C\uDFE6"], // banking -> bank
-    [/financ/, "\uD83D\uDCB0"], // financial services -> money bag
-    [/leasing/, "\uD83D\uDCC4"], // leasing -> document
-    [/utilit/, "\uD83D\uDCA1"], // utilities -> bulb
-    [/energy|oil|gas|petrol/, "\u26FD"], // energy -> fuel pump
-    [/mining|metal/, "\u26CF\uFE0F"], // mining -> pick
-    [/auto/, "\uD83D\uDE97"], // automotive -> car
-    [/beverage|drink/, "\uD83C\uDF7A"], // beverages -> beer/drinks
-    [/food/, "\uD83C\uDF5E"], // food producers -> bread
-    [/consumer/, "\uD83D\uDECD\uFE0F"], // consumer goods -> shopping bags
-    [/retail/, "\uD83D\uDED2"], // retail -> shopping cart
-    [/forest|paper/, "\uD83C\uDF32"], // forestry & paper -> evergreen tree
-    [/agri/, "\uD83C\uDF3E"], // agriculture -> sheaf of rice
-    [/chemical/, "\uD83E\uDDEA"], // chemicals -> test tube
-    [/health|pharma|medic/, "\uD83C\uDFE5"], // healthcare -> hospital
-    [/logistic|transport|shipping/, "\uD83D\uDE9B"], // transport & logistics -> truck
-    [/tourism|hotel|leisure|travel/, "\uD83C\uDFD6\uFE0F"], // tourism -> beach
-    [/industr/, "\uD83C\uDFED"], // industrial goods -> factory
-    [/holding/, "\uD83C\uDFE2"], // holding -> office building
-    [/opcvm|fund/, "\uD83D\uDCCA"], // funds -> bar chart
-  ];
-  for (const [re, ic] of rules) if (re.test(s)) return ic;
-  return "\uD83C\uDFF7\uFE0F"; // default tag
+  return __core.sectorIcon(name);
 }
 // Build stock rows grouped under sector headers. Each sector gets a header row
 // (icon + name + holdings value + portfolio weight) followed by its positions
@@ -17282,84 +17249,16 @@ render();
 // Schedule (local Casablanca time). Edit here if the exchange changes hours.
 // Times are "HH:MM"; each phase is [start, end) except instantaneous points.
 (function () {
-  // --- phase schedules -------------------------------------------------------
-  // kind: "window" = spans start..end; "point" = a single moment (end shown =).
-  const GROUPS = [
-    {
-      id: "continuous",
-      name: "Group 1 \u00B7 Continuous",
-      note: "Most liquid stocks (e.g. ALM, ATW, IAM). Trade all day with auctions at the open and close.",
-      phases: [
-        {
-          key: "preopen",
-          label: "Pre-Opening",
-          start: "08:10",
-          end: "09:00",
-          desc: "Orders are entered but no trades occur.",
-        },
-        {
-          key: "openauct",
-          label: "Opening Auction",
-          start: "09:00",
-          end: "09:30",
-          desc: "System calculates the opening price and executes matches.",
-        },
-        {
-          key: "continuous",
-          label: "Continuous Trading",
-          start: "09:30",
-          end: "15:20",
-          desc: "Real-time trading \u2014 orders match instantly if prices align.",
-        },
-        {
-          key: "closeauct",
-          label: "Closing Auction",
-          start: "15:20",
-          end: "15:30",
-          desc: "Trading freezes to calculate the final closing price.",
-        },
-        {
-          key: "tal",
-          label: "Trading At Last",
-          start: "15:30",
-          end: "15:40",
-          desc: "Buy/sell only at the fixed closing price.",
-        },
-      ],
-    },
-    {
-      id: "fixing",
-      name: "Group 3 \u00B7 Fixing",
-      note: "Less liquid stocks (e.g. MLE, REB, BAL). No real-time trading \u2014 everything happens in one burst.",
-      phases: [
-        {
-          key: "accum",
-          label: "Order Accumulation",
-          start: "08:10",
-          end: "14:30",
-          desc: "You place orders, but they just sit in the book.",
-        },
-        {
-          key: "fixing",
-          label: "The Fixing",
-          start: "14:30",
-          end: "14:30",
-          point: true,
-          desc: "The only time of day trades are executed.",
-        },
-        {
-          key: "postfix",
-          label: "Post-Fixing",
-          start: "14:30",
-          end: "15:45",
-          desc: "Orders can be adjusted for the next day.",
-        },
-      ],
-    },
-  ];
-
-  const DAY_OPEN = "08:10";
-  const DAY_CLOSE = "15:45"; // latest phase end across both groups
+  // Schedule + pure phase logic live in the tested core (src/core/market-session.js),
+  // exposed via __core.marketSession. This UI owns only casaNow() (Intl) + render.
+  const MS = (typeof __core !== "undefined" && __core.marketSession) || null;
+  if (!MS) return; // core not loaded (e.g. isolated context) - skip the widget
+  const GROUPS = MS.MARKET_GROUPS;
+  const toMins = MS.toMins;
+  const fmtRange = MS.fmtRange;
+  const classifyPhases = MS.classifyPhases;
+  const overallLabel = (now, isWeekend) =>
+    MS.overallLabel(now.mins, isWeekend, GROUPS);
 
   // --- Casablanca "now" ------------------------------------------------------
   // Returns { mins, hh, mm, dow, hhmm, dateLabel } where mins = minutes since
@@ -17419,61 +17318,6 @@ render();
         " " +
         (parts.year || ""),
     };
-  }
-
-  function toMins(hhmm) {
-    const [h, m] = hhmm.split(":").map((x) => parseInt(x, 10));
-    return h * 60 + m;
-  }
-  function fmtRange(p) {
-    return p.point ? p.start : p.start + " \u2013 " + p.end;
-  }
-
-  // Status of one phase relative to nowMins: "past" | "now" | "next" | "upcoming".
-  function classifyPhases(phases, nowMins, marketOpenToday) {
-    const out = phases.map((p) => ({
-      ...p,
-      sMin: toMins(p.start),
-      eMin: toMins(p.end),
-    }));
-    let currentIdx = -1;
-    if (marketOpenToday) {
-      for (let i = 0; i < out.length; i++) {
-        const p = out[i];
-        const inWin = p.point
-          ? nowMins === p.sMin
-          : nowMins >= p.sMin && nowMins < p.eMin;
-        if (inWin) {
-          currentIdx = i;
-          break;
-        }
-      }
-    }
-    return out.map((p, i) => {
-      let state;
-      if (!marketOpenToday) state = nowMins < out[0].sMin ? "upcoming" : "past";
-      else if (i === currentIdx) state = "now";
-      else if (currentIdx === -1)
-        state = nowMins < p.sMin ? "upcoming" : "past";
-      else state = i < currentIdx ? "past" : "upcoming";
-      return { ...p, state };
-    });
-  }
-
-  // A short label for the button: overall market state.
-  function overallLabel(now, isWeekend) {
-    if (isWeekend) return "Closed \u00B7 weekend";
-    if (now.mins < toMins(DAY_OPEN)) return "Pre-market";
-    if (now.mins >= toMins(DAY_CLOSE)) return "Closed";
-    // find the continuous group's current phase for the headline
-    const cont = GROUPS[0];
-    for (const p of cont.phases) {
-      const s = toMins(p.start),
-        e = toMins(p.end);
-      if (p.point ? now.mins === s : now.mins >= s && now.mins < e)
-        return p.label;
-    }
-    return "Open";
   }
 
   function stateColor(state) {
