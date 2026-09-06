@@ -2250,41 +2250,47 @@ function dashCashAvailable(enriched) {
   return bal - pendingBuyCost();
 }
 
-// Dashboard "Upcoming dividends (next 3 months)". Reuses the Dividends-tab
-// per-dividend math (eligibleSharesAtEx + divNetFor) but ALWAYS projects this
-// year's calendar forward +12 months, so an estimate exists even when next
-// year's real calendar isn't loaded yet (the user asked for a this-year-based
-// estimate). Sums net dividends whose pay-date is within the next ~90 days.
-function dashUpcomingDiv3mo() {
-  let sum = 0;
+// Dashboard dividend estimates. Reuses the Dividends-tab per-dividend math
+// (eligibleSharesAtEx + divNetFor) over the calendar PLUS forecast gap-fill
+// events from the core module (__core.dividendForecast.projectedCalendar):
+// unannounced current-year dividends for tickers that paid in past years, and
+// next-year projections. Real announced events always take precedence.
+// Returns { d90, d365 } = net eligible dividends due within ~90d / ~365d.
+function dashDivEstimates() {
+  const res = { d90: 0, d365: 0 };
   try {
-    if (typeof DIVCAL === "undefined" || !Array.isArray(DIVCAL)) return 0;
+    if (typeof DIVCAL === "undefined" || !Array.isArray(DIVCAL)) return res;
     const yr = new Date().getFullYear();
-    // Exclude Exceptional (one-off) dividends from the projection - only
-    // ordinary dividends are expected to recur next year.
-    const shifted = DIVCAL.filter(
-      (d) =>
-        d.pay_date &&
-        d.pay_date.startsWith(String(yr)) &&
-        String(d.div_type || "").toLowerCase() !== "exceptional",
-    ).map((d) => ({
-      ...d,
-      pay_date: d.pay_date.replace(/^\d{4}/, String(yr + 1)),
-      ex_date: d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null,
-      _projected: true,
-    }));
-    const cal = DIVCAL.concat(shifted);
+    let fcEvents = [];
+    try {
+      if (
+        typeof __core !== "undefined" &&
+        __core.dividendForecast &&
+        typeof __core.dividendForecast.projectedCalendar === "function"
+      ) {
+        fcEvents = __core.dividendForecast.projectedCalendar(DIVCAL, yr, {
+          windowYears: 3,
+        });
+      }
+    } catch (_e2) {}
+    const cal = DIVCAL.concat(fcEvents);
     for (const d of cal) {
       if (!d.pay_date) continue;
       const sh =
         typeof eligibleSharesAtEx === "function" ? eligibleSharesAtEx(d) : 0;
       if (sh <= 0) continue;
       const du = typeof daysUntil === "function" ? daysUntil(d.pay_date) : -1;
-      if (du < 0 || du > 90) continue; // next ~3 months only
-      sum += typeof divNetFor === "function" ? divNetFor(d, sh) : 0;
+      if (du < 0) continue;
+      const net = typeof divNetFor === "function" ? divNetFor(d, sh) : 0;
+      if (du <= 90) res.d90 += net;
+      if (du <= 365) res.d365 += net;
     }
   } catch (_e) {}
-  return sum;
+  return res;
+}
+// Back-compat thin wrapper: next-3-months net estimate.
+function dashUpcomingDiv3mo() {
+  return dashDivEstimates().d90;
 }
 
 // Single entry point to refresh the Dashboard KPI row from live data. Recomputes
@@ -2331,7 +2337,9 @@ function renderKPIs(t, arr) {
   const _cashAvail = dashCashAvailable(
     (typeof runFIFO === "function" && runFIFO().enriched) || [],
   );
-  const _upDiv3 = dashUpcomingDiv3mo();
+  const _divEst = dashDivEstimates();
+  const _upDiv3 = _divEst.d90;
+  const _fwdDiv12 = _divEst.d365;
   const _kpiEl = document.getElementById("kpiRow");
   if (!_kpiEl) return; // dashboard not in DOM - nothing to update
   _kpiEl.innerHTML =
@@ -2408,8 +2416,20 @@ function renderKPIs(t, arr) {
       T("Upcoming Dividends (next 3 months)", [
         "Estimated NET dividends due in the next ~90 days,",
         "on shares eligible at the ex-date.",
-        "If next year's calendar isn't loaded, this year's",
-        "schedule is projected forward for the estimate.",
+        "Includes forecast fill-ins for dividends not yet",
+        "announced but paid in prior years.",
+      ]),
+      "dividends",
+    ) +
+    kpi(
+      "Fwd Dividends (12mo)",
+      money(_fwdDiv12, 0) + " MAD",
+      _fwdDiv12 > 0 ? "pos" : "",
+      T("Forward Dividends (next 12 months, est.)", [
+        "Estimated NET dividends due in the next ~365 days,",
+        "on shares you're eligible for at each ex-date.",
+        "Blends announced calendar events with a forecast",
+        "of dividends not yet announced (from past years).",
       ]),
       "dividends",
     );
@@ -6802,21 +6822,20 @@ function renderDivDashboard(pos) {
   // "This year" = entries whose pay_date is in the current calendar year.
   // Exceptional (one-off) dividends are NOT recurring, so they are excluded
   // from the projection - only ordinary dividends are expected to repeat.
-  let _projCal = DIVCAL;
-  if (_divProject) {
-    const yr = TODAY.getFullYear();
-    const shifted = DIVCAL.filter(
-      (d) =>
-        d.pay_date &&
-        d.pay_date.startsWith(String(yr)) &&
-        String(d.div_type || "").toLowerCase() !== "exceptional",
-    ).map((d) => {
-      const nd = d.pay_date.replace(/^\d{4}/, String(yr + 1));
-      const ne = d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null;
-      return { ...d, pay_date: nd, ex_date: ne, _projected: true };
-    });
-    _projCal = DIVCAL.concat(shifted);
-  }
+  // Forecast fill: synthesize gap events from multi-year history via the core
+  // module. Current-year gaps (a ticker that paid in past years but hasn't been
+  // announced yet this year) are ALWAYS filled so they show up in expected
+  // income. Next-year forecast events are included only when "Project next year"
+  // is on. Real announced events always take precedence (projectedCalendar skips
+  // any ticker/year already present).
+  const _refYr = TODAY.getFullYear();
+  const _fcAll = __core.dividendForecast.projectedCalendar(DIVCAL, _refYr, {
+    windowYears: 3,
+  });
+  const _fcEvents = _divProject
+    ? _fcAll
+    : _fcAll.filter((d) => d._forecastYear === _refYr);
+  const _projCal = DIVCAL.concat(_fcEvents);
   // Expected income: dividends you're eligible for (held before ex-date) that are upcoming
   // OR just passed (within 30 days) but not yet recorded. Uses ex-date eligibility.
   const upcoming = _projCal.filter((d) => {
@@ -6839,6 +6858,7 @@ function renderDivDashboard(pos) {
       date: d.pay_date,
       amount: net,
       sh: sh,
+      est: !!d._forecast,
     };
     if (du <= 90) {
       inc90 += net;
@@ -6876,7 +6896,7 @@ function renderDivDashboard(pos) {
       [...arr]
         .sort((a, b) => (a.date < b.date ? -1 : 1))
         .forEach((x) => {
-          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${escapeHtml(x.ticker)} <span class="mini">${escapeHtml(x.date)}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
+          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${escapeHtml(x.ticker)} <span class="mini">${escapeHtml(x.date)}${x.est ? " \u00B7 est." : ""}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
         });
     } else h += '<div class="mini" style="margin-top:6px">No dividends.</div>';
     return h;

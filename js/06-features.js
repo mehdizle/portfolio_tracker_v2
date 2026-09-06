@@ -473,21 +473,20 @@ function renderDivDashboard(pos) {
   // "This year" = entries whose pay_date is in the current calendar year.
   // Exceptional (one-off) dividends are NOT recurring, so they are excluded
   // from the projection - only ordinary dividends are expected to repeat.
-  let _projCal = DIVCAL;
-  if (_divProject) {
-    const yr = TODAY.getFullYear();
-    const shifted = DIVCAL.filter(
-      (d) =>
-        d.pay_date &&
-        d.pay_date.startsWith(String(yr)) &&
-        String(d.div_type || "").toLowerCase() !== "exceptional",
-    ).map((d) => {
-      const nd = d.pay_date.replace(/^\d{4}/, String(yr + 1));
-      const ne = d.ex_date ? d.ex_date.replace(/^\d{4}/, String(yr + 1)) : null;
-      return { ...d, pay_date: nd, ex_date: ne, _projected: true };
-    });
-    _projCal = DIVCAL.concat(shifted);
-  }
+  // Forecast fill: synthesize gap events from multi-year history via the core
+  // module. Current-year gaps (a ticker that paid in past years but hasn't been
+  // announced yet this year) are ALWAYS filled so they show up in expected
+  // income. Next-year forecast events are included only when "Project next year"
+  // is on. Real announced events always take precedence (projectedCalendar skips
+  // any ticker/year already present).
+  const _refYr = TODAY.getFullYear();
+  const _fcAll = __core.dividendForecast.projectedCalendar(DIVCAL, _refYr, {
+    windowYears: 3,
+  });
+  const _fcEvents = _divProject
+    ? _fcAll
+    : _fcAll.filter((d) => d._forecastYear === _refYr);
+  const _projCal = DIVCAL.concat(_fcEvents);
   // Expected income: dividends you're eligible for (held before ex-date) that are upcoming
   // OR just passed (within 30 days) but not yet recorded. Uses ex-date eligibility.
   const upcoming = _projCal.filter((d) => {
@@ -510,6 +509,7 @@ function renderDivDashboard(pos) {
       date: d.pay_date,
       amount: net,
       sh: sh,
+      est: !!d._forecast,
     };
     if (du <= 90) {
       inc90 += net;
@@ -547,7 +547,7 @@ function renderDivDashboard(pos) {
       [...arr]
         .sort((a, b) => (a.date < b.date ? -1 : 1))
         .forEach((x) => {
-          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${escapeHtml(x.ticker)} <span class="mini">${escapeHtml(x.date)}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
+          h += `<div style="display:flex;justify-content:space-between;gap:16px"><span>${escapeHtml(x.ticker)} <span class="mini">${escapeHtml(x.date)}${x.est ? " \u00B7 est." : ""}</span></span><span style="font-family:var(--mono)">${money(x.amount)}</span></div>`;
         });
     } else h += '<div class="mini" style="margin-top:6px">No dividends.</div>';
     return h;

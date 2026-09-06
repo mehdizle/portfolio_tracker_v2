@@ -195,3 +195,78 @@ export function forecastEvents(forecast) {
   }
   return out;
 }
+
+// Build a set of "already real" (ticker|year) keys from the calendar so we
+// never synthesize a forecast on top of an announced event.
+function realKeys(cal) {
+  const set = new Set();
+  for (const d of cal || []) {
+    if (d._projected || d._forecast) continue;
+    if (isExceptional(d)) continue;
+    const yr = yearOf(d.pay_date);
+    const tk = String((d && d.ticker) || "")
+      .trim()
+      .toUpperCase();
+    if (yr && tk) set.add(tk + "|" + yr);
+  }
+  return set;
+}
+
+// Produce synthetic forecast events to FILL GAPS in the calendar:
+//   - the rest of the CURRENT year (refYear) for tickers that paid in prior
+//     years but have no announced event for refYear yet, and
+//   - the whole NEXT year (refYear + 1).
+// Real announced events always win: a (ticker, year) that already exists in the
+// calendar is skipped. Current-year fills use the ticker's most recent complete
+// year as the amount (flat) or the trend value; next-year uses the trend/flat
+// projection. Every emitted event carries _forecast:true so the UI can badge it.
+//
+// Returns a flat array of DIVCAL-shaped events. The caller concatenates these
+// onto DIVCAL and runs them through the normal eligibility/income machinery.
+export function projectedCalendar(divcal, refYear, opts) {
+  const cal = Array.isArray(divcal) ? divcal : [];
+  const fc = buildForecast(cal, refYear, opts);
+  const real = realKeys(cal);
+  const out = [];
+
+  for (const r of fc.rows) {
+    if (!(r.projectedDps > 0)) continue;
+    const mm = String(r.expectedMonth || 6).padStart(2, "0");
+
+    // NEXT YEAR: full projection (unless already announced).
+    const nextYr = refYear + 1;
+    if (!real.has(r.ticker + "|" + nextYr)) {
+      out.push({
+        ticker: r.ticker,
+        issuer: r.issuer,
+        amount: r.projectedDps,
+        ex_date: nextYr + "-" + mm + "-01",
+        pay_date: nextYr + "-" + mm + "-15",
+        div_type: "Ordinary",
+        _forecast: true,
+        _forecastYear: nextYr,
+        _method: r.method,
+        _consistency: r.consistency,
+      });
+    }
+
+    // CURRENT YEAR gap-fill: only if the ticker has NO announced refYear event
+    // and it has paid in the past (baseDps > 0). Uses the projected DPS as the
+    // best estimate for this year too.
+    if (!real.has(r.ticker + "|" + refYear) && r.baseDps > 0) {
+      out.push({
+        ticker: r.ticker,
+        issuer: r.issuer,
+        amount: r.projectedDps,
+        ex_date: refYear + "-" + mm + "-01",
+        pay_date: refYear + "-" + mm + "-15",
+        div_type: "Ordinary",
+        _forecast: true,
+        _forecastYear: refYear,
+        _method: r.method,
+        _consistency: r.consistency,
+      });
+    }
+  }
+  return out;
+}

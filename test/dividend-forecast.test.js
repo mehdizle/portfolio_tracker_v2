@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildForecast,
   forecastEvents,
+  projectedCalendar,
 } from "../src/core/dividend-forecast.js";
 
 const ev = (ticker, year, amount, extra) => ({
@@ -142,5 +143,44 @@ describe("forecastEvents", () => {
       rows: [{ ticker: "X", projectedDps: 0, expectedMonth: 6 }],
     };
     expect(forecastEvents(fc)).toHaveLength(0);
+  });
+});
+
+describe("projectedCalendar", () => {
+  it("fills the current year when a past-paying ticker hasn't announced it yet", () => {
+    // ATW paid 2024 & 2025, nothing announced for 2026 (refYear).
+    const cal = [ev("ATW", 2024, 20), ev("ATW", 2025, 22)];
+    const out = projectedCalendar(cal, 2026);
+    const cur = out.filter((d) => d._forecastYear === 2026);
+    expect(cur.length).toBe(1);
+    expect(cur[0].ticker).toBe("ATW");
+    expect(cur[0]._forecast).toBe(true);
+    expect(cur[0].pay_date.startsWith("2026-")).toBe(true);
+  });
+
+  it("does NOT fill the current year when a real event already exists", () => {
+    const cal = [ev("ATW", 2024, 20), ev("ATW", 2025, 22), ev("ATW", 2026, 23)];
+    const out = projectedCalendar(cal, 2026);
+    const cur = out.filter((d) => d._forecastYear === 2026);
+    expect(cur.length).toBe(0); // 2026 already announced -> real wins
+  });
+
+  it("also projects next year", () => {
+    const cal = [ev("ATW", 2024, 20), ev("ATW", 2025, 22)];
+    const out = projectedCalendar(cal, 2026);
+    const nxt = out.filter((d) => d._forecastYear === 2027);
+    expect(nxt.length).toBe(1);
+    expect(nxt[0].pay_date.startsWith("2027-")).toBe(true);
+  });
+
+  it("skips next year too when it's already announced", () => {
+    const cal = [ev("ATW", 2024, 20), ev("ATW", 2025, 22), ev("ATW", 2027, 25)];
+    const out = projectedCalendar(cal, 2026);
+    const nxt = out.filter((d) => d._forecastYear === 2027);
+    expect(nxt.length).toBe(0);
+  });
+
+  it("never synthesizes for a ticker with no history", () => {
+    expect(projectedCalendar([], 2026)).toHaveLength(0);
   });
 });
