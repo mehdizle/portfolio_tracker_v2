@@ -304,12 +304,17 @@ function escapeHtml(v) {
 // ---------- Ticker badge (monogram fallback + optional real logo) ----------
 // Renders a small inline badge for a ticker:
 //   - a deterministic colored monogram (always works, offline, private), PLUS
-//   - an <img> that tries logos/<TICKER>.png; if it loads it reveals itself and
-//     hides the monogram; if it 404s the monogram stays. No inline handlers -
-//     a delegated load/error listener (in 09-boot.js) wires the swap, keeping
-//     the app's "no inline onclick/onerror" model intact.
-// Drop real logos into public/logos/<TICKER>.png (case-insensitive stored key)
-// and they override the monogram automatically.
+//   - an <img> that tries logos/<TICKER>.svg then logos/<TICKER>.png; if one
+//     loads it reveals itself and hides the monogram; if all 404 the monogram
+//     stays. No inline handlers - delegated load/error listeners (in 09-boot.js)
+//     wire the swap + fallback, keeping the "no inline onclick/onerror" model.
+// Drop real logos into public/logos/ (SVG preferred, PNG accepted), either flat
+// (logos/<TICKER>.svg) or under an exchange subfolder (logos/CSEMA/<TICKER>.svg).
+// Case-insensitive stored key; they override the monogram automatically.
+// Exchange subfolders under logos/ to search for a ticker logo, in order.
+// "" = the flat logos/ root (kept last so a top-level drop-in still works).
+// Add more exchanges here (e.g. "NYSE", "LSE") if logos are sorted by market.
+const LOGO_DIRS = ["CSEMA", ""];
 function _tickerHue(tk) {
   // Stable hash -> hue (0..359). Same ticker always gets the same color.
   let h = 0;
@@ -344,7 +349,18 @@ function tickerBadge(tk, size) {
   );
   // logos/ is relative to the page, so it resolves under the GitHub Pages base
   // (/portfolio_tracker_v2/logos/...) and locally, with no build-time base var.
-  const src = "logos/" + key + ".png";
+  // Candidate URLs, tried in order: each exchange subfolder (LOGO_DIRS) then the
+  // flat logos/ root, SVG before PNG. The first is the initial src; the rest go
+  // in data-logo-fallbacks and are applied on error by 09-boot.js. If every
+  // candidate 404s, the monogram stays. This lets logos be organized by exchange
+  // (logos/CSEMA/ATW.svg) or dropped flat (logos/ATW.svg) - both resolve.
+  const candidates = [];
+  for (const dir of LOGO_DIRS) {
+    const base = "logos/" + (dir ? dir + "/" : "") + key;
+    candidates.push(base + ".svg", base + ".png");
+  }
+  const src = candidates[0];
+  const fallbacks = candidates.slice(1).join(",");
   return (
     '<span class="tkr-badge" style="width:' +
     px +
@@ -359,9 +375,12 @@ function tickerBadge(tk, size) {
     ',62%,42%);letter-spacing:.02em">' +
     initials +
     "</span>" +
-    // real logo (hidden until it successfully loads)
+    // real logo (hidden until it successfully loads). SVG primary; PNG fallback
+    // list in data-logo-fallbacks (comma-separated), applied on error by boot.
     '<img class="tkr-logo" alt="" loading="lazy" src="' +
     escapeHtml(src) +
+    '" data-logo-fallbacks="' +
+    escapeHtml(fallbacks) +
     '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:none">' +
     "</span>"
   );
@@ -17461,6 +17480,31 @@ render();
         const mono = wrap && wrap.querySelector(".tkr-mono");
         if (mono) mono.style.display = "none";
       }
+    },
+    true,
+  );
+
+  // Ticker logo fallback: the badge tries logos/<TICKER>.svg first. If that
+  // 404s (or fails to decode), swap to the next candidate in data-logo-fallbacks
+  // (comma-separated, e.g. the .png). When the list is exhausted the monogram
+  // simply stays. Error events don't bubble, so listen on the capture phase.
+  document.addEventListener(
+    "error",
+    function (e) {
+      const img = e.target;
+      if (
+        !img ||
+        img.tagName !== "IMG" ||
+        !img.classList ||
+        !img.classList.contains("tkr-logo")
+      )
+        return;
+      const raw = img.getAttribute("data-logo-fallbacks") || "";
+      const list = raw.split(",").filter(Boolean);
+      if (!list.length) return; // no more candidates -> keep the monogram
+      const next = list.shift();
+      img.setAttribute("data-logo-fallbacks", list.join(","));
+      img.src = next;
     },
     true,
   );

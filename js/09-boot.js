@@ -170,6 +170,31 @@
     true,
   );
 
+  // Ticker logo fallback: the badge tries logos/<TICKER>.svg first. If that
+  // 404s (or fails to decode), swap to the next candidate in data-logo-fallbacks
+  // (comma-separated, e.g. the .png). When the list is exhausted the monogram
+  // simply stays. Error events don't bubble, so listen on the capture phase.
+  document.addEventListener(
+    "error",
+    function (e) {
+      const img = e.target;
+      if (
+        !img ||
+        img.tagName !== "IMG" ||
+        !img.classList ||
+        !img.classList.contains("tkr-logo")
+      )
+        return;
+      const raw = img.getAttribute("data-logo-fallbacks") || "";
+      const list = raw.split(",").filter(Boolean);
+      if (!list.length) return; // no more candidates -> keep the monogram
+      const next = list.shift();
+      img.setAttribute("data-logo-fallbacks", list.join(","));
+      img.src = next;
+    },
+    true,
+  );
+
   // Modal helpers (replace inline onclick on the static modals in index.html).
   // - [data-modal-backdrop]: clicking the backdrop itself (not its contents)
   //   hides the modal.
