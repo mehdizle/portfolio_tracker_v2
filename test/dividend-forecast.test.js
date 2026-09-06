@@ -36,7 +36,8 @@ describe("buildForecast", () => {
     const r = fc.rows.find((x) => x.ticker === "ATW");
     expect(r.method).toBe("trend");
     expect(r.baseYear).toBe(2025);
-    expect(r.growth).toBeCloseTo(0.1, 5);
+    expect(r.slots).toHaveLength(1);
+    expect(r.slots[0].growth).toBeCloseTo(0.1, 5);
     expect(r.projectedDps).toBeCloseTo(24.2, 4);
   });
 
@@ -82,7 +83,7 @@ describe("buildForecast", () => {
     // 1 -> 10 would be +900%/yr; clamp to +50%. base=2025, refYear=2026.
     const fc = buildForecast([ev("ATW", 2024, 1), ev("ATW", 2025, 10)], 2026);
     const r = fc.rows.find((x) => x.ticker === "ATW");
-    expect(r.growth).toBeCloseTo(0.5, 5);
+    expect(r.slots[0].growth).toBeCloseTo(0.5, 5);
     expect(r.projectedDps).toBeCloseTo(15, 4); // 10 * 1.5
   });
 
