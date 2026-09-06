@@ -207,84 +207,16 @@
 // Schedule (local Casablanca time). Edit here if the exchange changes hours.
 // Times are "HH:MM"; each phase is [start, end) except instantaneous points.
 (function () {
-  // --- phase schedules -------------------------------------------------------
-  // kind: "window" = spans start..end; "point" = a single moment (end shown =).
-  const GROUPS = [
-    {
-      id: "continuous",
-      name: "Group 1 \u00B7 Continuous",
-      note: "Most liquid stocks (e.g. ALM, ATW, IAM). Trade all day with auctions at the open and close.",
-      phases: [
-        {
-          key: "preopen",
-          label: "Pre-Opening",
-          start: "08:10",
-          end: "09:00",
-          desc: "Orders are entered but no trades occur.",
-        },
-        {
-          key: "openauct",
-          label: "Opening Auction",
-          start: "09:00",
-          end: "09:30",
-          desc: "System calculates the opening price and executes matches.",
-        },
-        {
-          key: "continuous",
-          label: "Continuous Trading",
-          start: "09:30",
-          end: "15:20",
-          desc: "Real-time trading \u2014 orders match instantly if prices align.",
-        },
-        {
-          key: "closeauct",
-          label: "Closing Auction",
-          start: "15:20",
-          end: "15:30",
-          desc: "Trading freezes to calculate the final closing price.",
-        },
-        {
-          key: "tal",
-          label: "Trading At Last",
-          start: "15:30",
-          end: "15:40",
-          desc: "Buy/sell only at the fixed closing price.",
-        },
-      ],
-    },
-    {
-      id: "fixing",
-      name: "Group 3 \u00B7 Fixing",
-      note: "Less liquid stocks (e.g. MLE, REB, BAL). No real-time trading \u2014 everything happens in one burst.",
-      phases: [
-        {
-          key: "accum",
-          label: "Order Accumulation",
-          start: "08:10",
-          end: "14:30",
-          desc: "You place orders, but they just sit in the book.",
-        },
-        {
-          key: "fixing",
-          label: "The Fixing",
-          start: "14:30",
-          end: "14:30",
-          point: true,
-          desc: "The only time of day trades are executed.",
-        },
-        {
-          key: "postfix",
-          label: "Post-Fixing",
-          start: "14:30",
-          end: "15:45",
-          desc: "Orders can be adjusted for the next day.",
-        },
-      ],
-    },
-  ];
-
-  const DAY_OPEN = "08:10";
-  const DAY_CLOSE = "15:45"; // latest phase end across both groups
+  // Schedule + pure phase logic live in the tested core (src/core/market-session.js),
+  // exposed via __core.marketSession. This UI owns only casaNow() (Intl) + render.
+  const MS = (typeof __core !== "undefined" && __core.marketSession) || null;
+  if (!MS) return; // core not loaded (e.g. isolated context) - skip the widget
+  const GROUPS = MS.MARKET_GROUPS;
+  const toMins = MS.toMins;
+  const fmtRange = MS.fmtRange;
+  const classifyPhases = MS.classifyPhases;
+  const overallLabel = (now, isWeekend) =>
+    MS.overallLabel(now.mins, isWeekend, GROUPS);
 
   // --- Casablanca "now" ------------------------------------------------------
   // Returns { mins, hh, mm, dow, hhmm, dateLabel } where mins = minutes since
@@ -344,61 +276,6 @@
         " " +
         (parts.year || ""),
     };
-  }
-
-  function toMins(hhmm) {
-    const [h, m] = hhmm.split(":").map((x) => parseInt(x, 10));
-    return h * 60 + m;
-  }
-  function fmtRange(p) {
-    return p.point ? p.start : p.start + " \u2013 " + p.end;
-  }
-
-  // Status of one phase relative to nowMins: "past" | "now" | "next" | "upcoming".
-  function classifyPhases(phases, nowMins, marketOpenToday) {
-    const out = phases.map((p) => ({
-      ...p,
-      sMin: toMins(p.start),
-      eMin: toMins(p.end),
-    }));
-    let currentIdx = -1;
-    if (marketOpenToday) {
-      for (let i = 0; i < out.length; i++) {
-        const p = out[i];
-        const inWin = p.point
-          ? nowMins === p.sMin
-          : nowMins >= p.sMin && nowMins < p.eMin;
-        if (inWin) {
-          currentIdx = i;
-          break;
-        }
-      }
-    }
-    return out.map((p, i) => {
-      let state;
-      if (!marketOpenToday) state = nowMins < out[0].sMin ? "upcoming" : "past";
-      else if (i === currentIdx) state = "now";
-      else if (currentIdx === -1)
-        state = nowMins < p.sMin ? "upcoming" : "past";
-      else state = i < currentIdx ? "past" : "upcoming";
-      return { ...p, state };
-    });
-  }
-
-  // A short label for the button: overall market state.
-  function overallLabel(now, isWeekend) {
-    if (isWeekend) return "Closed \u00B7 weekend";
-    if (now.mins < toMins(DAY_OPEN)) return "Pre-market";
-    if (now.mins >= toMins(DAY_CLOSE)) return "Closed";
-    // find the continuous group's current phase for the headline
-    const cont = GROUPS[0];
-    for (const p of cont.phases) {
-      const s = toMins(p.start),
-        e = toMins(p.end);
-      if (p.point ? now.mins === s : now.mins >= s && now.mins < e)
-        return p.label;
-    }
-    return "Open";
   }
 
   function stateColor(state) {

@@ -1223,44 +1223,11 @@ function renderMissingMaster() {
       <div style="font-size:13px;line-height:1.9">${items}</div>
     </div>`;
 }
-// Emoji icon for a sector name. Matched by keyword so variants (e.g. "Real
-// Estate (REIT)", "Transport & Logistics") still resolve. Falls back to a tag.
+// Emoji icon for a sector name. The keyword-matched mapping lives in the pure,
+// tested core (src/core/sector-icon.js); this thin wrapper delegates to it via
+// __core so the UI and the coverage test share one source of truth.
 function sectorIcon(name) {
-  const s = String(name || "").toLowerCase();
-  // Ordered MOST-SPECIFIC first so distinct sectors get distinct icons and
-  // don't collide on a broad keyword (e.g. "Building Materials" must be caught
-  // before the generic "materials", "Financial Services" before "bank").
-  const rules = [
-    [/reit/, "\uD83C\uDFEC"], // REIT -> department store building
-    [/real estate/, "\uD83C\uDFE0"], // real estate -> house
-    [/building material|building|cement/, "\uD83E\uDDF1"], // building materials -> brick
-    [/construc/, "\uD83C\uDFD7\uFE0F"], // construction -> crane
-    [/insur/, "\uD83D\uDEE1\uFE0F"], // insurance -> shield
-    [/telecom/, "\uD83D\uDCF6"], // telecom -> signal bars
-    [/tech/, "\uD83D\uDCBB"], // technology -> laptop
-    [/bank/, "\uD83C\uDFE6"], // banking -> bank
-    [/financ/, "\uD83D\uDCB0"], // financial services -> money bag
-    [/leasing/, "\uD83D\uDCC4"], // leasing -> document
-    [/utilit/, "\uD83D\uDCA1"], // utilities -> bulb
-    [/energy|oil|gas|petrol/, "\u26FD"], // energy -> fuel pump
-    [/mining|metal/, "\u26CF\uFE0F"], // mining -> pick
-    [/auto/, "\uD83D\uDE97"], // automotive -> car
-    [/beverage|drink/, "\uD83C\uDF7A"], // beverages -> beer/drinks
-    [/food/, "\uD83C\uDF5E"], // food producers -> bread
-    [/consumer/, "\uD83D\uDECD\uFE0F"], // consumer goods -> shopping bags
-    [/retail/, "\uD83D\uDED2"], // retail -> shopping cart
-    [/forest|paper/, "\uD83C\uDF32"], // forestry & paper -> evergreen tree
-    [/agri/, "\uD83C\uDF3E"], // agriculture -> sheaf of rice
-    [/chemical/, "\uD83E\uDDEA"], // chemicals -> test tube
-    [/health|pharma|medic/, "\uD83C\uDFE5"], // healthcare -> hospital
-    [/logistic|transport|shipping/, "\uD83D\uDE9B"], // transport & logistics -> truck
-    [/tourism|hotel|leisure|travel/, "\uD83C\uDFD6\uFE0F"], // tourism -> beach
-    [/industr/, "\uD83C\uDFED"], // industrial goods -> factory
-    [/holding/, "\uD83C\uDFE2"], // holding -> office building
-    [/opcvm|fund/, "\uD83D\uDCCA"], // funds -> bar chart
-  ];
-  for (const [re, ic] of rules) if (re.test(s)) return ic;
-  return "\uD83C\uDFF7\uFE0F"; // default tag
+  return __core.sectorIcon(name);
 }
 // Build stock rows grouped under sector headers. Each sector gets a header row
 // (icon + name + holdings value + portfolio weight) followed by its positions
