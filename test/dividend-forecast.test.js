@@ -184,3 +184,73 @@ describe("projectedCalendar", () => {
     expect(projectedCalendar([], 2026)).toHaveLength(0);
   });
 });
+
+describe("multiple payments per year (slots)", () => {
+  const evm = (tk, y, amt, mo) => ({
+    ticker: tk,
+    issuer: tk + " Co",
+    amount: amt,
+    ex_date: `${y}-${String(mo).padStart(2, "0")}-01`,
+    pay_date: `${y}-${String(mo).padStart(2, "0")}-15`,
+    div_type: "Ordinary",
+  });
+
+  it("detects two recurring slots for a twice-a-year payer", () => {
+    const cal = [
+      evm("BCP", 2024, 5, 6),
+      evm("BCP", 2024, 7, 12),
+      evm("BCP", 2025, 6, 6),
+      evm("BCP", 2025, 8, 12),
+    ];
+    const fc = buildForecast(cal, 2026);
+    const r = fc.rows.find((x) => x.ticker === "BCP");
+    expect(r.slots.length).toBe(2);
+    expect(r.paymentsPerYear).toBe(2);
+  });
+
+  it("projects each slot separately and sums them for annual DPS", () => {
+    const cal = [
+      evm("BCP", 2024, 5, 6),
+      evm("BCP", 2024, 7, 12),
+      evm("BCP", 2025, 6, 6),
+      evm("BCP", 2025, 8, 12),
+    ];
+    const fc = buildForecast(cal, 2026);
+    const r = fc.rows.find((x) => x.ticker === "BCP");
+    // June: 5->6 (+20%) => 7.2 ; Dec: 7->8 => 8*(8/7) ~= 9.142857
+    const expected = 6 * 1.2 + 8 * (8 / 7);
+    expect(r.projectedDps).toBeCloseTo(expected, 2);
+  });
+
+  it("emits one forecast event per slot for next year, months preserved", () => {
+    const cal = [
+      evm("BCP", 2024, 5, 6),
+      evm("BCP", 2024, 7, 12),
+      evm("BCP", 2025, 6, 6),
+      evm("BCP", 2025, 8, 12),
+    ];
+    const nxt = projectedCalendar(cal, 2026).filter(
+      (d) => d._forecastYear === 2027,
+    );
+    expect(nxt.length).toBe(2);
+    const months = nxt
+      .map((d) => +d.pay_date.slice(5, 7))
+      .sort((a, b) => a - b);
+    expect(months).toEqual([6, 12]);
+  });
+
+  it("current-year gap-fill only fills the slot that isn't announced yet", () => {
+    const cal = [
+      evm("BCP", 2024, 5, 6),
+      evm("BCP", 2024, 7, 12),
+      evm("BCP", 2025, 6, 6),
+      evm("BCP", 2025, 8, 12),
+      evm("BCP", 2026, 6, 6), // June 2026 announced; December not
+    ];
+    const cur = projectedCalendar(cal, 2026).filter(
+      (d) => d._forecastYear === 2026,
+    );
+    expect(cur.length).toBe(1);
+    expect(+cur[0].pay_date.slice(5, 7)).toBe(12);
+  });
+});

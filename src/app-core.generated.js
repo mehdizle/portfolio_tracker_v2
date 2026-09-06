@@ -7630,14 +7630,8 @@ function renderDivForecast(pos) {
   });
   const body = document.getElementById("divForecastBody");
   const head = document.getElementById("divForecastHead");
-  if (head)
-    head.textContent =
-      "Reference forecast \u00B7 " +
-      fc.targetYear +
-      " (from " +
-      (fc.rows.length ? "your dividend history" : "\u2014") +
-      ")";
   if (!fc.rows.length) {
+    if (head) head.textContent = "Reference forecast";
     if (body)
       body.innerHTML =
         '<tr><td colspan="7" class="l" style="color:var(--muted)">No dividend history yet \u2014 import past years (2024, 2025\u2026) in the Dividend Calendar to build a forecast.</td></tr>';
@@ -7660,13 +7654,49 @@ function renderDivForecast(pos) {
     "Nov",
     "Dec",
   ];
+  // Respect the Dividends-tab filter: "held" limits the forecast to tickers you
+  // currently hold; other filters (all/upcoming/missing) show every forecast row
+  // (a forecast is inherently upcoming). Keeps this table consistent with the
+  // calendar table above it.
+  const _f = (document.getElementById("divFilter") || {}).value || "all";
+  let fcRows = fc.rows;
+  if (_f === "held")
+    fcRows = fc.rows.filter((r) => heldSharesOf(pos, r.ticker) > 0);
+  if (head)
+    head.textContent =
+      "Reference forecast \u00B7 " +
+      fc.targetYear +
+      (_f === "held" ? " (held only)" : "") +
+      (fc.rows.length ? " (from your dividend history)" : "");
+  if (!fcRows.length) {
+    if (body)
+      body.innerHTML =
+        '<tr><td colspan="7" class="l" style="color:var(--muted)">No tickers match this filter.</td></tr>';
+    const ft0 = document.getElementById("divForecastTotal");
+    if (ft0) ft0.textContent = money(0, 0) + " MAD";
+    return;
+  }
   let projIncome = 0;
-  const rowsHtml = fc.rows
+  const rowsHtml = fcRows
     .map((r) => {
       const sh = heldSharesOf(pos, r.ticker);
       // Value the projected DPS on shares held now (reference only).
       const projInc = sh > 0 ? r.projectedDps * sh : 0;
       projIncome += projInc;
+      // Payment months (a ticker paying twice a year shows both).
+      const payMonths = (r.slots || [])
+        .map((s) => s.month)
+        .filter(Boolean)
+        .map((m) => MONTHS[m]);
+      const monthLabel = payMonths.length
+        ? payMonths.join(", ")
+        : r.expectedMonth
+          ? MONTHS[r.expectedMonth]
+          : "\u2014";
+      const perYearBadge =
+        r.paymentsPerYear > 1
+          ? ` <span class="chip" style="color:var(--text2)" data-tip="Pays about ${r.paymentsPerYear}x per year">${r.paymentsPerYear}x/yr</span>`
+          : "";
       const hist = r.years
         .map(
           (y) =>
@@ -7697,7 +7727,7 @@ function renderDivForecast(pos) {
         <td class="nis-cell" style="cursor:help" data-tip="${tipRef(escapeHtml(methodTip))}">${money(r.projectedDps)} <span style="color:var(--muted)">\u24D8</span></td>
         <td class="center"><span class="mini" style="color:var(--text2)">${growthPct}</span></td>
         <td class="center">${consChip}</td>
-        <td class="center" style="color:var(--text2)">${r.expectedMonth ? MONTHS[r.expectedMonth] : "\u2014"}</td>
+        <td class="center" style="color:var(--text2)">${monthLabel}${perYearBadge}</td>
         <td class="nis-cell">${sh > 0 ? money(projInc) : '<span style="color:var(--muted)">\u2014</span>'}</td>
       </tr>`;
     })
