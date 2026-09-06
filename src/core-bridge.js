@@ -12,6 +12,8 @@ import * as txnSchema from "./core/txn-schema.js";
 import * as masterSchema from "./core/master-schema.js";
 import * as connections from "./core/connection-manifest.js";
 import * as planApply from "./core/plan-apply.js";
+import * as sectorIconMod from "./core/sector-icon.js";
+import * as marketSession from "./core/market-session.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -29,5 +31,7 @@ globalThis.__core = {
   masterSchema,
   connections,
   planApply,
+  sectorIcon: sectorIconMod.sectorIcon,
+  marketSession,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };
