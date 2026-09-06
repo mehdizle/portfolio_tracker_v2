@@ -4,6 +4,7 @@ import {
   buildForecast,
   forecastEvents,
   projectedCalendar,
+  splitInconsistency,
 } from "../src/core/dividend-forecast.js";
 
 const ev = (ticker, year, amount, extra) => ({
@@ -332,5 +333,70 @@ describe("quarterly / 4x-a-year payer (ordinal slots)", () => {
       .map((d) => +d.pay_date.slice(5, 7))
       .sort((a, b) => a - b);
     expect(months).toEqual([10]); // Dec suppressed by the recorded payment
+  });
+});
+
+describe("splitInconsistency", () => {
+  const row = (tk, y, amt, typ, mo = 6) => ({
+    ticker: tk,
+    amount: amt,
+    ex_date: `${y}-${String(mo).padStart(2, "0")}-01`,
+    pay_date: `${y}-${String(mo).padStart(2, "0")}-15`,
+    div_type: typ,
+  });
+
+  it("flags a ticker split into Ord+Exc some years, single Ord others (SLF)", () => {
+    const cal = [
+      row("SLF", 2024, 14.25, "Ordinary"),
+      row("SLF", 2024, 14.25, "Exceptional"),
+      row("SLF", 2025, 14.75, "Ordinary"),
+      row("SLF", 2025, 14.75, "Exceptional"),
+      row("SLF", 2026, 30, "Ordinary"),
+    ];
+    const m = splitInconsistency(cal);
+    expect(m.has("SLF")).toBe(true);
+    expect(m.get("SLF").years[2024]).toBe(true); // paired
+    expect(m.get("SLF").years[2026]).toBe(false); // ord-only
+  });
+
+  it("does NOT flag a ticker that splits consistently every year (ARD)", () => {
+    const cal = [
+      row("ARD", 2024, 5.88, "Ordinary"),
+      row("ARD", 2024, 14.59, "Exceptional"),
+      row("ARD", 2025, 10.43, "Ordinary"),
+      row("ARD", 2025, 11.57, "Exceptional"),
+      row("ARD", 2026, 5.71, "Ordinary"),
+      row("ARD", 2026, 17.29, "Exceptional"),
+    ];
+    expect(splitInconsistency(cal).has("ARD")).toBe(false);
+  });
+
+  it("does NOT flag a plain ordinary-only payer", () => {
+    const cal = [
+      row("ATW", 2024, 16.5, "Ordinary"),
+      row("ATW", 2025, 19, "Ordinary"),
+      row("ATW", 2026, 22, "Ordinary"),
+    ];
+    expect(splitInconsistency(cal).has("ATW")).toBe(false);
+  });
+
+  it("only pairs when Ordinary and Exceptional share the SAME ex-date", () => {
+    // Exceptional on a DIFFERENT date is a genuine one-off, not a split.
+    const cal = [
+      row("X", 2024, 10, "Ordinary", 6),
+      row("X", 2024, 5, "Exceptional", 11), // separate date
+      row("X", 2025, 11, "Ordinary", 6),
+    ];
+    expect(splitInconsistency(cal).has("X")).toBe(false);
+  });
+
+  it("ignores forecast/projected synthetic rows", () => {
+    const cal = [
+      row("SLF", 2024, 14.25, "Ordinary"),
+      row("SLF", 2024, 14.25, "Exceptional"),
+      { ...row("SLF", 2026, 30, "Ordinary"), _forecast: true },
+    ];
+    // Only the real 2024 pair remains -> consistent (single year) -> not flagged.
+    expect(splitInconsistency(cal).has("SLF")).toBe(false);
   });
 });

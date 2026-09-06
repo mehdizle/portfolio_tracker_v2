@@ -210,6 +210,7 @@ export function buildForecast(divcal, refYear, opts) {
   const windowYears = o.windowYears || 3;
   const cal = Array.isArray(divcal) ? divcal : [];
   const target = refYear + 1;
+  const splitFlags = splitInconsistency(cal);
 
   const byTicker = new Map();
   for (const d of cal) {
@@ -287,6 +288,7 @@ export function buildForecast(divcal, refYear, opts) {
       paymentsPerYear,
       expectedMonth: slots.length ? slots[0].month : null,
       partialCurrentYear: Math.round((byYear[refYear] || 0) * 10000) / 10000,
+      splitFlag: splitFlags.get(tk) || null,
       slots,
     });
   }
@@ -406,6 +408,58 @@ export function projectedCalendar(divcal, refYear, opts) {
       emit(r, s, nextYr); // next year: full per-slot projection
       if (s.baseAmt > 0) emit(r, s, refYear); // current year: gap-fill per slot
     }
+  }
+  return out;
+}
+
+// Detect tickers whose Ordinary/Exceptional SPLIT changed year to year.
+// Informational only: a ticker like SALAFIN that booked an Ordinary + an equal
+// Exceptional in 2024/2025 but a single Ordinary in 2026 will look like a
+// forecast "spike" because only the ordinary line is projected. Flagging it
+// tells the user the labeling is inconsistent (a data call), not a real jump.
+//
+// Rule: for each ticker, note per year whether it had an Exceptional dividend
+// ALONGSIDE an Ordinary one on the same ex-date. If that "paired-exceptional"
+// pattern is present in some years but absent in others (while the ticker did
+// pay ordinary in those years), flag it. Returns Map<ticker, {years:{yr:bool}}>.
+export function splitInconsistency(divcal) {
+  const cal = Array.isArray(divcal) ? divcal : [];
+  // ticker -> year -> { ord:Set(ex_date), exc:Set(ex_date) }
+  const byTk = new Map();
+  for (const d of cal) {
+    if (d._projected || d._forecast) continue;
+    const yr = yearOf(d.pay_date);
+    const tk = tickerOf(d);
+    if (!yr || !tk) continue;
+    if (!byTk.has(tk)) byTk.set(tk, new Map());
+    const ym = byTk.get(tk);
+    if (!ym.has(yr)) ym.set(yr, { ord: new Set(), exc: new Set() });
+    const rec = ym.get(yr);
+    const ex = String(d.ex_date || d.pay_date || "").trim();
+    if (isExceptional(d)) rec.exc.add(ex);
+    else rec.ord.add(ex);
+  }
+
+  const out = new Map();
+  for (const [tk, ym] of byTk) {
+    const years = [...ym.keys()].sort((a, b) => a - b);
+    // For each year: did it have an exceptional paired on the SAME ex-date as an
+    // ordinary? (a same-date split)
+    let anyPaired = false,
+      anyOrdinaryOnly = false;
+    const detail = {};
+    for (const y of years) {
+      const rec = ym.get(y);
+      if (!rec.ord.size) continue; // year had no ordinary -> not relevant to forecast
+      let paired = false;
+      for (const ex of rec.exc) if (rec.ord.has(ex)) paired = true;
+      detail[y] = paired;
+      if (paired) anyPaired = true;
+      else anyOrdinaryOnly = true;
+    }
+    // Inconsistent = the same-date-split pattern appears in some ordinary-paying
+    // years but not others.
+    if (anyPaired && anyOrdinaryOnly) out.set(tk, { years: detail });
   }
   return out;
 }

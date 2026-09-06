@@ -6855,12 +6855,10 @@ function renderDivDashboard(pos) {
     const du = daysUntil(d.pay_date);
     return du >= 0 || (du >= -30 && !divRecorded(d));
   });
-  let inc90 = 0,
-    inc12 = 0;
+  let inc90 = 0;
   const byMonth = {},
     byMonthTk = {},
-    det90 = [],
-    det12 = [];
+    det90 = [];
   for (const d of upcoming) {
     const sh = eligibleSharesAtEx(d);
     const net = divNetFor(d, sh);
@@ -6876,14 +6874,30 @@ function renderDivDashboard(pos) {
       inc90 += net;
       det90.push(item);
     }
-    if (du <= 365) {
-      inc12 += net;
-      det12.push(item);
-    }
     const mk = d.pay_date.slice(0, 7);
     byMonth[mk] = (byMonth[mk] || 0) + net;
     (byMonthTk[mk] = byMonthTk[mk] || {})[d.ticker] =
       (byMonthTk[mk][d.ticker] || 0) + net;
+  }
+  // Income for the NEXT CALENDAR YEAR (refYear+1): net of all eligible dividends
+  // whose pay-date falls in that year - announced calendar events PLUS forecast
+  // fill-ins. Computed independently of the "Project next year" display toggle
+  // so the KPI is always populated. This is a per-YEAR total, not a rolling 365d.
+  const _nextYr = _refYr + 1;
+  let incNextYr = 0;
+  const detNextYr = [];
+  for (const d of DIVCAL.concat(_fcAll)) {
+    if (!d.pay_date || d.pay_date.slice(0, 4) !== String(_nextYr)) continue;
+    const sh = eligibleSharesAtEx(d);
+    if (sh <= 0) continue;
+    const net = divNetFor(d, sh);
+    incNextYr += net;
+    detNextYr.push({
+      ticker: d.ticker,
+      date: d.pay_date,
+      amount: net,
+      est: !!d._forecast,
+    });
   }
   // Received YTD (recorded DIV transactions this calendar year) \u2014 with detail
   const yr = TODAY.getFullYear();
@@ -6921,8 +6935,8 @@ function renderDivDashboard(pos) {
   for (const kk in pos) {
     portVal += pos[kk].value;
   }
-  const __FWDYIELD__ =
-    portVal > 0 ? ((inc12 / portVal) * 100).toFixed(2) + "%" : "\u2014";
+  const __NEXTYRYIELD__ =
+    portVal > 0 ? ((incNextYr / portVal) * 100).toFixed(2) + "%" : "\u2014";
   document.getElementById("divKpiRow").innerHTML =
     kpi(
       "Income \u00B7 next 90d",
@@ -6935,17 +6949,20 @@ function renderDivDashboard(pos) {
       ),
     ) +
     kpi(
-      "Income \u00B7 next 12mo",
-      money(inc12, 0) + " MAD",
+      "Income \u00B7 next year",
+      money(incNextYr, 0) + " MAD",
       "pos",
       detTip(
-        "Expected income \u00B7 next 12 months",
-        ["Net of dividend tax."],
-        det12,
+        "Expected income \u00B7 " + _nextYr,
+        [
+          "Net of dividend tax. Total for the " + _nextYr + " calendar year.",
+          "Announced dividends + forecast fill-ins.",
+        ],
+        detNextYr,
       ),
     ) +
     kpi(
-      "Received in " + yr,
+      "Received this year",
       money(received, 0) + " MAD",
       "pos",
       detTip(
@@ -6965,12 +6982,13 @@ function renderDivDashboard(pos) {
       ]),
     ) +
     kpi(
-      "Fwd Yield (12mo)",
-      __FWDYIELD__,
+      "Next-year Yield",
+      __NEXTYRYIELD__,
       "",
-      T("Forward dividend yield", [
-        "Next-12mo expected income divided by",
+      T("Next-year dividend yield", [
+        "Expected " + _nextYr + " income divided by",
         "current portfolio market value.",
+        "(Forward yield for the next calendar year.)",
       ]),
     );
   // Monthly chart (next 12 months, or 24 when projecting next year)
@@ -7688,12 +7706,40 @@ function renderDivForecast(pos) {
     if (ft0) ft0.textContent = money(0, 0) + " MAD";
     return;
   }
+  const _fcYr = fc.targetYear;
   let projIncome = 0;
   const rowsHtml = fcRows
     .map((r) => {
       const sh = heldSharesOf(pos, r.ticker);
-      // Value the projected DPS on shares held now (reference only).
-      const projInc = sh > 0 ? r.projectedDps * sh : 0;
+      // Est. Income = NET of dividend tax (and broker fees / PEA exemption),
+      // valued on shares held now. Value each projected payment slot as a
+      // synthetic next-year DIV event and run it through divNetFor - the same
+      // math recorded and calendar dividends use - so tax is applied per slot
+      // at next year's rate.
+      let projInc = 0,
+        projGross = 0,
+        projFees = 0,
+        projTax = 0;
+      const slotCalcs = [];
+      for (const s of r.slots || []) {
+        if (!(s.projectedAmt > 0)) continue;
+        const mm = String(s.month || 6).padStart(2, "0");
+        const evt = {
+          ticker: r.ticker,
+          amount: s.projectedAmt,
+          ex_date: _fcYr + "-" + mm + "-01",
+          pay_date: _fcYr + "-" + mm + "-15",
+          div_type: "Ordinary",
+        };
+        const c = sh > 0 ? divCalc(evt, sh) : null;
+        slotCalcs.push({ slot: s, mm, calc: c });
+        if (c) {
+          projInc += c.net;
+          projGross += c.gross;
+          projFees += c.fees;
+          projTax += c.tax;
+        }
+      }
       projIncome += projInc;
       // Payment months (a ticker paying twice a year shows both).
       const payMonths = (r.slots || [])
@@ -7709,12 +7755,34 @@ function renderDivForecast(pos) {
         r.paymentsPerYear > 1
           ? ` <span class="chip" style="color:var(--text2)" data-tip="Pays about ${r.paymentsPerYear}x per year">${r.paymentsPerYear}x/yr</span>`
           : "";
-      const hist = r.years
+      // Informational: ordinary/exceptional split changed year-to-year, so the
+      // ordinary-only projection may look like a jump (e.g. SALAFIN).
+      const splitBadge = r.splitFlag
+        ? ` <span class="chip" style="color:var(--warn);cursor:help" data-tip="${tipRef("Ordinary/Exceptional split is inconsistent across years for this ticker. Only the Ordinary portion is forecast, so the estimate may look like a jump. Check the labels if the totals should match.")}">\u26A0 split</span>`
+        : "";
+      const _tr = _tipRow;
+      // HISTORY: show the most recent HIST_INLINE years inline; if there are
+      // more, add a "+N more" chip and put the FULL series in a tooltip (so 10+
+      // years never overflow the column).
+      const HIST_INLINE = 4;
+      const yearsAsc = r.years.slice();
+      const shownYears = yearsAsc.slice(-HIST_INLINE);
+      const hiddenCount = yearsAsc.length - shownYears.length;
+      const histInline = shownYears
         .map(
           (y) =>
             `<span class="mini" style="color:var(--muted)">${y}:</span> ${money(r.byYear[y])}`,
         )
         .join(' <span style="color:var(--border)">\u00B7</span> ');
+      const histFullTip =
+        `<div style="font-weight:700;margin-bottom:6px">${escapeHtml(r.ticker)} \u00B7 dividend history</div>` +
+        yearsAsc
+          .map((y) => _tr(String(y), money(r.byYear[y]) + " MAD"))
+          .join("");
+      const histCell = hiddenCount
+        ? `${histInline} <span class="chip" style="cursor:help;color:var(--text2)" data-tip="${tipRef(histFullTip)}">+${hiddenCount} more</span>`
+        : histInline;
+
       const growthPct =
         r.method === "trend"
           ? (r.growth >= 0 ? "+" : "") + (r.growth * 100).toFixed(0) + "%"
@@ -7729,18 +7797,66 @@ function renderDivForecast(pos) {
               : "var(--muted)";
         return `<span class="chip" style="color:${col}" data-tip="Paid in ${r.yearsCounted} of last ${r.windowYears} years">${r.yearsCounted}/${r.windowYears}</span>`;
       })();
-      const methodTip =
-        r.method === "trend"
-          ? `Estimate = average of recent years, nudged by a gentle (max \u00B110%/yr) trend. Most recent: ${r.baseYear} ${money(r.baseDps)}. Shown % = projected vs ${r.baseYear}.`
-          : `Flat: only one year of history (${r.baseYear} ${money(r.baseDps)}).`;
+
+      // PROJ./SH tooltip: how the projection was built, per payment slot.
+      const projTip = (() => {
+        let h = `<div style="font-weight:700;margin-bottom:6px">Projected per share \u00B7 ${escapeHtml(r.ticker)} \u00B7 ${_fcYr}</div>`;
+        h += `<div class="mini" style="margin-bottom:6px">Level = average of recent years; trend = gentle nudge (max \u00B110%/yr).</div>`;
+        for (const s of r.slots || []) {
+          if (r.paymentsPerYear > 1)
+            h += `<div style="font-weight:600;margin-top:4px">${MONTHS[s.month] || "\u2014"} payment</div>`;
+          h += _tr("Level (recent avg)", money(s.level) + " MAD");
+          h += _tr(
+            "Trend",
+            (s.growth >= 0 ? "+" : "") + (s.growth * 100).toFixed(1) + "%",
+          );
+          h += _tr("= Projected", money(s.projectedAmt) + " MAD");
+        }
+        if ((r.slots || []).length > 1) {
+          h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+          h += _tr(
+            "<b>Annual total</b>",
+            "<b>" + money(r.projectedDps) + " MAD</b>",
+          );
+        }
+        return h;
+      })();
+
+      // EST. INCOME tooltip: gross -> fees -> tax -> net, per slot + combined.
+      const incTip = (() => {
+        if (!(sh > 0))
+          return `<div style="font-weight:700;margin-bottom:6px">Est. income \u00B7 ${escapeHtml(r.ticker)}</div><div class="mini">You don't currently hold this ticker.</div>`;
+        let h = `<div style="font-weight:700;margin-bottom:6px">Est. net income \u00B7 ${escapeHtml(r.ticker)} \u00B7 ${_fcYr}</div>`;
+        h += _tr("Shares held", money(sh, sh % 1 ? 3 : 0));
+        const multi = slotCalcs.length > 1;
+        for (const sc of slotCalcs) {
+          if (!sc.calc) continue;
+          if (multi)
+            h += `<div style="font-weight:600;margin-top:4px">${MONTHS[sc.slot.month] || "\u2014"} \u00B7 ${money(sc.slot.projectedAmt)}/sh</div>`;
+          h += _tr("Gross", money(sc.calc.gross) + " MAD");
+          if (sc.calc.fees)
+            h += _tr("\u2212 Fees", "\u2212" + money(sc.calc.fees));
+          h += _tr(
+            "\u2212 Tax (" + (sc.calc.rate * 100).toFixed(2) + "%)",
+            "\u2212" + money(sc.calc.tax),
+          );
+        }
+        h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
+        h += _tr("Total gross", money(projGross) + " MAD");
+        if (projFees) h += _tr("\u2212 Total fees", "\u2212" + money(projFees));
+        h += _tr("\u2212 Total tax", "\u2212" + money(projTax));
+        h += _tr("<b>Est. net</b>", "<b>" + money(projInc) + " MAD</b>", "pos");
+        return h;
+      })();
+
       return `<tr>
-        <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--muted)">${escapeHtml(r.issuer || "")}</span></td>
-        <td class="l">${hist}</td>
-        <td class="nis-cell" style="cursor:help" data-tip="${tipRef(escapeHtml(methodTip))}">${money(r.projectedDps)} <span style="color:var(--muted)">\u24D8</span></td>
+        <td class="l"><b>${escapeHtml(r.ticker)}</b>${splitBadge} <span class="mini" style="color:var(--muted)">${escapeHtml(r.issuer || "")}</span></td>
+        <td class="l">${histCell}</td>
+        <td class="nis-cell" style="cursor:help" data-tip="${tipRef(projTip)}">${money(r.projectedDps)} <span style="color:var(--muted)">\u24D8</span></td>
         <td class="center"><span class="mini" style="color:var(--text2)">${growthPct}</span></td>
         <td class="center">${consChip}</td>
         <td class="center" style="color:var(--text2)">${monthLabel}${perYearBadge}</td>
-        <td class="nis-cell">${sh > 0 ? money(projInc) : '<span style="color:var(--muted)">\u2014</span>'}</td>
+        <td class="nis-cell" style="cursor:help" data-tip="${tipRef(incTip)}">${sh > 0 ? money(projInc) + ' <span style="color:var(--muted)">\u24D8</span>' : '<span style="color:var(--muted)">\u2014</span>'}</td>
       </tr>`;
     })
     .join("");
