@@ -7596,6 +7596,95 @@ function renderDividends(pos) {
     '<tr><td colspan="9" class="l" style="color:var(--muted)">No dividends match.</td></tr>';
   renderDivDashboard(pos);
   renderDivCalGrid(pos);
+  renderDivForecast(pos);
+}
+// Multi-year dividend forecast (reference estimate). Builds a per-ticker
+// projection for next year from the calendar's history via __core.dividendForecast,
+// values it on currently-held shares, and renders a table into #divForecastBox.
+function renderDivForecast(pos) {
+  const box = document.getElementById("divForecastBox");
+  if (!box) return;
+  const refYear = TODAY.getFullYear();
+  const fc = __core.dividendForecast.buildForecast(DIVCAL, refYear, {
+    windowYears: 3,
+  });
+  const body = document.getElementById("divForecastBody");
+  const head = document.getElementById("divForecastHead");
+  if (head)
+    head.textContent =
+      "Reference forecast \u00B7 " +
+      fc.targetYear +
+      " (from " +
+      (fc.rows.length ? "your dividend history" : "\u2014") +
+      ")";
+  if (!fc.rows.length) {
+    if (body)
+      body.innerHTML =
+        '<tr><td colspan="7" class="l" style="color:var(--muted)">No dividend history yet \u2014 import past years (2024, 2025\u2026) in the Dividend Calendar to build a forecast.</td></tr>';
+    const ft = document.getElementById("divForecastTotal");
+    if (ft) ft.textContent = "\u2014";
+    return;
+  }
+  const MONTHS = [
+    "",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  let projIncome = 0;
+  const rowsHtml = fc.rows
+    .map((r) => {
+      const sh = heldSharesOf(pos, r.ticker);
+      // Value the projected DPS on shares held now (reference only).
+      const projInc = sh > 0 ? r.projectedDps * sh : 0;
+      projIncome += projInc;
+      const hist = r.years
+        .map(
+          (y) =>
+            `<span class="mini" style="color:var(--muted)">${y}:</span> ${money(r.byYear[y])}`,
+        )
+        .join(' <span style="color:var(--border)">\u00B7</span> ');
+      const growthPct =
+        r.method === "trend"
+          ? (r.growth >= 0 ? "+" : "") + (r.growth * 100).toFixed(0) + "%/yr"
+          : "flat";
+      const consChip = (() => {
+        const c = r.consistency;
+        const col =
+          c >= 1
+            ? "var(--success)"
+            : c >= 0.66
+              ? "var(--warn)"
+              : "var(--muted)";
+        return `<span class="chip" style="color:${col}" data-tip="Paid in ${r.yearsCounted} of last ${r.windowYears} years">${r.yearsCounted}/${r.windowYears}</span>`;
+      })();
+      const methodTip =
+        r.method === "trend"
+          ? `Trend: base ${r.baseYear} ${money(r.baseDps)} \u00D7 avg growth ${growthPct}`
+          : `Flat: only one year of history (${r.baseYear})`;
+      return `<tr>
+        <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--muted)">${escapeHtml(r.issuer || "")}</span></td>
+        <td class="l">${hist}</td>
+        <td class="nis-cell" style="cursor:help" data-tip="${tipRef(escapeHtml(methodTip))}">${money(r.projectedDps)} <span style="color:var(--muted)">\u24D8</span></td>
+        <td class="center"><span class="mini" style="color:var(--text2)">${growthPct}</span></td>
+        <td class="center">${consChip}</td>
+        <td class="center" style="color:var(--text2)">${r.expectedMonth ? MONTHS[r.expectedMonth] : "\u2014"}</td>
+        <td class="nis-cell">${sh > 0 ? money(projInc) : '<span style="color:var(--muted)">\u2014</span>'}</td>
+      </tr>`;
+    })
+    .join("");
+  if (body) body.innerHTML = rowsHtml;
+  const ft = document.getElementById("divForecastTotal");
+  if (ft) ft.textContent = money(projIncome, 0) + " MAD";
 }
 function renderDashDivs(pos) {
   // Source 1: calendar dividends you're ELIGIBLE for (held before the ex-date), whose payment is upcoming
@@ -9976,18 +10065,6 @@ function parseCalendar(raw) {
   }
   return { out, bad, unmatched };
 }
-// Collapse exact-duplicate dividend events (same ticker + pay-date + amount) within a batch.
-function dedupeDivcal(list) {
-  const seen = new Set(),
-    out = [];
-  for (const d of list) {
-    const k = d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(d);
-  }
-  return out;
-}
 function calImport() {
   const raw = document.getElementById("calPaste").value.trim();
   if (!raw) {
@@ -9995,7 +10072,6 @@ function calImport() {
       "Paste calendar rows first.";
     return;
   }
-  const mode = document.getElementById("calMode").value;
   const { out: out2, bad, unmatched } = parseCalendar(raw);
   const uniqUnmatched = [...new Set(unmatched)];
   if (!out2.length && !uniqUnmatched.length) {
@@ -10003,42 +10079,41 @@ function calImport() {
       "\u274c Could not parse any rows.";
     return;
   }
+  // SMART MERGE (upsert): add events not already present, update matching events
+  // whose amount/pay-date/issuer/type changed, and never delete existing rows.
+  // Identity = ticker + ex-date (fallback ticker + pay-date). This lets the user
+  // accumulate multiple years and re-import a corrected year without losing the
+  // others or creating duplicates. Replaces the old Replace/Append modes.
   let added = 0,
+    updated = 0,
     dups = 0;
   if (out2.length) {
-    if (mode === "replace") {
-      DIVCAL = dedupeDivcal(out2);
-      added = DIVCAL.length;
-    } else {
-      const key = (d) =>
-        d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
-      const have = new Set(DIVCAL.map(key));
-      for (const d of dedupeDivcal(out2)) {
-        if (have.has(key(d))) {
-          dups++;
-          continue;
-        }
-        DIVCAL.push(d);
-        have.add(key(d));
-        added++;
-      }
-    }
+    const res = __core.divcalMerge.mergeDivcal(DIVCAL, out2);
+    DIVCAL = res.list;
+    added = res.added;
+    updated = res.updated;
+    dups = res.skipped;
     saveDivCal();
   }
-  let msg = added
-    ? "\u2705 Imported <b>" +
-      added +
-      "</b> dividend(s)." +
+  const parts = [];
+  if (added) parts.push("added <b>" + added + "</b>");
+  if (updated) parts.push("updated <b>" + updated + "</b>");
+  let msg;
+  if (added || updated) {
+    msg =
+      "\u2705 Merged \u2014 " +
+      parts.join(", ") +
       (dups
-        ? ' <span style="color:var(--muted)">(' +
-          dups +
-          " duplicate(s) skipped)</span>"
-        : "")
-    : out2.length
-      ? "\u2139 Nothing new \u2014 all " +
+        ? ' <span style="color:var(--muted)">(' + dups + " unchanged)</span>"
+        : "") +
+      ".";
+  } else {
+    msg = out2.length
+      ? "\u2139 Nothing changed \u2014 all " +
         out2.length +
-        " row(s) already present."
+        " row(s) already up to date."
       : "\u26a0 No rows imported yet.";
+  }
   if (uniqUnmatched.length) {
     msg +=
       ' <span style="color:var(--warn)">' +

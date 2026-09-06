@@ -1266,18 +1266,6 @@ function parseCalendar(raw) {
   }
   return { out, bad, unmatched };
 }
-// Collapse exact-duplicate dividend events (same ticker + pay-date + amount) within a batch.
-function dedupeDivcal(list) {
-  const seen = new Set(),
-    out = [];
-  for (const d of list) {
-    const k = d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(d);
-  }
-  return out;
-}
 function calImport() {
   const raw = document.getElementById("calPaste").value.trim();
   if (!raw) {
@@ -1285,7 +1273,6 @@ function calImport() {
       "Paste calendar rows first.";
     return;
   }
-  const mode = document.getElementById("calMode").value;
   const { out: out2, bad, unmatched } = parseCalendar(raw);
   const uniqUnmatched = [...new Set(unmatched)];
   if (!out2.length && !uniqUnmatched.length) {
@@ -1293,42 +1280,41 @@ function calImport() {
       "\u274c Could not parse any rows.";
     return;
   }
+  // SMART MERGE (upsert): add events not already present, update matching events
+  // whose amount/pay-date/issuer/type changed, and never delete existing rows.
+  // Identity = ticker + ex-date (fallback ticker + pay-date). This lets the user
+  // accumulate multiple years and re-import a corrected year without losing the
+  // others or creating duplicates. Replaces the old Replace/Append modes.
   let added = 0,
+    updated = 0,
     dups = 0;
   if (out2.length) {
-    if (mode === "replace") {
-      DIVCAL = dedupeDivcal(out2);
-      added = DIVCAL.length;
-    } else {
-      const key = (d) =>
-        d.ticker + "|" + d.pay_date + "|" + +(+d.amount).toFixed(4);
-      const have = new Set(DIVCAL.map(key));
-      for (const d of dedupeDivcal(out2)) {
-        if (have.has(key(d))) {
-          dups++;
-          continue;
-        }
-        DIVCAL.push(d);
-        have.add(key(d));
-        added++;
-      }
-    }
+    const res = __core.divcalMerge.mergeDivcal(DIVCAL, out2);
+    DIVCAL = res.list;
+    added = res.added;
+    updated = res.updated;
+    dups = res.skipped;
     saveDivCal();
   }
-  let msg = added
-    ? "\u2705 Imported <b>" +
-      added +
-      "</b> dividend(s)." +
+  const parts = [];
+  if (added) parts.push("added <b>" + added + "</b>");
+  if (updated) parts.push("updated <b>" + updated + "</b>");
+  let msg;
+  if (added || updated) {
+    msg =
+      "\u2705 Merged \u2014 " +
+      parts.join(", ") +
       (dups
-        ? ' <span style="color:var(--muted)">(' +
-          dups +
-          " duplicate(s) skipped)</span>"
-        : "")
-    : out2.length
-      ? "\u2139 Nothing new \u2014 all " +
+        ? ' <span style="color:var(--muted)">(' + dups + " unchanged)</span>"
+        : "") +
+      ".";
+  } else {
+    msg = out2.length
+      ? "\u2139 Nothing changed \u2014 all " +
         out2.length +
-        " row(s) already present."
+        " row(s) already up to date."
       : "\u26a0 No rows imported yet.";
+  }
   if (uniqUnmatched.length) {
     msg +=
       ' <span style="color:var(--warn)">' +

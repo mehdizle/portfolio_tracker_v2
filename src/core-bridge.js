@@ -14,6 +14,8 @@ import * as connections from "./core/connection-manifest.js";
 import * as planApply from "./core/plan-apply.js";
 import * as sectorIconMod from "./core/sector-icon.js";
 import * as marketSession from "./core/market-session.js";
+import * as divcalMerge from "./core/divcal-merge.js";
+import * as dividendForecast from "./core/dividend-forecast.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -33,5 +35,7 @@ globalThis.__core = {
   planApply,
   sectorIcon: sectorIconMod.sectorIcon,
   marketSession,
+  divcalMerge,
+  dividendForecast,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };

@@ -40,7 +40,7 @@
     <div class="app">
       <div class="topbar">
         <div class="title">
-          <span class="title-icon" aria-hidden="true">&#x1F4C8;</span
+          <span class="title-icon" aria-hidden="true"></span>&#x1F4C8;</span
           ><span class="title-name">Portfolio Tracker</span>
           <span>Casablanca Stock Exchange &#xB7; MAD</span>
         </div>
@@ -1518,6 +1518,81 @@
               <tbody></tbody>
             </table>
           </div>
+
+          <!-- Dividend forecast (reference estimate from multi-year history) -->
+          <div
+            id="divForecastBox"
+            style="
+              margin-top: 18px;
+              background: var(--panel);
+              border: 1px solid var(--border);
+              border-radius: var(--radius);
+              padding: 14px 16px;
+            "
+          >
+            <h2 style="margin-top: 0">
+              &#x1F52E; <span id="divForecastHead">Reference forecast</span>
+              <span
+                class="chip"
+                style="color: var(--muted)"
+                data-tip="A rough guide built from the dividend-per-share of the last few years. With only 2-3 years of data this is indicative, not a promise."
+                >estimate &#x24D8;</span
+              >
+            </h2>
+            <div class="mini" style="color: var(--muted); margin-bottom: 10px">
+              Projected next-year dividend per share per ticker, from your
+              calendar history. &#x201C;Est. income&#x201D; values it on the
+              shares you hold now.
+            </div>
+            <div class="scroll">
+              <table id="divForecast">
+                <thead>
+                  <tr>
+                    <th scope="col" class="l">Ticker</th>
+                    <th scope="col" class="l">History (per year)</th>
+                    <th
+                      scope="col"
+                      data-tip="Projected dividend per share for next year"
+                    >
+                      Proj. / Sh
+                    </th>
+                    <th
+                      scope="col"
+                      class="center"
+                      data-tip="How the projection was made: trend = avg year-over-year growth; flat = only one year of history"
+                    >
+                      Method
+                    </th>
+                    <th
+                      scope="col"
+                      class="center"
+                      data-tip="Years paid out of the last 3 - a reliability signal"
+                    >
+                      Consistency
+                    </th>
+                    <th scope="col" class="center">Exp. Month</th>
+                    <th
+                      scope="col"
+                      data-tip="Projected per-share amount &#xD7; shares you hold now"
+                    >
+                      Est. Income
+                    </th>
+                  </tr>
+                </thead>
+                <tbody id="divForecastBody"></tbody>
+                <tfoot>
+                  <tr>
+                    <td class="l" colspan="6" style="text-align: right">
+                      <b>Projected income (held shares)</b>
+                    </td>
+                    <td class="nis-cell">
+                      <b id="divForecastTotal">&#x2014;</b>
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2496,13 +2571,16 @@
                 font-size: 12px;
               "
             ></textarea>
+            <div
+              class="mini"
+              style="margin: 8px 0; color: var(--muted)"
+            >
+              &#x1F504; <b>Smart merge:</b> importing adds new dividends, updates
+              any whose amount or dates changed, and keeps every previous year.
+              Nothing is deleted &#x2014; safe to re-paste a corrected year or
+              add past years anytime.
+            </div>
             <div class="form-row" style="margin-top: 10px">
-              <label
-                >Mode<select id="calMode">
-                  <option value="replace">Replace</option>
-                  <option value="append">Append</option>
-                </select></label
-              >
               <button class="btn" id="applyCal">Import</button>
               <button class="btn sec2" id="clearCal">Clear</button>
               <button class="btn sec2" id="dlCalTemplate">
