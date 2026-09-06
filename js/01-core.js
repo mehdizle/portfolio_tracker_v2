@@ -381,7 +381,7 @@ function tickerBadge(tk, size) {
     escapeHtml(src) +
     '" data-logo-fallbacks="' +
     escapeHtml(fallbacks) +
-    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff">' +
+    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff;border-radius:6px;display:block">' +
     "</span>"
   );
 }
