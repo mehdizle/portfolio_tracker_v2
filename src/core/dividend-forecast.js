@@ -26,8 +26,12 @@
 //
 //   Consistency = (# years the ticker paid) / (# years in the window).
 
-const MAX_GROWTH = 0.5; // clamp YoY growth to +/-50% so thin data can't explode.
-const MIN_GROWTH = -0.5;
+// Forecast is a LEVEL + gentle trend, not a raw growth extrapolation. Dividends
+// are noisy year to year (a one-off-looking spike or dip shouldn't dominate), so
+// we anchor to the trailing AVERAGE of recent years and nudge it by a small,
+// tightly-clamped trend. This keeps projections realistic on 2-3 data points.
+const TREND_CAP = 0.1; // clamp the annualized trend nudge to +/-10%.
+const LEVEL_WINDOW = 3; // years used for the trailing-average level.
 const REAL_MATCH_MONTHS = 1; // a real/recorded event within +/-1 month of a slot
 // counts as "that slot already happened" (allows for a payment date drifting a
 // few weeks year to year) without cross-suppressing an adjacent slot.
@@ -45,7 +49,12 @@ function num(x) {
   return isFinite(n) ? n : 0;
 }
 function isExceptional(d) {
-  return String((d && d.div_type) || "").toLowerCase() === "exceptional";
+  // Anything starting with "e" (Exceptional / Extraordinary / Special variants)
+  // is treated as a one-off and excluded from the forecast.
+  return String((d && d.div_type) || "")
+    .trim()
+    .toLowerCase()
+    .startsWith("e");
 }
 function tickerOf(d) {
   return String((d && d.ticker) || "")
@@ -53,18 +62,18 @@ function tickerOf(d) {
     .toUpperCase();
 }
 
-// Geometric mean of consecutive growth ratios. series = [{year, amt}] asc.
-function avgGrowth(series) {
-  const ratios = [];
-  for (let i = 1; i < series.length; i++) {
-    const prev = series[i - 1].amt,
-      cur = series[i].amt;
-    if (prev > 0 && cur > 0) ratios.push(cur / prev);
-  }
-  if (!ratios.length) return 0;
-  const logSum = ratios.reduce((s, r) => s + Math.log(r), 0);
-  const g = Math.exp(logSum / ratios.length) - 1;
-  return Math.max(MIN_GROWTH, Math.min(MAX_GROWTH, g));
+// Gently-clamped annualized trend across a window. series = [{year, amt}] asc.
+// Uses the compound rate from the FIRST to the LAST value over the elapsed
+// years (robust to a single mid-window spike), clamped to +/-TREND_CAP so thin,
+// noisy data can never drive an extreme projection.
+function gentleTrend(series) {
+  if (series.length < 2) return 0;
+  const first = series[0].amt,
+    last = series[series.length - 1].amt,
+    span = series[series.length - 1].year - series[0].year;
+  if (!(first > 0) || !(last > 0) || span <= 0) return 0;
+  const g = Math.pow(last / first, 1 / span) - 1;
+  return Math.max(-TREND_CAP, Math.min(TREND_CAP, g));
 }
 
 // Modal month of a list of {month} members; ties -> latest month.
@@ -161,25 +170,29 @@ function projectSlot(slot, refYear) {
   const years = Object.keys(byYear)
     .map(Number)
     .sort((a, b) => a - b);
-  const complete = years.filter((y) => y < refYear);
-  const trendYears = (complete.length ? complete : years).map((y) => ({
-    year: y,
-    amt: byYear[y],
-  }));
-  const baseYear = trendYears[trendYears.length - 1].year;
-  const baseAmt = trendYears[trendYears.length - 1].amt;
-  const growth = avgGrowth(trendYears);
-  const method = trendYears.length >= 2 ? "trend" : "flat";
-  const projectedAmt =
-    method === "trend"
-      ? Math.round(baseAmt * (1 + growth) * 10000) / 10000
-      : Math.round(baseAmt * 10000) / 10000;
+
+  // Use the last LEVEL_WINDOW years INCLUDING the current year - the most recent
+  // payment is the freshest signal, not something to discard. (Previously the
+  // current year was dropped as "incomplete", which projected off stale data
+  // and, combined with a wide growth clamp, badly over/under-shot.)
+  const windowYears = years.slice(-LEVEL_WINDOW);
+  const series = windowYears.map((y) => ({ year: y, amt: byYear[y] }));
+
+  // Level = trailing average across the window. Trend = gentle clamped nudge.
+  const level = series.reduce((s, x) => s + x.amt, 0) / (series.length || 1);
+  const growth = gentleTrend(series);
+  const method = series.length >= 2 ? "trend" : "flat";
+  const projectedAmt = Math.round(level * (1 + growth) * 10000) / 10000;
+
+  const baseYear = years[years.length - 1];
+  const baseAmt = Math.round((byYear[baseYear] || 0) * 10000) / 10000;
   return {
     month: slot.month,
     byYear,
     years,
-    baseYear,
-    baseAmt: Math.round(baseAmt * 10000) / 10000,
+    baseYear, // most recent year with data (for display)
+    baseAmt, // most recent year's amount
+    level: Math.round(level * 10000) / 10000,
     growth,
     method,
     projectedAmt,
@@ -230,13 +243,12 @@ export function buildForecast(divcal, refYear, opts) {
     const projectedDps =
       Math.round(slots.reduce((sum, s) => sum + s.projectedAmt, 0) * 10000) /
       10000;
-    // Base year/DPS for display = most recent complete year (or only year).
-    const complete = years.filter((y) => y < refYear);
-    const baseYear = (complete.length ? complete : years).slice(-1)[0];
+    // Base year/DPS for display = most recent year WITH data (incl. current).
+    const baseYear = years[years.length - 1];
     const baseDps = Math.round((byYear[baseYear] || 0) * 10000) / 10000;
     // Row-level (annual) growth for display = how the projected annual DPS
-    // compares to the base year's annual DPS. This is a single, meaningful
-    // number even for multi-slot tickers (each slot has its own growth).
+    // compares to the most recent year's annual DPS. A single, meaningful
+    // number even for multi-slot tickers (each slot has its own trend).
     const annualGrowth =
       baseDps > 0
         ? Math.round((projectedDps / baseDps - 1) * 10000) / 10000

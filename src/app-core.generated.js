@@ -7717,7 +7717,7 @@ function renderDivForecast(pos) {
         .join(' <span style="color:var(--border)">\u00B7</span> ');
       const growthPct =
         r.method === "trend"
-          ? (r.growth >= 0 ? "+" : "") + (r.growth * 100).toFixed(0) + "%/yr"
+          ? (r.growth >= 0 ? "+" : "") + (r.growth * 100).toFixed(0) + "%"
           : "flat";
       const consChip = (() => {
         const c = r.consistency;
@@ -7731,8 +7731,8 @@ function renderDivForecast(pos) {
       })();
       const methodTip =
         r.method === "trend"
-          ? `Trend: base ${r.baseYear} ${money(r.baseDps)} \u00D7 avg growth ${growthPct}`
-          : `Flat: only one year of history (${r.baseYear})`;
+          ? `Estimate = average of recent years, nudged by a gentle (max \u00B110%/yr) trend. Most recent: ${r.baseYear} ${money(r.baseDps)}. Shown % = projected vs ${r.baseYear}.`
+          : `Flat: only one year of history (${r.baseYear} ${money(r.baseDps)}).`;
       return `<tr>
         <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--muted)">${escapeHtml(r.issuer || "")}</span></td>
         <td class="l">${hist}</td>

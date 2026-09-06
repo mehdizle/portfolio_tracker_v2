@@ -29,16 +29,16 @@ describe("buildForecast", () => {
     expect(r.projectedDps).toBe(20);
   });
 
-  it("uses trend method across multiple complete years", () => {
-    // Complete years 2024=20, 2025=22 -> +10%/yr, base=2025.
-    // refYear=2026 (the in-progress year), so proj 2027 = 22*1.1 = 24.2.
+  it("uses a level + gentle trend across multiple years", () => {
+    // 2024=20, 2025=22. Level = avg(20,22) = 21. Trend = +10%/yr (at the cap).
+    // Projection = 21 * 1.10 = 23.1 (NOT a raw 22*1.1 extrapolation).
     const fc = buildForecast([ev("ATW", 2024, 20), ev("ATW", 2025, 22)], 2026);
     const r = fc.rows.find((x) => x.ticker === "ATW");
     expect(r.method).toBe("trend");
-    expect(r.baseYear).toBe(2025);
     expect(r.slots).toHaveLength(1);
+    expect(r.slots[0].level).toBeCloseTo(21, 4);
     expect(r.slots[0].growth).toBeCloseTo(0.1, 5);
-    expect(r.projectedDps).toBeCloseTo(24.2, 4);
+    expect(r.projectedDps).toBeCloseTo(23.1, 4);
   });
 
   it("excludes exceptional (one-off) dividends from the forecast", () => {
@@ -58,15 +58,17 @@ describe("buildForecast", () => {
     expect(r.byYear[2025]).toBe(20);
   });
 
-  it("does not use the incomplete current year as the trend base", () => {
-    // 2024=20, 2025=22 complete; 2026 (ref year) only 5 so far (partial).
+  it("includes the current year as the freshest data point", () => {
+    // 2024=20, 2025=22, 2026=24. The current year IS the most recent signal and
+    // must be used (not discarded). Level = avg(20,22,24) = 22, base = 2026.
     const fc = buildForecast(
-      [ev("ATW", 2024, 20), ev("ATW", 2025, 22), ev("ATW", 2026, 5)],
+      [ev("ATW", 2024, 20), ev("ATW", 2025, 22), ev("ATW", 2026, 24)],
       2026,
     );
     const r = fc.rows.find((x) => x.ticker === "ATW");
-    expect(r.baseYear).toBe(2025); // not 2026
-    expect(r.partialCurrentYear).toBe(5);
+    expect(r.baseYear).toBe(2026);
+    expect(r.baseDps).toBe(24);
+    expect(r.slots[0].level).toBeCloseTo(22, 4);
   });
 
   it("computes consistency over the trailing window", () => {
@@ -79,12 +81,26 @@ describe("buildForecast", () => {
     expect(r.consistency).toBeCloseTo(2 / 3, 2);
   });
 
-  it("clamps extreme growth so thin data can't explode", () => {
-    // 1 -> 10 would be +900%/yr; clamp to +50%. base=2025, refYear=2026.
+  it("clamps the trend so thin/noisy data can't explode", () => {
+    // 1 -> 10 would be +900%/yr; clamped to +10%. Level = avg(1,10) = 5.5,
+    // so projection = 5.5 * 1.10 = 6.05 (not a runaway 15).
     const fc = buildForecast([ev("ATW", 2024, 1), ev("ATW", 2025, 10)], 2026);
     const r = fc.rows.find((x) => x.ticker === "ATW");
-    expect(r.slots[0].growth).toBeCloseTo(0.5, 5);
-    expect(r.projectedDps).toBeCloseTo(15, 4); // 10 * 1.5
+    expect(r.slots[0].growth).toBeCloseTo(0.1, 5);
+    expect(r.slots[0].level).toBeCloseTo(5.5, 4);
+    expect(r.projectedDps).toBeCloseTo(6.05, 4);
+  });
+
+  it("does not overshoot on a spike-then-revert pattern (TMA regression)", () => {
+    // Real case: 56 -> 113 -> 89.57. The old geometric method projected ~169.5.
+    // Level+gentle-trend keeps it near the recent level (~94.8), not 169.
+    const fc = buildForecast(
+      [ev("TMA", 2024, 56), ev("TMA", 2025, 113), ev("TMA", 2026, 89.57)],
+      2026,
+    );
+    const r = fc.rows.find((x) => x.ticker === "TMA");
+    expect(r.projectedDps).toBeGreaterThan(85);
+    expect(r.projectedDps).toBeLessThan(100);
   });
 
   it("infers expected pay month from history (modal month)", () => {
@@ -218,8 +234,9 @@ describe("multiple payments per year (slots)", () => {
     ];
     const fc = buildForecast(cal, 2026);
     const r = fc.rows.find((x) => x.ticker === "BCP");
-    // June: 5->6 (+20%) => 7.2 ; Dec: 7->8 => 8*(8/7) ~= 9.142857
-    const expected = 6 * 1.2 + 8 * (8 / 7);
+    // June slot 5,6: level 5.5, trend +20%->cap +10% => 5.5*1.1 = 6.05
+    // Dec  slot 7,8: level 7.5, trend +14%->cap +10% => 7.5*1.1 = 8.25
+    const expected = 5.5 * 1.1 + 7.5 * 1.1; // = 14.30
     expect(r.projectedDps).toBeCloseTo(expected, 2);
   });
 
