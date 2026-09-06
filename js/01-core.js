@@ -375,7 +375,7 @@ function tickerBadge(tk, size) {
     px +
     "px;height:" +
     px +
-    'px;position:relative;display:inline-flex;flex:none;vertical-align:middle;margin-right:6px;border-radius:6px;overflow:hidden;align-items:center;justify-content:center">' +
+    'px;position:relative;display:inline-flex;flex:none;vertical-align:middle;margin-right:6px;border-radius:6px;overflow:hidden;align-items:center;justify-content:center;background:#fff">' +
     // monogram (visible fallback)
     '<span class="tkr-mono" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:' +
     fontPx +
@@ -396,7 +396,7 @@ function tickerBadge(tk, size) {
     '" data-logo-key="' +
     escapeHtml(key) +
     '" data-logo-i="0"' +
-    ' style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff;border-radius:6px;display:block">' +
+    ' style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">' +
     "</span>"
   );
 }
