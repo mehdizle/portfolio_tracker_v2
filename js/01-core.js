@@ -331,6 +331,24 @@ function _tickerLogoKey(tk) {
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
+// Logo file extensions tried per directory, in order (SVG preferred).
+const LOGO_EXTS = ["svg", "png"];
+// i-th logo-URL candidate for a ticker key, or null once exhausted. The URL is
+// built ONLY from hardcoded constants (LOGO_DIRS/LOGO_EXTS) plus the key
+// re-sanitized here to [A-Z0-9_], so nothing derived from untrusted DOM text is
+// ever assigned to an <img src>. This is the single source of truth for both
+// the initial badge src and the on-error fallback walk (09-boot.js), which lets
+// CodeQL see the sink is fed only by safe, constant-derived strings.
+function logoCandidate(key, i) {
+  const safe = String(key || "").replace(/[^A-Z0-9_]/g, "");
+  if (!safe) return null;
+  const perDir = LOGO_EXTS.length;
+  const dirIdx = Math.floor(i / perDir);
+  if (dirIdx >= LOGO_DIRS.length) return null;
+  const dir = LOGO_DIRS[dirIdx];
+  const ext = LOGO_EXTS[i % perDir];
+  return "logos/" + (dir ? dir + "/" : "") + safe + "." + ext;
+}
 // size = badge diameter in px (default 20). Returns an inline-block HTML string.
 function tickerBadge(tk, size) {
   const px = size || 20;
@@ -345,17 +363,13 @@ function tickerBadge(tk, size) {
   // logos/ is relative to the page, so it resolves under the GitHub Pages base
   // (/portfolio_tracker_v2/logos/...) and locally, with no build-time base var.
   // Candidate URLs, tried in order: each exchange subfolder (LOGO_DIRS) then the
-  // flat logos/ root, SVG before PNG. The first is the initial src; the rest go
-  // in data-logo-fallbacks and are applied on error by 09-boot.js. If every
-  // candidate 404s, the monogram stays. This lets logos be organized by exchange
-  // (logos/CSEMA/ATW.svg) or dropped flat (logos/ATW.svg) - both resolve.
-  const candidates = [];
-  for (const dir of LOGO_DIRS) {
-    const base = "logos/" + (dir ? dir + "/" : "") + key;
-    candidates.push(base + ".svg", base + ".png");
-  }
-  const src = candidates[0];
-  const fallbacks = candidates.slice(1).join(",");
+  // flat logos/ root, SVG before PNG (see logoCandidate). This lets logos be
+  // organized by exchange (logos/CSEMA/ATW.svg) or dropped flat (logos/ATW.svg).
+  // First candidate is the initial src; the on-error walk (09-boot.js) advances
+  // the attempt index (data-logo-i) and rebuilds the next URL via logoCandidate,
+  // so no DOM-attribute text is ever assigned to img.src. If every candidate
+  // 404s, the monogram stays.
+  const src = logoCandidate(key, 0) || "";
   return (
     '<span class="tkr-badge" style="width:' +
     px +
@@ -374,14 +388,15 @@ function tickerBadge(tk, size) {
     // so it covers it when present. It is VISIBLE by default (not display:none)
     // so the browser always fetches it - a hidden/lazy image is often never
     // loaded, which previously left the monogram stuck. On error the delegated
-    // handler (09-boot.js) tries the next candidate in data-logo-fallbacks and,
-    // once exhausted, hides the img so the monogram shows through. No
-    // loading="lazy" for the same reason.
+    // handler (09-boot.js) advances data-logo-i and rebuilds the next candidate
+    // via logoCandidate; once exhausted it hides the img so the monogram shows
+    // through. No loading="lazy" for the same reason.
     '<img class="tkr-logo" alt="" src="' +
     escapeHtml(src) +
-    '" data-logo-fallbacks="' +
-    escapeHtml(fallbacks) +
-    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff;border-radius:6px;display:block">' +
+    '" data-logo-key="' +
+    escapeHtml(key) +
+    '" data-logo-i="0"' +
+    ' style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#fff;border-radius:6px;display:block">' +
     "</span>"
   );
 }

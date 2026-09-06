@@ -146,8 +146,8 @@
   // Ticker logo fallback + failure hide. The badge shows the logo <img> ON TOP
   // of the monogram by default (opaque white bg), so a present logo covers the
   // monogram with no reliance on a "load" event (a hidden/lazy image is often
-  // never fetched). On error we try the next candidate in data-logo-fallbacks
-  // (comma-separated: exchange .svg/.png then flat .svg/.png); when the list is
+  // never fetched). On error we advance the attempt index and rebuild the next
+  // candidate via logoCandidate (exchange .svg/.png then flat .svg/.png); when
   // exhausted we HIDE the img so the monogram underneath shows through.
   // Delegated on the capture phase because the img "error" event doesn't bubble.
   // No inline handlers, keeping the app's no-inline-handler model.
@@ -162,14 +162,20 @@
         !img.classList.contains("tkr-logo")
       )
         return;
-      const raw = img.getAttribute("data-logo-fallbacks") || "";
-      const list = raw.split(",").filter(Boolean);
-      if (list.length) {
-        const next = list.shift();
-        img.setAttribute("data-logo-fallbacks", list.join(","));
-        img.src = next; // try the next candidate URL
+      // Advance the attempt INDEX (a number) and rebuild the next URL from
+      // constants via logoCandidate() - the value assigned to img.src is never
+      // derived from DOM-attribute text, only from the sanitized logo key and
+      // the hardcoded dir/ext tables. When candidates are exhausted, hide the
+      // img so the monogram underneath shows through.
+      const key = img.getAttribute("data-logo-key") || "";
+      const i = (parseInt(img.getAttribute("data-logo-i"), 10) || 0) + 1;
+      const next =
+        typeof logoCandidate === "function" ? logoCandidate(key, i) : null;
+      if (next) {
+        img.setAttribute("data-logo-i", String(i));
+        img.src = next;
       } else {
-        img.style.display = "none"; // exhausted -> reveal the monogram
+        img.style.display = "none";
       }
     },
     true,
