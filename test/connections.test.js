@@ -282,3 +282,51 @@ describe("no schema drift: UI source contains no hardcoded transaction CSV heade
     });
   }
 });
+
+// Escaping guard: user-editable text fields (ticker/fund names, issuers, free
+// notes) must be escapeHtml()-wrapped wherever they're interpolated into an
+// HTML template literal. This is the net that would have caught the three
+// unescaped-innerHTML gaps found in the audit (cash note, broker name, fund
+// name). If it fails, wrap the flagged ${...} in escapeHtml(...).
+describe("no unescaped user-data in HTML template literals", () => {
+  const UI_FILES = [
+    "js/01-core.js",
+    "js/04-render.js",
+    "js/05-rebalance.js",
+    "js/06-features.js",
+    "js/06b-import.js",
+    "js/06c-backup.js",
+    "js/06d-pending.js",
+    "js/07-expenses.js",
+    "js/08-salary.js",
+    "js/09-boot.js",
+  ];
+  // Free-text, user-editable fields that carry arbitrary strings.
+  const FIELD = /\.(name|note|issuer|fundName|secName)\b/;
+
+  function findUnescaped(src) {
+    const hits = [];
+    // Every ${ ... } interpolation (no nested braces - good enough for our code).
+    const re = /\$\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(src))) {
+      const expr = m[1];
+      if (!FIELD.test(expr)) continue;
+      if (expr.includes("escapeHtml")) continue; // already escaped
+      hits.push(expr.trim().slice(0, 80));
+    }
+    return hits;
+  }
+
+  for (const rel of UI_FILES) {
+    it(`${rel} escapes all user-data interpolations`, () => {
+      const hits = findUnescaped(read(rel));
+      expect(
+        hits,
+        hits.length
+          ? `${rel} interpolates user text without escapeHtml(): ${hits.join(" | ")}`
+          : "",
+      ).toEqual([]);
+    });
+  }
+});
