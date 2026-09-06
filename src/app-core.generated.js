@@ -401,7 +401,11 @@ function tickerBadge(tk, size) {
     '" data-logo-key="' +
     escapeHtml(key) +
     '" data-logo-i="0"' +
-    ' style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block">' +
+    // inset:-1px makes the logo slightly OVERFILL the wrapper so its opaque
+    // pixels extend under the rounded clip at the corners - this removes the
+    // ~1px antialiased white halo where the wrapper background would otherwise
+    // bleed through. width/height use calc(100% + 2px) to match the overfill.
+    ' style="position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px);object-fit:cover;display:block">' +
     "</span>"
   );
 }
