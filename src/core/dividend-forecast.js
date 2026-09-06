@@ -28,7 +28,9 @@
 
 const MAX_GROWTH = 0.5; // clamp YoY growth to +/-50% so thin data can't explode.
 const MIN_GROWTH = -0.5;
-const SLOT_MERGE_MONTHS = 2; // pay-months within this distance merge into one slot.
+const REAL_MATCH_MONTHS = 1; // a real/recorded event within +/-1 month of a slot
+// counts as "that slot already happened" (allows for a payment date drifting a
+// few weeks year to year) without cross-suppressing an adjacent slot.
 
 function yearOf(iso) {
   const m = String(iso || "").match(/^(\d{4})/);
@@ -81,32 +83,69 @@ function modalMonth(months) {
   return best;
 }
 
-// Cluster a ticker's ordinary events into recurring payment slots by pay-month.
-// Returns [{ month, events:[...] }] sorted by month. Months within
-// SLOT_MERGE_MONTHS of an existing cluster join it (handles a payment that
-// drifts a few weeks year to year); otherwise a new slot is created.
-function clusterSlots(events) {
-  const withM = events
-    .map((d) => ({ d, m: monthOf(d.pay_date) }))
-    .filter((x) => x.m)
-    .sort((a, b) => a.m - b.m);
-  const slots = [];
-  for (const { d, m } of withM) {
-    let placed = null;
-    for (const s of slots) {
-      if (Math.abs(s.anchor - m) <= SLOT_MERGE_MONTHS) {
-        placed = s;
-        break;
-      }
+// Most common value in a list of numbers (ties -> larger value).
+function mode(nums) {
+  const c = {};
+  for (const n of nums) c[n] = (c[n] || 0) + 1;
+  let best = null,
+    bn = 0;
+  for (const k in c) {
+    const v = +k;
+    if (c[k] > bn || (c[k] === bn && v > best)) {
+      best = v;
+      bn = c[k];
     }
-    if (!placed) {
-      placed = { anchor: m, months: [], events: [] };
-      slots.push(placed);
-    }
-    placed.months.push(m);
-    placed.events.push(d);
+  }
+  return best;
+}
+
+// Cluster a ticker's ordinary events into recurring payment slots by their
+// ORDINAL POSITION within the year (1st payment, 2nd payment, ...), NOT by
+// absolute month proximity. This correctly handles quarterly / semi-annual
+// payers (e.g. a REIT paying 4x a year in Apr/Jun/Sep/Dec) without collapsing
+// nearby months, and is robust to a payment date drifting a few weeks.
+//
+// slotCount = the typical number of payments per year (mode of complete-year
+// counts). Each event is assigned to slot = min(ordinal-in-year, slotCount-1).
+// A slot's representative month is the modal pay-month of its members.
+// Returns [{ month, events:[...] }] sorted by month.
+function clusterSlots(events, refYear) {
+  // Group by year, each year's events sorted by pay-date.
+  const byYear = new Map();
+  for (const d of events) {
+    const yr = yearOf(d.pay_date);
+    if (!yr) continue;
+    if (!byYear.has(yr)) byYear.set(yr, []);
+    byYear.get(yr).push(d);
+  }
+  for (const [, arr] of byYear)
+    arr.sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
+
+  // Typical payments per year from COMPLETE years (before refYear); fall back
+  // to all years, then to 1.
+  const complete = [...byYear.keys()].filter(
+    (y) => refYear == null || y < refYear,
+  );
+  const countYears = (complete.length ? complete : [...byYear.keys()]).map(
+    (y) => byYear.get(y).length,
+  );
+  const slotCount = Math.max(1, mode(countYears) || 1);
+
+  // Assign each event to its ordinal slot (capped at slotCount-1).
+  const slots = Array.from({ length: slotCount }, () => ({
+    months: [],
+    events: [],
+  }));
+  for (const [, arr] of byYear) {
+    arr.forEach((d, i) => {
+      const idx = Math.min(i, slotCount - 1);
+      slots[idx].events.push(d);
+      const m = monthOf(d.pay_date);
+      if (m) slots[idx].months.push(m);
+    });
   }
   return slots
+    .filter((s) => s.events.length)
     .map((s) => ({ month: modalMonth(s.months), events: s.events }))
     .sort((a, b) => a.month - b.month);
 }
@@ -175,7 +214,9 @@ export function buildForecast(divcal, refYear, opts) {
 
   const rows = [];
   for (const [tk, g] of byTicker) {
-    const slots = clusterSlots(g.events).map((s) => projectSlot(s, refYear));
+    const slots = clusterSlots(g.events, refYear).map((s) =>
+      projectSlot(s, refYear),
+    );
     if (!slots.length) continue;
 
     // Annual roll-up across slots.
@@ -193,6 +234,13 @@ export function buildForecast(divcal, refYear, opts) {
     const complete = years.filter((y) => y < refYear);
     const baseYear = (complete.length ? complete : years).slice(-1)[0];
     const baseDps = Math.round((byYear[baseYear] || 0) * 10000) / 10000;
+    // Row-level (annual) growth for display = how the projected annual DPS
+    // compares to the base year's annual DPS. This is a single, meaningful
+    // number even for multi-slot tickers (each slot has its own growth).
+    const annualGrowth =
+      baseDps > 0
+        ? Math.round((projectedDps / baseDps - 1) * 10000) / 10000
+        : 0;
 
     let paid = 0;
     for (let y = refYear - windowYears + 1; y <= refYear; y++)
@@ -219,6 +267,7 @@ export function buildForecast(divcal, refYear, opts) {
       baseYear,
       baseDps,
       projectedDps,
+      growth: annualGrowth,
       method: slots.some((s) => s.method === "trend") ? "trend" : "flat",
       consistency,
       yearsCounted: paid,
@@ -279,8 +328,10 @@ function realSlotKeys(cal) {
   return set;
 }
 // Does the calendar already have a real event for this ticker+year near `month`?
+// Uses a tight +/-1 month tolerance so an adjacent slot (which can be as close
+// as ~2 months for a quarterly payer) is never wrongly suppressed.
 function hasRealNear(realSet, tk, year, month) {
-  for (let dm = -SLOT_MERGE_MONTHS; dm <= SLOT_MERGE_MONTHS; dm++) {
+  for (let dm = -REAL_MATCH_MONTHS; dm <= REAL_MATCH_MONTHS; dm++) {
     const m = month + dm;
     if (m >= 1 && m <= 12 && realSet.has(tk + "|" + year + "|" + m))
       return true;
@@ -297,14 +348,31 @@ function hasRealNear(realSet, tk, year, month) {
 // Real announced payments always win (a slot already present is skipped).
 // Returns a flat array of DIVCAL-shaped events, each tagged _forecast:true.
 export function projectedCalendar(divcal, refYear, opts) {
+  const o = opts || {};
   const cal = Array.isArray(divcal) ? divcal : [];
-  const fc = buildForecast(cal, refYear, opts);
+  const fc = buildForecast(cal, refYear, o);
   const real = realSlotKeys(cal);
+  // Fold in recorded DIV payments (opts.recorded = [{ticker, year, month}])
+  // so an already-received payment that lives only in the transaction ledger
+  // (not the calendar) is treated as "real" and never re-forecast.
+  for (const rec of o.recorded || []) {
+    const tk = String((rec && rec.ticker) || "")
+      .trim()
+      .toUpperCase();
+    if (tk && rec.year && rec.month)
+      real.add(tk + "|" + rec.year + "|" + rec.month);
+  }
+  // Guard: don't forecast a CURRENT-year payment whose month has already
+  // passed (opts.currentMonth = 1..12). A month that's already gone either paid
+  // (and should be a real/recorded event) or was skipped - re-injecting it as
+  // "upcoming" income is wrong. Only applies to refYear; next year is unaffected.
+  const curMonth = o.currentMonth || 0;
   const out = [];
 
   const emit = (r, s, year) => {
     if (!(s.projectedAmt > 0)) return;
     if (hasRealNear(real, r.ticker, year, s.month)) return;
+    if (year === refYear && curMonth && s.month < curMonth) return;
     const mm = String(s.month || 6).padStart(2, "0");
     out.push({
       ticker: r.ticker,

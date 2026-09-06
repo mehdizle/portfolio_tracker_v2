@@ -255,3 +255,65 @@ describe("multiple payments per year (slots)", () => {
     expect(+cur[0].pay_date.slice(5, 7)).toBe(12);
   });
 });
+
+describe("quarterly / 4x-a-year payer (ordinal slots)", () => {
+  const evm = (tk, y, amt, mo) => ({
+    ticker: tk,
+    issuer: tk + " Co",
+    amount: amt,
+    ex_date: `${y}-${String(mo).padStart(2, "0")}-01`,
+    pay_date: `${y}-${String(mo).padStart(2, "0")}-15`,
+    div_type: "Ordinary",
+  });
+  // A REIT paying 4x a year (Apr, Jun, Sep/Oct, Dec) - months that would
+  // WRONGLY collapse under a proximity-merge model. Ordinal slots keep them 4.
+  const hist = [
+    evm("IMO", 2024, 1, 4),
+    evm("IMO", 2024, 2.2, 6),
+    evm("IMO", 2024, 1, 9),
+    evm("IMO", 2024, 1, 12),
+    evm("IMO", 2025, 1, 4),
+    evm("IMO", 2025, 2.2, 6),
+    evm("IMO", 2025, 1, 10),
+    evm("IMO", 2025, 1, 12),
+  ];
+
+  it("keeps four distinct slots (does not collapse nearby months)", () => {
+    const fc = buildForecast(hist, 2026);
+    const r = fc.rows.find((x) => x.ticker === "IMO");
+    expect(r.slots.length).toBe(4);
+    expect(r.paymentsPerYear).toBe(4);
+    expect(r.projectedDps).toBeCloseTo(5.2, 4); // 1 + 2.2 + 1 + 1
+  });
+
+  it("projects all four payments for next year at their own months", () => {
+    const nxt = projectedCalendar(hist, 2026).filter(
+      (d) => d._forecastYear === 2027,
+    );
+    expect(nxt.length).toBe(4);
+  });
+
+  it("does NOT re-forecast current-year months that already passed", () => {
+    // Today = September (month 9). Apr & Jun already gone and not announced for
+    // 2026 -> must NOT be injected as upcoming. Only Oct & Dec remain.
+    const cur = projectedCalendar(hist, 2026, { currentMonth: 9 }).filter(
+      (d) => d._forecastYear === 2026,
+    );
+    const months = cur
+      .map((d) => +d.pay_date.slice(5, 7))
+      .sort((a, b) => a - b);
+    expect(months).toEqual([10, 12]);
+  });
+
+  it("treats a recorded DIV payment as real (never re-forecasts it)", () => {
+    // Dec 2026 already received (in the transaction ledger, not the calendar).
+    const cur = projectedCalendar(hist, 2026, {
+      currentMonth: 9,
+      recorded: [{ ticker: "IMO", year: 2026, month: 12 }],
+    }).filter((d) => d._forecastYear === 2026);
+    const months = cur
+      .map((d) => +d.pay_date.slice(5, 7))
+      .sort((a, b) => a - b);
+    expect(months).toEqual([10]); // Dec suppressed by the recorded payment
+  });
+});

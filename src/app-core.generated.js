@@ -2268,8 +2268,21 @@ function dashDivEstimates() {
         __core.dividendForecast &&
         typeof __core.dividendForecast.projectedCalendar === "function"
       ) {
+        const _rec =
+          typeof TXNS !== "undefined" && Array.isArray(TXNS)
+            ? TXNS.filter((t) => t.action === "DIV" && t.date).map((t) => {
+                const dt = new Date(t.date);
+                return {
+                  ticker: t.ticker,
+                  year: dt.getFullYear(),
+                  month: dt.getMonth() + 1,
+                };
+              })
+            : [];
         fcEvents = __core.dividendForecast.projectedCalendar(DIVCAL, yr, {
           windowYears: 3,
+          currentMonth: new Date().getMonth() + 1,
+          recorded: _rec,
         });
       }
     } catch (_e2) {}
@@ -6829,8 +6842,20 @@ function renderDivDashboard(pos) {
   // is on. Real announced events always take precedence (projectedCalendar skips
   // any ticker/year already present).
   const _refYr = TODAY.getFullYear();
+  const _recordedDiv = TXNS.filter((t) => t.action === "DIV" && t.date).map(
+    (t) => {
+      const dt = new Date(t.date);
+      return {
+        ticker: t.ticker,
+        year: dt.getFullYear(),
+        month: dt.getMonth() + 1,
+      };
+    },
+  );
   const _fcAll = __core.dividendForecast.projectedCalendar(DIVCAL, _refYr, {
     windowYears: 3,
+    currentMonth: TODAY.getMonth() + 1,
+    recorded: _recordedDiv,
   });
   const _fcEvents = _divProject
     ? _fcAll
