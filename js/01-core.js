@@ -370,13 +370,18 @@ function tickerBadge(tk, size) {
     ',62%,42%);letter-spacing:.02em">' +
     initials +
     "</span>" +
-    // real logo (hidden until it successfully loads). SVG primary; PNG fallback
-    // list in data-logo-fallbacks (comma-separated), applied on error by boot.
-    '<img class="tkr-logo" alt="" loading="lazy" src="' +
+    // real logo, layered ON TOP of the monogram with an opaque white background
+    // so it covers it when present. It is VISIBLE by default (not display:none)
+    // so the browser always fetches it - a hidden/lazy image is often never
+    // loaded, which previously left the monogram stuck. On error the delegated
+    // handler (09-boot.js) tries the next candidate in data-logo-fallbacks and,
+    // once exhausted, hides the img so the monogram shows through. No
+    // loading="lazy" for the same reason.
+    '<img class="tkr-logo" alt="" src="' +
     escapeHtml(src) +
     '" data-logo-fallbacks="' +
     escapeHtml(fallbacks) +
-    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;display:none">' +
+    '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff">' +
     "</span>"
   );
 }

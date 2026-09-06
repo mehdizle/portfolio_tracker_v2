@@ -143,37 +143,14 @@
   document.addEventListener("change", (e) => dispatch(e, "change"));
   document.addEventListener("input", (e) => dispatch(e, "input"));
 
-  // Ticker badge: when a real logo (logos/<TICKER>.png) actually loads, reveal
-  // it and hide the monogram fallback. Delegated on the capture phase because
-  // the img "load" event does not bubble. No inline onerror/onload handlers,
-  // keeping the app's no-inline-handler model. If the logo 404s the monogram
-  // simply stays visible.
-  document.addEventListener(
-    "load",
-    function (e) {
-      const img = e.target;
-      if (
-        !img ||
-        img.tagName !== "IMG" ||
-        !img.classList ||
-        !img.classList.contains("tkr-logo")
-      )
-        return;
-      // Guard against zero-size / broken decodes.
-      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-        img.style.display = "block";
-        const wrap = img.parentNode;
-        const mono = wrap && wrap.querySelector(".tkr-mono");
-        if (mono) mono.style.display = "none";
-      }
-    },
-    true,
-  );
-
-  // Ticker logo fallback: the badge tries logos/<TICKER>.svg first. If that
-  // 404s (or fails to decode), swap to the next candidate in data-logo-fallbacks
-  // (comma-separated, e.g. the .png). When the list is exhausted the monogram
-  // simply stays. Error events don't bubble, so listen on the capture phase.
+  // Ticker logo fallback + failure hide. The badge shows the logo <img> ON TOP
+  // of the monogram by default (opaque white bg), so a present logo covers the
+  // monogram with no reliance on a "load" event (a hidden/lazy image is often
+  // never fetched). On error we try the next candidate in data-logo-fallbacks
+  // (comma-separated: exchange .svg/.png then flat .svg/.png); when the list is
+  // exhausted we HIDE the img so the monogram underneath shows through.
+  // Delegated on the capture phase because the img "error" event doesn't bubble.
+  // No inline handlers, keeping the app's no-inline-handler model.
   document.addEventListener(
     "error",
     function (e) {
@@ -187,10 +164,13 @@
         return;
       const raw = img.getAttribute("data-logo-fallbacks") || "";
       const list = raw.split(",").filter(Boolean);
-      if (!list.length) return; // no more candidates -> keep the monogram
-      const next = list.shift();
-      img.setAttribute("data-logo-fallbacks", list.join(","));
-      img.src = next;
+      if (list.length) {
+        const next = list.shift();
+        img.setAttribute("data-logo-fallbacks", list.join(","));
+        img.src = next; // try the next candidate URL
+      } else {
+        img.style.display = "none"; // exhausted -> reveal the monogram
+      }
     },
     true,
   );
