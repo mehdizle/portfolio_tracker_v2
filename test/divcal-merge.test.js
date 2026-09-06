@@ -31,11 +31,98 @@ describe("divIdentity", () => {
       divIdentity(ev({ ex_date: "2026-06-18" })),
     );
   });
+  it("distinguishes Ordinary vs Exceptional on the same ex-date", () => {
+    expect(divIdentity(ev({ div_type: "Ordinary" }))).not.toBe(
+      divIdentity(ev({ div_type: "Exceptional" })),
+    );
+  });
+  it("treats blank/Ordinary the same and Extraordinary as exceptional", () => {
+    expect(divIdentity(ev({ div_type: "" }))).toBe(
+      divIdentity(ev({ div_type: "Ordinary" })),
+    );
+    expect(divIdentity(ev({ div_type: "Extraordinary" }))).toBe(
+      divIdentity(ev({ div_type: "Exceptional" })),
+    );
+  });
+});
+
+describe("Ordinary + Exceptional on the same date (Casablanca pattern)", () => {
+  const ard = (typ, amt) => ({
+    ticker: "ARD",
+    issuer: "Aradei Capital",
+    amount: amt,
+    ex_date: "2024-07-18",
+    pay_date: "2024-07-29",
+    div_type: typ,
+  });
+
+  it("keeps both when a ticker pays Ordinary AND Exceptional same day", () => {
+    const r = mergeDivcal(
+      [],
+      [ard("Ordinary", 5.88), ard("Exceptional", 14.59)],
+    );
+    expect(r.added).toBe(2);
+    expect(r.list).toHaveLength(2);
+  });
+
+  it("re-import is idempotent (no duplicates, no phantom updates)", () => {
+    const base = mergeDivcal(
+      [],
+      [ard("Ordinary", 5.88), ard("Exceptional", 14.59)],
+    ).list;
+    const r = mergeDivcal(base, [
+      ard("Ordinary", 5.88),
+      ard("Exceptional", 14.59),
+    ]);
+    expect(r.added).toBe(0);
+    expect(r.updated).toBe(0);
+    expect(r.list).toHaveLength(2);
+  });
+
+  it("correcting the Ordinary amount does not touch the Exceptional row", () => {
+    const base = mergeDivcal(
+      [],
+      [ard("Ordinary", 5.88), ard("Exceptional", 14.59)],
+    ).list;
+    const r = mergeDivcal(base, [ard("Ordinary", 6.0)]);
+    expect(r.updated).toBe(1);
+    expect(r.list).toHaveLength(2);
+    const ord = r.list.find((d) => d.div_type === "Ordinary");
+    const exc = r.list.find((d) => d.div_type === "Exceptional");
+    expect(ord.amount).toBe(6.0);
+    expect(exc.amount).toBe(14.59);
+  });
+
+  it("restores a previously-lost Ordinary row on re-import", () => {
+    // Simulates old data that only kept the Exceptional (the bug).
+    const base = [ard("Exceptional", 14.59)];
+    const r = mergeDivcal(base, [
+      ard("Ordinary", 5.88),
+      ard("Exceptional", 14.59),
+    ]);
+    expect(r.added).toBe(1);
+    expect(r.list).toHaveLength(2);
+  });
+
+  it("keeps both even when amounts are equal but types differ (SALAFIN)", () => {
+    const slf = (typ) => ({
+      ticker: "SLF",
+      amount: 14.25,
+      ex_date: "2024-05-27",
+      pay_date: "2024-06-05",
+      div_type: typ,
+    });
+    const r = mergeDivcal([], [slf("Ordinary"), slf("Exceptional")]);
+    expect(r.list).toHaveLength(2);
+  });
 });
 
 describe("mergeDivcal", () => {
   it("adds brand-new events", () => {
-    const r = mergeDivcal([], [ev({}), ev({ ticker: "IAM", ex_date: "2026-09-04" })]);
+    const r = mergeDivcal(
+      [],
+      [ev({}), ev({ ticker: "IAM", ex_date: "2026-09-04" })],
+    );
     expect(r.added).toBe(2);
     expect(r.updated).toBe(0);
     expect(r.list).toHaveLength(2);

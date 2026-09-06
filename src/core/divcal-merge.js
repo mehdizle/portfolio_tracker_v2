@@ -16,17 +16,33 @@
 // (the record date is unique per distribution). When ex-date is missing we fall
 // back to ticker + pay-date so undated rows still de-duplicate sensibly.
 
-// Fields that carry meaning and may be corrected on re-import.
-const MERGE_FIELDS = ["amount", "pay_date", "issuer", "div_type"];
+// Fields that carry meaning and may be corrected on re-import. NOTE: div_type
+// is part of the IDENTITY (below), not an updatable field - an Ordinary and an
+// Exceptional dividend on the same date are two DISTINCT events, so a type must
+// never overwrite the other. Only amount/pay_date/issuer can be corrected.
+const MERGE_FIELDS = ["amount", "pay_date", "issuer"];
 
-// Stable identity key for one dividend event.
+// Normalise a dividend type to a stable identity token. Anything starting with
+// "e" (Exceptional/Extraordinary/Special variants) -> "exc"; everything else
+// (Ordinary, blank) -> "ord". Keeps identity robust to wording differences.
+function typeKey(d) {
+  const t = String((d && d.div_type) || "")
+    .trim()
+    .toLowerCase();
+  return t.startsWith("e") ? "exc" : "ord";
+}
+
+// Stable identity key for one dividend event: ticker + ex-date + type.
+// Including TYPE is essential - a ticker can pay an Ordinary AND an Exceptional
+// dividend on the SAME ex-date (common in Casablanca); without type in the key
+// the second row would overwrite the first and one payment would be lost.
 export function divIdentity(d) {
   const tk = String((d && d.ticker) || "")
     .trim()
     .toUpperCase();
   const ex = String((d && d.ex_date) || "").trim();
   const pay = String((d && d.pay_date) || "").trim();
-  return tk + "|" + (ex || "@" + pay);
+  return tk + "|" + (ex || "@" + pay) + "|" + typeKey(d);
 }
 
 // Normalise an amount for comparison (avoid 22 vs 22.00 vs 22.0001 churn).

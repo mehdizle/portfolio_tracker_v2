@@ -251,9 +251,10 @@ function dashCashAvailable(enriched) {
 // events from the core module (__core.dividendForecast.projectedCalendar):
 // unannounced current-year dividends for tickers that paid in past years, and
 // next-year projections. Real announced events always take precedence.
-// Returns { d90, d365 } = net eligible dividends due within ~90d / ~365d.
+// Returns { d90 } = net eligible dividends due within ~90 days (includes
+// forecast fill-ins for dividends not yet announced but paid in prior years).
 function dashDivEstimates() {
-  const res = { d90: 0, d365: 0 };
+  const res = { d90: 0 };
   try {
     if (typeof DIVCAL === "undefined" || !Array.isArray(DIVCAL)) return res;
     const yr = new Date().getFullYear();
@@ -290,9 +291,8 @@ function dashDivEstimates() {
       if (sh <= 0) continue;
       const du = typeof daysUntil === "function" ? daysUntil(d.pay_date) : -1;
       if (du < 0) continue;
-      const net = typeof divNetFor === "function" ? divNetFor(d, sh) : 0;
-      if (du <= 90) res.d90 += net;
-      if (du <= 365) res.d365 += net;
+      if (du > 90) continue;
+      res.d90 += typeof divNetFor === "function" ? divNetFor(d, sh) : 0;
     }
   } catch (_e) {}
   return res;
@@ -348,7 +348,6 @@ function renderKPIs(t, arr) {
   );
   const _divEst = dashDivEstimates();
   const _upDiv3 = _divEst.d90;
-  const _fwdDiv12 = _divEst.d365;
   const _kpiEl = document.getElementById("kpiRow");
   if (!_kpiEl) return; // dashboard not in DOM - nothing to update
   _kpiEl.innerHTML =
@@ -427,18 +426,6 @@ function renderKPIs(t, arr) {
         "on shares eligible at the ex-date.",
         "Includes forecast fill-ins for dividends not yet",
         "announced but paid in prior years.",
-      ]),
-      "dividends",
-    ) +
-    kpi(
-      "Fwd Dividends (12mo)",
-      money(_fwdDiv12, 0) + " MAD",
-      _fwdDiv12 > 0 ? "pos" : "",
-      T("Forward Dividends (next 12 months, est.)", [
-        "Estimated NET dividends due in the next ~365 days,",
-        "on shares you're eligible for at each ex-date.",
-        "Blends announced calendar events with a forecast",
-        "of dividends not yet announced (from past years).",
       ]),
       "dividends",
     );
