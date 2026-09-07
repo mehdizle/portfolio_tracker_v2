@@ -539,21 +539,53 @@ function refreshCatStamp() {
   };
 })();
 
-// ---- template download ----
+// ---- export current categories (doubles as the template) ----
+// Dumps every master ticker's CURRENT category / economic cycle / asset style
+// (reflecting your uploaded set + TradingView + seed) as a CSV with the exact
+// columns the importer accepts - so you can edit it and re-import. When nothing
+// but the header would be produced (no master yet), a small example is included
+// so it still works as a blank template.
 (function () {
   const b = document.getElementById("dlCatTemplate");
   if (!b) return;
+  // CSV-escape: quote fields containing comma, quote or newline; double inner quotes.
+  const q = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
   b.onclick = () => {
-    const rows = [
-      "Ticker,Company Name,Category,Economic Cycle,Asset Style",
-      "ATW,Attijariwafa Bank SA,Banking,Cyclical,Compounder",
-      "GAZ,Afriquia Gaz,Energy,Defensive,Yield King",
-      "AKT,Akdital,Healthcare,Defensive,Growth",
+    const rows = ["Ticker,Company Name,Category,Economic Cycle,Asset Style"];
+    const tickers = M && typeof M === "object" ? Object.keys(M).sort() : [];
+    let n = 0;
+    for (const tk of tickers) {
+      const m = M[tk] || {};
+      // Skip pure OPCVM funds - categories are a stock concept.
+      if (m.cat === "OPCVM") continue;
+      rows.push(
+        [
+          q(tk),
+          q(m.name || ""),
+          q(m.cat || ""),
+          q(m.cycle || ""),
+          q(m.style || ""),
+        ].join(","),
+      );
+      n++;
+    }
+    if (!n) {
+      // No master data yet: emit an illustrative example so it still seeds edits.
+      rows.push(
+        "ATW,Attijariwafa Bank SA,Banking,Cyclical,Compounder",
+        "GAZ,Afriquia Gaz,Energy,Defensive,Yield King",
+        "AKT,Akdital,Healthcare,Defensive,Growth",
+      );
+    }
+    rows.push(
       "# Economic Cycle: Cyclical / Sensitives / Defensive",
       "# Asset Style: Yield King / Growth / Compounder / Recovery / Value / Defensive / Cyclical",
-      "# Tickers not listed here keep their existing (TradingView) category.",
-    ];
-    downloadText("stock_categories_template.csv", rows.join("\n"));
+      "# Edit and re-import. Tickers not listed keep their existing (TradingView) category.",
+    );
+    downloadText("stock_categories.csv", rows.join("\n"));
   };
 })();
 

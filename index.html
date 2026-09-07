@@ -2695,8 +2695,8 @@
             </h2>
             <div class="mini" style="margin-bottom: 10px">
               Categories are <b>entered manually</b> (not from TradingView). A
-              default set is built in &#x2014; upload an updated
-              <code>.csv</code> only when it changes. Columns:
+              default set is built in &#x2014; <b>Export</b> your current
+              categories to a <code>.csv</code>, edit it, and re-import. Columns:
               <code
                 >Ticker,Company Name,Category,Economic Cycle,Asset Style</code
               >. Each row updates that ticker's <b>sector</b>,
@@ -2716,8 +2716,12 @@
                   accept=".csv"
                   style="display: none"
               /></label>
-              <button class="btn sec2" id="dlCatTemplate">
-                &#x1F4C4; Template
+              <button
+                class="btn sec2"
+                id="dlCatTemplate"
+                data-tip="Download your current categories as CSV (edit &amp; re-import). Doubles as the template."
+              >
+                &#x2B07; Export categories
               </button>
               <button
                 class="btn sec2"
