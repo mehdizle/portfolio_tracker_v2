@@ -330,3 +330,66 @@ describe("no unescaped user-data in HTML template literals", () => {
     });
   }
 });
+
+// Guard: renderKPIs(t, arr) MUST be called with BOTH arguments everywhere.
+// The Dashboard KPI row splits held value into Stock vs OPCVM using the second
+// argument (the positions array); calling renderKPIs(t) with only totals left
+// those cards at 0 (the "toggle Show/Hide closed -> Dashboard shows 0" bug).
+// This scans every UI source for renderKPIs(...) CALL sites (not the definition)
+// and fails if any passes fewer than two arguments.
+describe("renderKPIs is always called with both arguments", () => {
+  const JS_FILES = [
+    "js/01-core.js",
+    "js/02-compute.js",
+    "js/03-signals.js",
+    "js/04-render.js",
+    "js/05-rebalance.js",
+    "js/06-features.js",
+    "js/06b-import.js",
+    "js/06c-backup.js",
+    "js/06d-pending.js",
+    "js/07-expenses.js",
+    "js/08-salary.js",
+    "js/09-boot.js",
+  ];
+
+  // Count top-level arguments in a "renderKPIs(" call starting at `open` (the
+  // index of the "("). Returns the argument count (0 = empty call).
+  const countArgs = (src, open) => {
+    let depth = 0,
+      i = open,
+      args = 0,
+      seen = false;
+    for (; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === "(" || ch === "[" || ch === "{") depth++;
+      else if (ch === ")" || ch === "]" || ch === "}") {
+        depth--;
+        if (depth === 0) break; // end of the arg list
+      } else if (ch === "," && depth === 1) args++;
+      else if (depth === 1 && !/\s/.test(ch)) seen = true;
+    }
+    return seen ? args + 1 : 0;
+  };
+
+  it("every renderKPIs(...) call site passes two args (t, arr)", () => {
+    const offenders = [];
+    for (const rel of JS_FILES) {
+      const src = read(rel);
+      const re = /renderKPIs\s*\(/g;
+      let m;
+      while ((m = re.exec(src))) {
+        // Skip the definition: `function renderKPIs(`.
+        const before = src.slice(Math.max(0, m.index - 9), m.index);
+        if (/function\s*$/.test(before)) continue;
+        const open = m.index + m[0].length - 1; // index of "("
+        const n = countArgs(src, open);
+        if (n < 2) {
+          const line = src.slice(0, m.index).split("\n").length;
+          offenders.push(`${rel}:${line} (got ${n} arg${n === 1 ? "" : "s"})`);
+        }
+      }
+    }
+    expect(offenders, offenders.join(" | ")).toEqual([]);
+  });
+});

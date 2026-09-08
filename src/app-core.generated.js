@@ -11233,22 +11233,31 @@ document.getElementById("backupAll").onclick = async () => {
         if (v != null) dump.data[k] = v;
       }
     });
-    // v2: optional password encryption. Leaving the passphrase blank (or
-    // cancelling the prompt) keeps the plaintext backup (unchanged default). A
-    // passphrase produces an encrypted envelope (AES-GCM) that restore
-    // auto-detects.
+    // v2: optional password encryption is OPT-IN via the "Encrypt" checkbox next
+    // to the Backup button. Unchecked (default) = plain, one-click backup with
+    // NO prompt. Checked = prompt for a password and produce an AES-GCM envelope
+    // that restore auto-detects. Cancelling/blanking the prompt when checked
+    // falls back to a plaintext backup rather than doing nothing.
     let payloadObj = dump;
     let suffix = "";
-    const pass = await appPrompt(
-      "Optional: enter a password to ENCRYPT this backup (leave blank for a normal, unencrypted backup).",
-      "",
-      { inputType: "password", title: "Encrypt backup?" },
-    );
-    if (pass && String(pass).length > 0) {
-      payloadObj = await __core.backupCrypto.encryptBackup(dump, String(pass));
-      suffix = "_encrypted";
+    const wantEncrypt = !!(document.getElementById("backupEncrypt") || {})
+      .checked;
+    if (wantEncrypt) {
+      const pass = await appPrompt(
+        "Enter a password to ENCRYPT this backup (leave blank to save it unencrypted).",
+        "",
+        { inputType: "password", title: "Encrypt backup" },
+      );
+      if (pass && String(pass).length > 0) {
+        payloadObj = await __core.backupCrypto.encryptBackup(
+          dump,
+          String(pass),
+        );
+        suffix = "_encrypted";
+      }
     }
-    const blob = new Blob([JSON.stringify(payloadObj, null, pass ? 0 : 1)], {
+    // Encrypted envelope -> compact; plaintext -> lightly indented for readability.
+    const blob = new Blob([JSON.stringify(payloadObj, null, suffix ? 0 : 1)], {
         type: "application/json",
       }),
       url = URL.createObjectURL(blob);

@@ -168,6 +168,19 @@
             &#x2B07; Backup
           </button>
           <label
+            class="mini"
+            style="
+              display: inline-flex;
+              align-items: center;
+              gap: 4px;
+              cursor: pointer;
+              white-space: nowrap;
+            "
+            data-tip="When checked, Backup asks for a password and encrypts the file (AES-GCM). Unchecked = plain, one-click backup."
+            ><input type="checkbox" id="backupEncrypt" style="margin: 0" />
+            &#x1F512; Encrypt</label
+          >
+          <label
             class="btn sec2"
             style="cursor: pointer"
             data-tip="Restore data from a backup file"
