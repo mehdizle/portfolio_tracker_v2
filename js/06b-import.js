@@ -1944,7 +1944,9 @@ function rerenderPositions() {
   );
   renderPositions(arr, t);
   renderCharts(arr, t);
-  renderKPIs(t);
+  // Pass arr too: renderKPIs needs it to split held value into Stock vs OPCVM.
+  // Omitting it left those Dashboard cards at 0 after toggling Show/Hide closed.
+  renderKPIs(t, arr);
 }
 
 window.addMissingDiv = function (ticker, payDate, amount, exDate) {

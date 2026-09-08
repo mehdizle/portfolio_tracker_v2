@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Casablanca (MAD) portfolio tracker - v2 (modular core, tested, encrypted backups).",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "concat": "node scripts/concat.mjs",
@@ -17,6 +17,6 @@
   },
   "devDependencies": {
     "vite": "8.2.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   }
 }

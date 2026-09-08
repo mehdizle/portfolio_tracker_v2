@@ -25,114 +25,95 @@ const APP_LS_KEYS = [
   "casa_group_sector_v1",
 ];
 let _backupBusy = false;
-document.getElementById("backupAll").onclick = () => {
-  // Guard set synchronously FIRST \u2014 blocks any rapid re-fire before setTimeout runs.
+document.getElementById("backupAll").onclick = async () => {
+  // Guard against a double-click starting two backups. It is reset in the
+  // finally below - ONLY when this run actually finishes (success, error, or
+  // cancelled prompt) - so it can never get stuck true and it never resets
+  // early on a blind timer while the password prompt is still open (the old
+  // 1.5s timer caused intermittent "nothing happens" behaviour).
   if (_backupBusy) return;
   _backupBusy = true;
-  // Defer the actual download to the next event-loop tick.
-  // This ensures even two synchronous calls to this handler only produce one download:
-  // both pass the guard check in the same tick, but only the first sets the flag and
-  // schedules the work; the second is blocked on the very next line.
-  setTimeout(() => {
-    try {
-      takeSnapshot(true);
-      const dump = {
-        _app: "casa_portfolio_tracker",
-        _version: 2,
-        _exported: new Date().toISOString(),
-        data: {},
-      };
-      for (let n = 0; n < localStorage.length; n++) {
-        const k = localStorage.key(n);
-        if (
-          k &&
-          k.indexOf("casa_") === 0 &&
-          k !== "casa_last_backup_v1" &&
-          k !== "casa_carPlanCollapsed_v1" &&
-          k !== "casa_incCollapsed_v1" &&
-          k !== "casa_last_tab_v1" &&
-          k !== "casa_last_app_v1"
-        ) {
-          const v = localStorage.getItem(k);
-          if (v != null) dump.data[k] = v;
-        }
+  try {
+    takeSnapshot(true);
+    const dump = {
+      _app: "casa_portfolio_tracker",
+      _version: 2,
+      _exported: new Date().toISOString(),
+      data: {},
+    };
+    for (let n = 0; n < localStorage.length; n++) {
+      const k = localStorage.key(n);
+      if (
+        k &&
+        k.indexOf("casa_") === 0 &&
+        k !== "casa_last_backup_v1" &&
+        k !== "casa_carPlanCollapsed_v1" &&
+        k !== "casa_incCollapsed_v1" &&
+        k !== "casa_last_tab_v1" &&
+        k !== "casa_last_app_v1"
+      ) {
+        const v = localStorage.getItem(k);
+        if (v != null) dump.data[k] = v;
       }
-      APP_LS_KEYS.forEach((k) => {
-        if (dump.data[k] == null) {
-          const v = localStorage.getItem(k);
-          if (v != null) dump.data[k] = v;
-        }
-      });
-      // v2: optional password encryption. Leaving the passphrase blank keeps the
-      // plaintext backup (unchanged default). A passphrase produces an encrypted
-      // envelope (AES-GCM) that restore auto-detects. Async, so wrapped in IIFE.
-      (async () => {
-        try {
-          let payloadObj = dump;
-          let suffix = "";
-          const pass = await appPrompt(
-            "Optional: enter a password to ENCRYPT this backup (leave blank for a normal, unencrypted backup).",
-            "",
-            { inputType: "password", title: "Encrypt backup?" },
-          );
-          if (pass && String(pass).length > 0) {
-            payloadObj = await __core.backupCrypto.encryptBackup(
-              dump,
-              String(pass),
-            );
-            suffix = "_encrypted";
-          }
-          const blob = new Blob(
-              [JSON.stringify(payloadObj, null, pass ? 0 : 1)],
-              {
-                type: "application/json",
-              },
-            ),
-            url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download =
-            "portfolio_backup_" +
-            (() => {
-              const d = new Date();
-              const pad = (n) => String(n).padStart(2, "0");
-              return (
-                d.getFullYear() +
-                "-" +
-                pad(d.getMonth() + 1) +
-                "-" +
-                pad(d.getDate()) +
-                "_" +
-                pad(d.getHours()) +
-                pad(d.getMinutes())
-              );
-            })() +
-            suffix +
-            ".json";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          try {
-            localStorage.setItem(
-              "casa_last_backup_v1",
-              new Date().toISOString(),
-            );
-          } catch (e) {}
-          showBackupAge();
-        } catch (err) {
-          toast(
-            "Backup failed: " + (err && err.message ? err.message : err),
-            "err",
-          );
-        }
-      })();
-    } finally {
-      setTimeout(() => {
-        _backupBusy = false;
-      }, 1500);
     }
-  }, 0);
+    APP_LS_KEYS.forEach((k) => {
+      if (dump.data[k] == null) {
+        const v = localStorage.getItem(k);
+        if (v != null) dump.data[k] = v;
+      }
+    });
+    // v2: optional password encryption. Leaving the passphrase blank (or
+    // cancelling the prompt) keeps the plaintext backup (unchanged default). A
+    // passphrase produces an encrypted envelope (AES-GCM) that restore
+    // auto-detects.
+    let payloadObj = dump;
+    let suffix = "";
+    const pass = await appPrompt(
+      "Optional: enter a password to ENCRYPT this backup (leave blank for a normal, unencrypted backup).",
+      "",
+      { inputType: "password", title: "Encrypt backup?" },
+    );
+    if (pass && String(pass).length > 0) {
+      payloadObj = await __core.backupCrypto.encryptBackup(dump, String(pass));
+      suffix = "_encrypted";
+    }
+    const blob = new Blob([JSON.stringify(payloadObj, null, pass ? 0 : 1)], {
+        type: "application/json",
+      }),
+      url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download =
+      "portfolio_backup_" +
+      (() => {
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        return (
+          d.getFullYear() +
+          "-" +
+          pad(d.getMonth() + 1) +
+          "-" +
+          pad(d.getDate()) +
+          "_" +
+          pad(d.getHours()) +
+          pad(d.getMinutes())
+        );
+      })() +
+      suffix +
+      ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    try {
+      localStorage.setItem("casa_last_backup_v1", new Date().toISOString());
+    } catch (e) {}
+    showBackupAge();
+  } catch (err) {
+    toast("Backup failed: " + (err && err.message ? err.message : err), "err");
+  } finally {
+    _backupBusy = false;
+  }
 };
 document.getElementById("restoreAll").onchange = (e) => {
   const f = e.target.files[0];
