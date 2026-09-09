@@ -455,8 +455,14 @@ function renderHero(t) {
   } catch (_e) {}
   const _totalInclCash = t.val + _cash;
   const _totalIfSold = t.net + _cash;
+  // Both totals colored by the overall profit/loss verdict (lifetime return
+  // sign) - consistent with the "in profit / in loss" text beside them.
+  const verdictCls = cls(t.life);
   el.innerHTML =
+    // Main value card. Left = label/value/lifetime; Right (smaller) = the two
+    // portfolio totals, tucked inside this same card (no extra grid column).
     '<div class="hero-main">' +
+    '<div class="hero-main-left">' +
     '<div class="hero-label">Portfolio value</div>' +
     '<div class="hero-value">' +
     money(t.val, 0) +
@@ -471,30 +477,21 @@ function renderHero(t) {
     ") \u00B7 " +
     verdict +
     "</div></div>" +
-    // To the RIGHT of the value card: two smaller total figures, colored by the
-    // overall profit/loss verdict (lifetime return sign) - consistent with the
-    // "in profit / in loss" text on the value card beside them. (Coloring vs
-    // cost basis was wrong: it ignored realized gains + dividends already banked,
-    // so a profitable portfolio showed red.)
-    (() => {
-      const verdictCls = cls(t.life);
-      return (
-        '<div class="hero-totals">' +
-        '<div class="hero-total"><div class="k">Total Portfolio</div><div class="v ' +
-        verdictCls +
-        '">' +
-        money(_totalInclCash, 0) +
-        ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
-        money(_cash, 0) +
-        "</div></div>" +
-        '<div class="hero-total"><div class="k">Total if sold</div><div class="v ' +
-        verdictCls +
-        '">' +
-        money(_totalIfSold, 0) +
-        ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax, incl. cash</div></div>' +
-        "</div>"
-      );
-    })() +
+    '<div class="hero-totals">' +
+    '<div class="hero-total"><div class="k">Total Portfolio</div><div class="v ' +
+    verdictCls +
+    '">' +
+    money(_totalInclCash, 0) +
+    ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
+    money(_cash, 0) +
+    "</div></div>" +
+    '<div class="hero-total"><div class="k">Total if sold</div><div class="v ' +
+    verdictCls +
+    '">' +
+    money(_totalIfSold, 0) +
+    ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax</div></div>' +
+    "</div>" +
+    "</div>" +
     '<div class="hero-card"><div class="k">Invested (held)</div><div class="v">' +
     money(t.inv, 0) +
     '</div><div class="mini">unrealized <span class="' +

@@ -2074,29 +2074,33 @@ th.center input[type="checkbox"],
 }
 .dash-hero {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  grid-template-columns: 1.6fr 1fr 1fr;
   gap: 14px;
   margin-bottom: 18px;
   align-items: stretch;
 }
-/* ---- Dashboard hero: one consistent card system across all blocks ----
-   Every block shares the same padding, border, radius, and vertical centering
-   so the row reads as a cohesive strip. Labels are uppercase/tracked; values
-   are mono; secondary lines are muted. */
+/* ---- Dashboard hero: consistent card system ---- */
 .dash-hero .hero-main,
-.dash-hero .hero-totals,
 .dash-hero .hero-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius, 14px);
-  padding: 18px 20px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
-/* Primary value card gets a subtle brand wash to anchor the row. */
+/* Primary value card: brand wash + a horizontal split (value on the left, the
+   two portfolio totals tucked to the right at smaller size). */
 .dash-hero .hero-main {
   background: linear-gradient(135deg, rgba(124, 92, 221, 0.22), var(--panel));
+  flex-direction: row;
+  align-items: center;
+  gap: 18px;
+}
+.dash-hero .hero-main-left {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .dash-hero .hero-label,
 .dash-hero .hero-card .k {
@@ -2107,10 +2111,10 @@ th.center input[type="checkbox"],
   font-weight: 600;
 }
 .dash-hero .hero-value {
-  font-size: 34px;
+  font-size: 32px;
   font-weight: 800;
   font-family: var(--mono, monospace);
-  margin: 6px 0 4px;
+  margin: 5px 0 4px;
   line-height: 1.05;
 }
 .dash-hero .hero-sub {
@@ -2118,10 +2122,10 @@ th.center input[type="checkbox"],
   color: var(--text2);
 }
 .dash-hero .hero-card .v {
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 700;
   font-family: var(--mono, monospace);
-  margin: 6px 0 2px;
+  margin: 5px 0 2px;
   line-height: 1.05;
 }
 .dash-hero .hero-card .mini {
@@ -2129,28 +2133,34 @@ th.center input[type="checkbox"],
   color: var(--text2);
 }
 
-/* Totals block: two evenly-spaced figures, smaller than the hero value, each
-   with an accent left-border that turns green/red with the profit/loss verdict. */
+/* Totals: small figures to the far RIGHT of the value card (not a separate
+   card). Left-border accent turns green/red with the profit/loss verdict. */
 .dash-hero .hero-totals {
-  gap: 16px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
 }
 .dash-hero .hero-total {
   border-left: 3px solid var(--border);
-  padding-left: 12px;
+  padding-left: 10px;
 }
 .dash-hero .hero-total .k {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text2);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   font-weight: 600;
 }
 .dash-hero .hero-total .v {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   font-family: var(--mono, monospace);
   line-height: 1.1;
-  margin: 3px 0 2px;
+  margin: 2px 0 1px;
+  white-space: nowrap;
 }
 .dash-hero .hero-total .v.pos {
   color: var(--success, #26d07c);
@@ -2165,12 +2175,12 @@ th.center input[type="checkbox"],
   border-left-color: var(--error, #ef4444);
 }
 .dash-hero .hero-total .v .u {
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text2);
   font-weight: 400;
 }
 .dash-hero .hero-total .mini {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text2);
 }
 .wbar {
@@ -2254,5 +2264,20 @@ th.center input[type="checkbox"],
   .dash-hero,
   #dashboard .dash-charts {
     grid-template-columns: 1fr !important;
+  }
+  /* Stack the totals below the value on narrow screens. */
+  .dash-hero .hero-main {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .dash-hero .hero-totals {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
   }
 }
