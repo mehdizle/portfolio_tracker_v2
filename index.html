@@ -13,7 +13,7 @@
     <!-- Inline SVG favicon (data URI) - avoids a favicon.ico 404, no extra file. -->
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%230f172a'/%3E%3Crect%20x='14'%20y='34'%20width='9'%20height='16'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='27'%20y='24'%20width='9'%20height='26'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='40'%20y='16'%20width='9'%20height='34'%20rx='2'%20fill='%2334d399'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230f172a'/%3E%3Crect%20x='13'%20y='35'%20width='9'%20height='15'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='27'%20y='27'%20width='9'%20height='23'%20rx='2'%20fill='%2334d399'/%3E%3Crect%20x='41'%20y='17'%20width='9'%20height='33'%20rx='2'%20fill='%2334d399'/%3E%3Cpath%20d='M12%2030%20L26%2022%20L36%2027%20L52%2012'%20fill='none'%20stroke='%23a7f3d0'%20stroke-width='3.5'%20stroke-linecap='round'%20stroke-linejoin='round'/%3E%3Ccircle%20cx='52'%20cy='12'%20r='4'%20fill='%23a7f3d0'/%3E%3C/svg%3E"
     />
     <script src="https://cdn.jsdelivr.net/npm/highcharts@13.0.2/highcharts.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highcharts@13.0.2/highcharts-more.js"></script>
@@ -40,9 +40,29 @@
     <div class="app">
       <div class="topbar">
         <div class="title">
-          <span class="title-icon" aria-hidden="true"></span>&#x1F4C8;</span
-          ><span class="title-name">Portfolio Tracker</span>
-          <span>Casablanca Stock Exchange &#xB7; MAD</span>
+          <span class="title-icon" aria-hidden="true"
+            ><svg
+              width="26"
+              height="26"
+              viewBox="0 0 64 64"
+              xmlns="http://www.w3.org/2000/svg"
+              role="img"
+            >
+              <rect width="64" height="64" rx="14" fill="#0f172a" />
+              <rect x="13" y="35" width="9" height="15" rx="2" fill="#34d399" />
+              <rect x="27" y="27" width="9" height="23" rx="2" fill="#34d399" />
+              <rect x="41" y="17" width="9" height="33" rx="2" fill="#34d399" />
+              <path
+                d="M12 30 L26 22 L36 27 L52 12"
+                fill="none"
+                stroke="#a7f3d0"
+                stroke-width="3.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="52" cy="12" r="4" fill="#a7f3d0" /></svg
+          ></span>
+          <span class="title-name">Portfolio Tracker</span>
         </div>
         <div class="tabs" role="tablist" aria-label="Main sections">
           <span id="portfolioTabs" style="display: contents">
@@ -168,16 +188,25 @@
             &#x2B07; Backup
           </button>
           <label
-            class="mini"
             style="
               display: inline-flex;
               align-items: center;
-              gap: 4px;
+              align-self: center;
+              gap: 5px;
+              padding: 9px 10px;
               cursor: pointer;
               white-space: nowrap;
+              font-size: 13px;
+              font-weight: 700;
+              color: var(--text2);
+              line-height: 1;
             "
             data-tip="When checked, Backup asks for a password and encrypts the file (AES-GCM). Unchecked = plain, one-click backup."
-            ><input type="checkbox" id="backupEncrypt" style="margin: 0" />
+            ><input
+              type="checkbox"
+              id="backupEncrypt"
+              style="margin: 0; vertical-align: middle"
+            />
             &#x1F512; Encrypt</label
           >
           <label
@@ -2584,14 +2613,11 @@
                 font-size: 12px;
               "
             ></textarea>
-            <div
-              class="mini"
-              style="margin: 8px 0; color: var(--muted)"
-            >
-              &#x1F504; <b>Smart merge:</b> importing adds new dividends, updates
-              any whose amount or dates changed, and keeps every previous year.
-              Nothing is deleted &#x2014; safe to re-paste a corrected year or
-              add past years anytime.
+            <div class="mini" style="margin: 8px 0; color: var(--muted)">
+              &#x1F504; <b>Smart merge:</b> importing adds new dividends,
+              updates any whose amount or dates changed, and keeps every
+              previous year. Nothing is deleted &#x2014; safe to re-paste a
+              corrected year or add past years anytime.
             </div>
             <div class="form-row" style="margin-top: 10px">
               <button class="btn" id="applyCal">Import</button>
@@ -2709,7 +2735,8 @@
             <div class="mini" style="margin-bottom: 10px">
               Categories are <b>entered manually</b> (not from TradingView). A
               default set is built in &#x2014; <b>Export</b> your current
-              categories to a <code>.csv</code>, edit it, and re-import. Columns:
+              categories to a <code>.csv</code>, edit it, and re-import.
+              Columns:
               <code
                 >Ticker,Company Name,Category,Economic Cycle,Asset Style</code
               >. Each row updates that ticker's <b>sector</b>,

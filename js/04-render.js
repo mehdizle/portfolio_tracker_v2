@@ -441,6 +441,20 @@ function renderHero(t) {
       : t.life < 0
         ? '<span class="neg">\u25BC in loss</span>'
         : "flat";
+  // Cash available (all accounts) - same source as the KPI card. Total Portfolio
+  // = held market value + cash; Total if sold = net-if-sold (after exit fees/tax)
+  // + cash. Guarded so a missing runFIFO can't throw here.
+  let _cash = 0;
+  try {
+    _cash =
+      typeof dashCashAvailable === "function"
+        ? dashCashAvailable(
+            (typeof runFIFO === "function" && runFIFO().enriched) || [],
+          )
+        : 0;
+  } catch (_e) {}
+  const _totalInclCash = t.val + _cash;
+  const _totalIfSold = t.net + _cash;
   el.innerHTML =
     '<div class="hero-main">' +
     '<div class="hero-label">Portfolio value</div>' +
@@ -457,6 +471,17 @@ function renderHero(t) {
     ") \u00B7 " +
     verdict +
     "</div></div>" +
+    // To the RIGHT of the value card: two smaller total figures (color-varied).
+    '<div class="hero-totals">' +
+    '<div class="hero-total t-incl"><div class="k">Total Portfolio</div><div class="v">' +
+    money(_totalInclCash, 0) +
+    ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
+    money(_cash, 0) +
+    "</div></div>" +
+    '<div class="hero-total t-sold"><div class="k">Total if sold</div><div class="v">' +
+    money(_totalIfSold, 0) +
+    ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax, incl. cash</div></div>' +
+    "</div>" +
     '<div class="hero-card"><div class="k">Invested (held)</div><div class="v">' +
     money(t.inv, 0) +
     '</div><div class="mini">unrealized <span class="' +
