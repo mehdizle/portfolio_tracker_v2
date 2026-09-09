@@ -2094,12 +2094,6 @@ th.center input[type="checkbox"],
   border-left: 3px solid var(--border);
   padding-left: 10px;
 }
-.dash-hero .hero-total.t-incl {
-  border-left-color: var(--primary2, #7c5cdd);
-}
-.dash-hero .hero-total.t-sold {
-  border-left-color: var(--success, #26d07c);
-}
 .dash-hero .hero-total .k {
   font-size: 11px;
   color: var(--text2);
@@ -2113,11 +2107,19 @@ th.center input[type="checkbox"],
   line-height: 1.15;
   margin-top: 2px;
 }
-.dash-hero .hero-total.t-incl .v {
-  color: var(--primary2, #7c5cdd);
-}
-.dash-hero .hero-total.t-sold .v {
+/* Value color = profit/loss vs invested (pos/neg set in JS); the left border
+   picks up the same accent so the green/red variance reads at a glance. */
+.dash-hero .hero-total .v.pos {
   color: var(--success, #26d07c);
+}
+.dash-hero .hero-total .v.neg {
+  color: var(--error, #ef4444);
+}
+.dash-hero .hero-total:has(.v.pos) {
+  border-left-color: var(--success, #26d07c);
+}
+.dash-hero .hero-total:has(.v.neg) {
+  border-left-color: var(--error, #ef4444);
 }
 .dash-hero .hero-total .v .u {
   font-size: 12px;
@@ -2134,6 +2136,11 @@ th.center input[type="checkbox"],
   border: 1px solid var(--border);
   border-radius: var(--radius, 14px);
   padding: 18px 20px;
+  /* Center the value block vertically so it lines up with the taller totals /
+     cards beside it. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .dash-hero .hero-label {
   font-size: 12px;

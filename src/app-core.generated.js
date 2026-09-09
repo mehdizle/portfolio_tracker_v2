@@ -2518,17 +2518,31 @@ function renderHero(t) {
     ") \u00B7 " +
     verdict +
     "</div></div>" +
-    // To the RIGHT of the value card: two smaller total figures (color-varied).
-    '<div class="hero-totals">' +
-    '<div class="hero-total t-incl"><div class="k">Total Portfolio</div><div class="v">' +
-    money(_totalInclCash, 0) +
-    ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
-    money(_cash, 0) +
-    "</div></div>" +
-    '<div class="hero-total t-sold"><div class="k">Total if sold</div><div class="v">' +
-    money(_totalIfSold, 0) +
-    ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax, incl. cash</div></div>' +
-    "</div>" +
+    // To the RIGHT of the value card: two smaller total figures. Each is colored
+    // green/red by whether it is above/below your invested cost basis (t.cost) -
+    // i.e. are you in profit on that measure. Cash is added to both sides so the
+    // comparison is like-for-like (portfolio + cash vs cost + cash).
+    (() => {
+      const investedBasis = (t.cost || 0) + _cash;
+      const inclCls = cls(_totalInclCash - investedBasis);
+      const soldCls = cls(_totalIfSold - investedBasis);
+      return (
+        '<div class="hero-totals">' +
+        '<div class="hero-total"><div class="k">Total Portfolio</div><div class="v ' +
+        inclCls +
+        '">' +
+        money(_totalInclCash, 0) +
+        ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
+        money(_cash, 0) +
+        "</div></div>" +
+        '<div class="hero-total"><div class="k">Total if sold</div><div class="v ' +
+        soldCls +
+        '">' +
+        money(_totalIfSold, 0) +
+        ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax, incl. cash</div></div>' +
+        "</div>"
+      );
+    })() +
     '<div class="hero-card"><div class="k">Invested (held)</div><div class="v">' +
     money(t.inv, 0) +
     '</div><div class="mini">unrealized <span class="' +
