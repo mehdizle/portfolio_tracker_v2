@@ -2074,41 +2074,84 @@ th.center input[type="checkbox"],
 }
 .dash-hero {
   display: grid;
-  grid-template-columns: 1.5fr auto 1fr 1fr;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
   gap: 14px;
   margin-bottom: 18px;
+  align-items: stretch;
 }
-/* Compact totals block to the RIGHT of the main portfolio-value card. Smaller
-   values than the hero-value, stacked, with a subtle per-figure accent. */
-.dash-hero .hero-totals {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  justify-content: center;
+/* ---- Dashboard hero: one consistent card system across all blocks ----
+   Every block shares the same padding, border, radius, and vertical centering
+   so the row reads as a cohesive strip. Labels are uppercase/tracked; values
+   are mono; secondary lines are muted. */
+.dash-hero .hero-main,
+.dash-hero .hero-totals,
+.dash-hero .hero-card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius, 14px);
-  padding: 12px 16px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+/* Primary value card gets a subtle brand wash to anchor the row. */
+.dash-hero .hero-main {
+  background: linear-gradient(135deg, rgba(124, 92, 221, 0.22), var(--panel));
+}
+.dash-hero .hero-label,
+.dash-hero .hero-card .k {
+  font-size: 11px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.dash-hero .hero-value {
+  font-size: 34px;
+  font-weight: 800;
+  font-family: var(--mono, monospace);
+  margin: 6px 0 4px;
+  line-height: 1.05;
+}
+.dash-hero .hero-sub {
+  font-size: 12.5px;
+  color: var(--text2);
+}
+.dash-hero .hero-card .v {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: var(--mono, monospace);
+  margin: 6px 0 2px;
+  line-height: 1.05;
+}
+.dash-hero .hero-card .mini {
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+/* Totals block: two evenly-spaced figures, smaller than the hero value, each
+   with an accent left-border that turns green/red with the profit/loss verdict. */
+.dash-hero .hero-totals {
+  gap: 16px;
 }
 .dash-hero .hero-total {
   border-left: 3px solid var(--border);
-  padding-left: 10px;
+  padding-left: 12px;
 }
 .dash-hero .hero-total .k {
   font-size: 11px;
   color: var(--text2);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  font-weight: 600;
 }
 .dash-hero .hero-total .v {
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 700;
   font-family: var(--mono, monospace);
-  line-height: 1.15;
-  margin-top: 2px;
+  line-height: 1.1;
+  margin: 3px 0 2px;
 }
-/* Value color = profit/loss vs invested (pos/neg set in JS); the left border
-   picks up the same accent so the green/red variance reads at a glance. */
 .dash-hero .hero-total .v.pos {
   color: var(--success, #26d07c);
 }
@@ -2129,54 +2172,6 @@ th.center input[type="checkbox"],
 .dash-hero .hero-total .mini {
   font-size: 11px;
   color: var(--text2);
-  margin-top: 1px;
-}
-.dash-hero .hero-main {
-  background: linear-gradient(135deg, rgba(124, 92, 221, 0.25), var(--panel));
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 14px);
-  padding: 18px 20px;
-  /* Center the value block vertically so it lines up with the taller totals /
-     cards beside it. */
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.dash-hero .hero-label {
-  font-size: 12px;
-  color: var(--text2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.dash-hero .hero-value {
-  font-size: 34px;
-  font-weight: 800;
-  font-family: var(--mono, monospace);
-  margin: 4px 0;
-  line-height: 1.1;
-}
-.dash-hero .hero-sub {
-  font-size: 13px;
-  color: var(--text2);
-}
-.dash-hero .hero-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 14px);
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.dash-hero .hero-card .k {
-  font-size: 12px;
-  color: var(--text2);
-}
-.dash-hero .hero-card .v {
-  font-size: 24px;
-  font-weight: 700;
-  font-family: var(--mono, monospace);
-  margin-top: 4px;
 }
 .wbar {
   margin-bottom: 10px;
