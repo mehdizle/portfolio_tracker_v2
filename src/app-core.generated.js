@@ -2518,25 +2518,24 @@ function renderHero(t) {
     ") \u00B7 " +
     verdict +
     "</div></div>" +
-    // To the RIGHT of the value card: two smaller total figures. Each is colored
-    // green/red by whether it is above/below your invested cost basis (t.cost) -
-    // i.e. are you in profit on that measure. Cash is added to both sides so the
-    // comparison is like-for-like (portfolio + cash vs cost + cash).
+    // To the RIGHT of the value card: two smaller total figures, colored by the
+    // overall profit/loss verdict (lifetime return sign) - consistent with the
+    // "in profit / in loss" text on the value card beside them. (Coloring vs
+    // cost basis was wrong: it ignored realized gains + dividends already banked,
+    // so a profitable portfolio showed red.)
     (() => {
-      const investedBasis = (t.cost || 0) + _cash;
-      const inclCls = cls(_totalInclCash - investedBasis);
-      const soldCls = cls(_totalIfSold - investedBasis);
+      const verdictCls = cls(t.life);
       return (
         '<div class="hero-totals">' +
         '<div class="hero-total"><div class="k">Total Portfolio</div><div class="v ' +
-        inclCls +
+        verdictCls +
         '">' +
         money(_totalInclCash, 0) +
         ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
         money(_cash, 0) +
         "</div></div>" +
         '<div class="hero-total"><div class="k">Total if sold</div><div class="v ' +
-        soldCls +
+        verdictCls +
         '">' +
         money(_totalIfSold, 0) +
         ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax, incl. cash</div></div>' +
