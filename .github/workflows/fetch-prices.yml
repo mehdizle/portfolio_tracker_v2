@@ -1,0 +1,53 @@
+name: Fetch latest prices (TradingView)
+
+# Pulls the latest Casablanca prices + fundamentals from TradingView's public
+# scanner endpoint (scripts/fetch-prices.mjs) and commits public/prices.json.
+# The app's "Fetch latest" button then loads that file; manual paste stays as
+# the fallback. Committing prices.json to main triggers deploy.yml, which
+# republishes the site with the fresh file served under /logos-style public/.
+#
+# Runs on a weekday-evening schedule (after CSE close, Africa/Casablanca) and
+# can be run on demand from the Actions tab (workflow_dispatch).
+
+on:
+  schedule:
+    # 18:00 UTC, Mon-Fri. The CSE closes ~16:30 local (Africa/Casablanca), so
+    # this leaves time for TradingView's end-of-day data to settle.
+    - cron: "0 18 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-prices
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Fetch prices -> public/prices.json
+        run: node scripts/fetch-prices.mjs
+
+      - name: Commit prices.json (only if changed)
+        run: |
+          if [ -n "$(git status --porcelain public/prices.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add public/prices.json
+            # No [skip ci]: committing prices.json to main SHOULD trigger
+            # deploy.yml so the refreshed file is republished to Pages.
+            git commit -m "chore: refresh prices.json (TradingView)"
+            git push
+          else
+            echo "prices.json unchanged - nothing to commit"
+          fi
