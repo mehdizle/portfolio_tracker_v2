@@ -4,8 +4,11 @@ A client-side Casablanca Stock Exchange portfolio tracker: positions with FIFO
 cost basis, broker fees, capital-gains & dividend tax, a valuation/signal engine,
 a fee-aware rebalance helper, a multi-year dividend calendar **and forecast**,
 monthly expenses with savings pots, and a Moroccan salary calculator. It runs
-**entirely in the browser** on `localStorage` — no server, no accounts, no
-outbound requests except loading Highcharts from its CDN.
+**entirely in the browser** on `localStorage` — no server, no accounts. Your
+transactions never leave the device. The only network calls are loading
+Highcharts from its CDN and fetching two **same-origin, public-data** files the
+site publishes (`prices.json`, `price-history.json`); price data is refreshed
+by a scheduled GitHub Action, not by the browser.
 
 Live site: https://mehdizle.github.io/portfolio_tracker_v2/
 
@@ -34,6 +37,20 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   (valuation, quality, growth-blend, FCF yield, dividend, timing, peer-relative)
   with per-sector fair-value anchors and buy/sell targets, plus signal-outcome
   tracking that scores past Buy/Hold/Sell calls vs a same-date benchmark.
+- **Automated daily prices (hands-off)** — a scheduled GitHub Action
+  (`fetch-prices.yml` → `scripts/fetch-prices.mjs`) pulls Casablanca prices +
+  fundamentals from TradingView's public scanner each weekday after close and
+  commits two public files: `public/prices.json` (latest snapshot the "Fetch
+  latest" button imports) and `public/price-history.json` (one dated row per
+  trading day: every ticker's close + the MASI and MASI-20 index levels). No
+  browser CORS wall (the fetch runs server-side in CI), no auth, no scraping.
+- **Value-over-time curve + benchmark** — the "Portfolio Value Over Time" chart
+  is **recomputed** in the browser from your LOCAL transaction ledger × the
+  public daily price history (`src/core/value-history.js`), rebased to a 0%
+  return axis so you can compare it against **MASI or MASI-20** (selectable). The
+  curve is dense and gap-free regardless of when you last opened the app, and it
+  needs no stored snapshots. Transactions stay local; only public prices live in
+  the repo.
 - **Value-vs-Diversification rebalance** — a persisted slider tilts the buy plan
   between sector-diversification and undervaluation; trims + greedy allocation
   are fee-aware and share the same cost engine as execution.
@@ -99,6 +116,8 @@ styles.css                 All styles (imported by the entry, fingerprinted by V
 public/                    Static files copied verbatim to the site root by Vite.
   logos/                   Optional per-ticker logos (SVG/PNG), by exchange or flat.
     CSEMA/                 Casablanca logos, e.g. CSEMA/ATW.svg.
+  prices.json              Latest TradingView snapshot (public; committed by CI).
+  price-history.json       Daily closes + MASI/MSI20 levels, one row/date (public; CI).
 src/
   main.js                  Vite entry: imports css, core-bridge, then the UI bundle.
   core-bridge.js           Sets globalThis.__core BEFORE the UI bundle evaluates.
@@ -117,8 +136,10 @@ src/
     market-session.js      CSE trading-phase schedule/classify (pure logic)
     divcal-merge.js        dividend-calendar smart-merge (upsert) logic
     dividend-forecast.js   multi-year, slot-based dividend forecast
+    value-history.js       recompute the value-over-time curve (ledger x price history)
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
+scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
 js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO/forecast math to src/core via __core.
   01-core.js               globals, persistence, ticker badges, fee/tax wrappers
@@ -128,7 +149,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   05-rebalance.js          rebalance engine + stock detail panel
   06-features.js           signals render, dividends + forecast table, transactions
   06b-import.js            TradingView/OPCVM/CSV import, calendar smart-merge, fee panel
-  06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, snapshots
+  06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, value-over-time chart
   06d-pending.js           pending orders (Order IDs), indicators, range bar
   07-expenses.js           monthly expenses + savings pots (car/other planners)
   08-salary.js             salary calc, stock categories (import/export), cash ledger, tooltip engine
@@ -136,8 +157,9 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
 test/                      Vitest suite (see "Tests" below)
   fixtures/synthetic.json  synthetic transactions/master/config for tests
 .github/
-  workflows/deploy.yml     test -> build -> deploy to GitHub Pages (self-healing lockfile)
-  dependabot.yml           grouped weekly dependency PRs (npm + GitHub Actions)
+  workflows/deploy.yml       test -> build -> deploy to GitHub Pages (self-healing lockfile)
+  workflows/fetch-prices.yml weekday cron: fetch prices -> commit public JSON -> trigger deploy
+  dependabot.yml             grouped weekly dependency PRs (npm + GitHub Actions)
 ```
 
 ### The core vs. UI split (why it's safe)
@@ -150,8 +172,41 @@ before the UI bundle runs). This gives a tested, single-source engine without
 rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
-by `scripts/concat.mjs`, in the fixed order `01 → 09`. **Edit the numbered
-source files, never the generated bundle.**
+by `scripts/concat.mjs`, in the fixed order `01 → 09` (12 files including the
+`06b/06c/06d` splits). **Edit the numbered source files, never the generated
+bundle.**
+
+---
+
+## Automated price data (how it works)
+
+Prices and the value-over-time curve are **hands-off** — you don't need to keep
+the app open or paste anything.
+
+1. **Fetch (server-side, weekdays).** `.github/workflows/fetch-prices.yml` runs
+   on a cron (18:00 UTC, Mon–Fri, after the CSE close) and on demand from the
+   Actions tab. It runs `scripts/fetch-prices.mjs`, which POSTs to TradingView's
+   public scanner — the same request the `tradingview-screener` library makes,
+   no auth, no scraping, and no browser CORS wall because it runs in CI.
+2. **Commit two public files.** The script writes `public/prices.json` (the
+   latest snapshot) and appends one dated row to `public/price-history.json`
+   (every ticker's close + the MASI and MASI-20 levels, one row per trading day,
+   capped at ~3 years). The workflow commits **both** and then dispatches
+   `deploy.yml` (a `GITHUB_TOKEN` commit doesn't trigger other workflows'
+   `push` events, so the deploy is triggered explicitly).
+3. **The browser reads them.** The "Fetch latest" button in the Data tab imports
+   `prices.json` through the **same** `applyTvRec` pipeline as a manual paste
+   (so nulls are skipped and manual categories are never overwritten); manual
+   paste remains the fallback if the file is missing/stale. The "Portfolio Value
+   Over Time" chart reads `price-history.json` and recomputes your curve locally.
+
+Because the curve is recomputed from the public daily history × your local
+ledger, it is complete and gap-free no matter when you open the app, and it
+starts collecting from the first day the fetch workflow ran (there is no
+back-fill of dates before that). The benchmark line (MASI / MASI-20) needs **two
+or more** dated rows before it can draw. GitHub pauses scheduled workflows after
+~60 days of no repo activity, so a very long absence can stop collection until
+the next push or manual run.
 
 ---
 
@@ -173,6 +228,7 @@ sector-icon.test.js          every sector maps to a distinct, non-default icon
 market-session.test.js       CSE trading-phase boundary classification
 divcal-merge.test.js         calendar upsert: add / update / keep old years / Ord+Exc same date
 dividend-forecast.test.js    slots, level+trend, current-year gap-fill, split flag, tax-net income
+value-history.test.js        holdings-as-of-date, value curve, carry-forward, rebased % vs benchmark
 ```
 
 ---
@@ -203,7 +259,7 @@ JS + Highcharts via CDN). Dev tooling: **Vite** (build) and **Vitest** (tests).
 ### Pinned versions
 
 - Highcharts **13.0.2** (CDN, in `index.html`)
-- Vite **8.x**, Vitest **5.x** (`package.json` devDependencies)
+- Vite **8.3.x**, Vitest **5.0.x** (`package.json` devDependencies)
 - Node **≥ 22.12.0** (required by Vitest 5; CI runs Node 22)
 
 ### One-time repo setup
@@ -234,8 +290,25 @@ envelope; **restore** auto-detects it and asks for the password. There is no
 password recovery — if you forget it, that backup cannot be restored. Encrypted
 v2 backups are not readable by v1.
 
-Backup also captures a portfolio-value snapshot; on restore, snapshots are
-**merged** so value-over-time history is never lost.
+**What a backup contains (and doesn't).** A backup is deliberately kept to your
+**private, non-reconstructable data**: transactions, pending orders, master list
+(names/categories/ISIN and the _latest_ per-ticker price/fundamentals), dividend
+calendar, fees/tax config, brokers, expenses, salary, cash, issuer aliases, and
+theme. Two large, repo-derivable caches are **excluded** so the file stays small
+and private-only:
+
+- `casa_snapshots_v1` — the old value-over-time snapshot series. The value curve
+  is now recomputed from the public daily price history, so it's redundant.
+- `casa_signal_hist_v1` — the signal-call trail: one row per tracked ticker per
+  day (engine rating + that day's public price), up to ~20k rows / a few MB. It's
+  a computed cache of public data, reconstructable from the repo's daily price
+  history going forward, so it doesn't belong in a personal backup.
+
+Both stay in `localStorage` on your device (so on-device charts and signal
+outcomes are unaffected); they're just not written into the export. On a fresh
+device, the value curve and signal outcomes rebuild from the repo price history.
+Restoring an **older** backup that still contains these keys simply repopulates
+the caches — nothing breaks across versions.
 
 ---
 
@@ -279,6 +352,14 @@ diversification. In **Data → Import Stock Categories** you can:
 ## Data and privacy
 
 All data is stored in the browser's `localStorage`. Unencrypted backups are plain
-JSON — use encrypted backups if the file may leave your device. The app makes no
-outbound requests except loading Highcharts from its CDN; it never sends your
-portfolio anywhere.
+JSON — use encrypted backups if the file may leave your device.
+
+**Nothing you enter is sent anywhere.** The app's only network calls are
+outbound _reads_: Highcharts from its CDN, and two **same-origin, public** files
+the site itself publishes (`prices.json`, `price-history.json`). It makes no
+outbound request that carries your data. Those price files are produced by a
+scheduled GitHub Action running server-side (`scripts/fetch-prices.mjs`) — the
+browser only fetches the already-published result. The price history in the repo
+is **public market data only** (closes + MASI/MSI20 index levels); it contains
+no transactions and nothing personal. Your transactions exist solely in
+`localStorage` and in backup files you download yourself.

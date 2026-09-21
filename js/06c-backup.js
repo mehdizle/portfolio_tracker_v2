@@ -23,7 +23,11 @@ const APP_LS_KEYS = [
   "casa_issuer_aliases_v1",
   "casa_cash_v1",
   "casa_brokers_v1",
-  "casa_signal_hist_v1",
+  // casa_signal_hist_v1 intentionally NOT backed up: it's a per-ticker-per-day
+  // cache of engine ratings + public prices (up to 20k rows, ~MBs), all
+  // reconstructable from the repo's daily price history going forward. Keeping
+  // it out of the backup keeps the file small and limited to private data.
+  // (The backup loop above also excludes it explicitly.)
   "casa_order_seq_v1",
   "casa_group_sector_v1",
 ];
@@ -51,6 +55,9 @@ document.getElementById("backupAll").onclick = async () => {
         k.indexOf("casa_") === 0 &&
         k !== "casa_last_backup_v1" &&
         k !== "casa_snapshots_v1" && // redundant: recomputed from repo history
+        k !== "casa_signal_hist_v1" && // computed cache (engine ratings/day) +
+        // public daily prices - all reconstructable from the repo price history
+        // going forward, so it's excluded to keep backups small & private-only.
         k !== "casa_carPlanCollapsed_v1" &&
         k !== "casa_incCollapsed_v1" &&
         k !== "casa_last_tab_v1" &&
