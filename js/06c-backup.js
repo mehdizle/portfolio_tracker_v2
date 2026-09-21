@@ -486,19 +486,17 @@ function renderHistoryRecomputed() {
       r.first +
       " \u2192 " +
       r.last +
-      " \u00B7 % return vs " +
-      (benchSel === "msi20"
-        ? "MASI 20"
-        : benchSel === "none"
-          ? "\u2014"
-          : "MASI") +
+      " \u00B7 cost-basis return" +
+      (benchSel === "none"
+        ? ""
+        : " vs " + (benchSel === "msi20" ? "MASI 20" : "MASI")) +
       " (auto-updated daily)";
 
   const tx2 = themeColor("text2");
   const cats = r.points.map((p) => p.date);
   const series = [
     {
-      name: "Portfolio",
+      name: "Portfolio (return on cost)",
       type: "area",
       color: themeColor("primary"),
       fillOpacity: 0.14,

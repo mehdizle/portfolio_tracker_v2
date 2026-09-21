@@ -34,6 +34,49 @@ export function holdingsAsOf(txns, asOf) {
   return held;
 }
 
+// Cost basis of the shares STILL HELD as of `asOf` - i.e. what you actually paid
+// (average cost) for the position you currently own. Replays BUY/SELL per ticker
+// with an average-cost pool: a BUY adds qty*price to the pool and qty to the
+// count; a SELL removes shares AT AVERAGE COST (so it reduces the pool
+// proportionally, never creating a phantom gain/loss here - realized P&L is a
+// separate concept). DIV is ignored. Returns MAD (gross of fees).
+//
+// This is the denominator for the portfolio PERFORMANCE line: value / cost - 1.
+// Because a BUY adds equally to value and to cost at purchase time, injecting
+// capital does NOT jump the percentage - unlike rebasing raw market value, which
+// wrongly counted "I bought more" as "I gained". Prices paid come from your local
+// transactions; no market history needed.
+export function costBasisAsOf(txns, asOf) {
+  const pool = {}; // ticker -> { qty, cost }
+  const ordered = (txns || [])
+    .filter((t) => t && t.date && t.ticker && t.date <= asOf)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  for (const t of ordered) {
+    const act = String(t.action || "").toUpperCase();
+    const qty = +t.qty;
+    if (!isFinite(qty) || !qty) continue;
+    const tk = String(t.ticker).toUpperCase();
+    const p = pool[tk] || (pool[tk] = { qty: 0, cost: 0 });
+    if (act === "BUY") {
+      const px = +t.price;
+      p.qty += qty;
+      if (isFinite(px) && px > 0) p.cost += qty * px;
+    } else if (act === "SELL") {
+      const avg = p.qty > 1e-9 ? p.cost / p.qty : 0;
+      p.qty -= qty;
+      p.cost -= qty * avg; // remove sold shares at average cost
+      if (p.qty <= 1e-9) {
+        p.qty = 0;
+        p.cost = 0;
+      }
+    }
+  }
+  let total = 0;
+  for (const tk in pool) if (pool[tk].qty > 1e-9) total += pool[tk].cost;
+  return total;
+}
+
 // Close price for a ticker on `date`, or the nearest trading day AT OR BEFORE it
 // (carry-forward), scanning the history rows. Returns null if the ticker never
 // appears up to that date. Used by the signal-outcome panel to look up the
@@ -110,6 +153,7 @@ export function buildValueSeries(txns, history, opts) {
     points.push({
       date: row.date,
       value: Math.round(value * 100) / 100,
+      cost: Math.round(costBasisAsOf(txns, row.date) * 100) / 100,
       masi: row.masi != null ? +row.masi : null,
       msi20: row.msi20 != null ? +row.msi20 : null,
     });
@@ -121,9 +165,11 @@ export function buildValueSeries(txns, history, opts) {
   };
 }
 
-// Rebase a numeric series to a 0% baseline at its first non-null value, so the
-// portfolio and a benchmark index can be compared on the same %-return axis.
+// Rebase a numeric series to a 0% baseline at its first non-null value, so a
+// benchmark index can be compared on the same %-return axis as the portfolio.
 // Returns an array aligned to `points` of { date, pct } (pct in %, or null).
+// NOTE: this is correct for an INDEX (no cash flows), but NOT for the portfolio
+// value - see costReturnPct for why.
 function rebasePct(points, pick) {
   let base = null;
   return points.map((p) => {
@@ -134,21 +180,65 @@ function rebasePct(points, pick) {
   });
 }
 
+// Portfolio performance per day as COST-BASIS return: value / cost - 1 (%).
+// `cost` is what you paid for the shares held that day (costBasisAsOf). This is
+// the "spent 100, worth 110 -> +10%" number the user wants, and it is immune to
+// cash flows: buying more adds equally to value and cost, so the line reflects
+// PRICE performance, not how much capital you added. (Rebasing raw market value
+// against day one wrongly showed a later BUY as a huge "gain".) Returns null on
+// a day with no cost basis (nothing held / all prices missing).
+function costReturnPct(points) {
+  return points.map((p) => {
+    if (
+      p.cost == null ||
+      !isFinite(p.cost) ||
+      p.cost <= 0 ||
+      p.value == null ||
+      !isFinite(p.value)
+    )
+      return { date: p.date, pct: null };
+    return { date: p.date, pct: (p.value / p.cost - 1) * 100 };
+  });
+}
+
+// Shift a rebased benchmark series so it STARTS at `offsetPct` instead of 0%.
+// The portfolio line is an absolute cost-basis return (it may start at, say,
+// +2.8% because you're already up on what you paid). To compare fairly, we lift
+// the benchmark to meet the portfolio at the first plotted point, so both lines
+// share a starting value and you read the DIVERGENCE (did MASI outpace you?).
+function shiftSeries(series, offsetPct) {
+  if (!isFinite(offsetPct)) return series;
+  return series.map((x) =>
+    x.pct == null ? x : { date: x.date, pct: x.pct + offsetPct },
+  );
+}
+
 // Convenience: build the full comparison dataset for the chart.
-//   { points, value:[{date,pct}], masi:[...], msi20:[...] }
-// value/masi/msi20 are %-return series rebased to 0 at the first point, so the
-// portfolio can be visually compared against either index. `benchmark` selects
-// which index series is meaningful to show ("masi" | "msi20"), but both are
-// always returned so the UI can switch without recompute.
+//   { points, valuePct:[{date,pct}], masiPct:[...], msi20Pct:[...] }
+// - valuePct is the portfolio's COST-BASIS return (value/cost - 1), which is
+//   cash-flow-immune (adding capital doesn't move it; only price does).
+// - masiPct/msi20Pct are the index's rebased return, SHIFTED to start at the
+//   portfolio's first return so all three lines meet at the left edge and the
+//   comparison is about slope/divergence, not absolute level.
 export function valueVsBenchmark(txns, history, opts) {
   const series = buildValueSeries(txns, history, opts);
   const points = series.points;
+  const valuePct = costReturnPct(points);
+  // The portfolio's return at the first plotted point (0 if unavailable).
+  const firstRet = valuePct.find((x) => x.pct != null);
+  const anchor = firstRet ? firstRet.pct : 0;
   return {
     points,
     first: series.first,
     last: series.last,
-    valuePct: rebasePct(points, (p) => p.value),
-    masiPct: rebasePct(points, (p) => p.masi),
-    msi20Pct: rebasePct(points, (p) => p.msi20),
+    valuePct,
+    masiPct: shiftSeries(
+      rebasePct(points, (p) => p.masi),
+      anchor,
+    ),
+    msi20Pct: shiftSeries(
+      rebasePct(points, (p) => p.msi20),
+      anchor,
+    ),
   };
 }
