@@ -171,10 +171,15 @@ document.getElementById("applyTV").onclick = () => {
         "</span>"
       : "");
   render();
-  // Snapshot signals now that fresh prices are loaded (latest-of-day wins). This
-  // is the most accurate trigger: the snapshot reflects the data you just
-  // imported. Guarded so it can never break the import.
+  // Fresh prices loaded -> record BOTH the signal-outcome snapshot and the
+  // portfolio-value snapshot off the just-applied prices (latest-of-day wins).
+  // Guarded so neither can break the import.
   snapshotSignalsNow();
+  if (typeof takeSnapshot === "function") {
+    try {
+      takeSnapshot(true);
+    } catch (_e) {}
+  }
 };
 document.getElementById("clearTV").onclick = () => {
   document.getElementById("tvPaste").value = "";
@@ -288,7 +293,16 @@ document.getElementById("clearTV").onclick = () => {
     safeSetItem("casa_master_v1", JSON.stringify(M));
     reflectStamp(doc);
     render();
+    // One action captures everything: prices applied above, then the signal-
+    // outcome history AND the portfolio-value snapshot are recorded off the
+    // freshly-applied prices. takeSnapshot(true) = auto capture, one-per-day
+    // (latest wins). Both guarded so they can never break the apply.
     if (typeof snapshotSignalsNow === "function") snapshotSignalsNow();
+    if (typeof takeSnapshot === "function") {
+      try {
+        takeSnapshot(true);
+      } catch (_e) {}
+    }
     report("ok", { updated, unmatched, doc });
     return true;
   }
@@ -834,8 +848,14 @@ document.getElementById("clearTV").onclick = () => {
         "</b> prices (VL). Fees left unchanged \u2014 import the weekly file to refresh fees.";
     showOpcvmStamp();
     render();
-    // Fresh fund prices loaded -> snapshot signals (latest-of-day wins).
+    // Fresh fund NAVs change portfolio value too -> snapshot signals AND the
+    // portfolio-value point (latest-of-day wins). Guarded.
     snapshotSignalsNow();
+    if (typeof takeSnapshot === "function") {
+      try {
+        takeSnapshot(true);
+      } catch (_e) {}
+    }
   };
 
   function showOpcvmStamp() {
