@@ -3,23 +3,31 @@ updates:
   # npm dependencies (vite, vitest, and anything added later). This is the
   # high-value updater: it opens PRs when build/test tooling releases updates,
   # and each PR runs the CI test+build so you only merge if it stays green.
+  #
+  # Everything is batched into ONE grouped PR per week (including MAJOR bumps),
+  # so you review a single PR instead of one-per-package. Majors are grouped
+  # too - CI still runs on the PR, so a breaking test/build change is caught
+  # there before you merge. (Previously majors like vitest 4->5 arrived as their
+  # own separate PR because the group only covered minor/patch.)
   - package-ecosystem: npm
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      build-tooling:
+      npm-dependencies:
         patterns: ["*"]
-        update-types: ["minor", "patch"]
+        update-types: ["major", "minor", "patch"]
 
-  # GitHub Actions version updater. Only enable this once .github/workflows/
-  # exists at the repo root (it errors "workflow file not found" otherwise -
-  # which is what happened on the first run before the workflow was in place).
-  # Re-add by uncommenting when the deploy workflow is confirmed in the repo:
-  #
-  # - package-ecosystem: github-actions
-  #   directory: "/"
-  #   schedule:
-  #     interval: weekly
-  #   open-pull-requests-limit: 5
+  # GitHub Actions version updater. Enabled now that .github/workflows/
+  # deploy.yml exists at the repo root (it errored "workflow file not found"
+  # before the workflow was in place). Also batched into one weekly PR.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["major", "minor", "patch"]

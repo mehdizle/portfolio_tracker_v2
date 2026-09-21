@@ -39,21 +39,26 @@ jobs:
       - name: Fetch prices -> public/prices.json
         run: node scripts/fetch-prices.mjs
 
-      - name: Commit prices.json + trigger deploy (only if changed)
+      - name: Commit prices.json + price-history.json + trigger deploy (only if changed)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -n "$(git status --porcelain public/prices.json)" ]; then
+          # Two files can change per run: prices.json (latest snapshot, only when
+          # stock prices moved) and price-history.json (one NEW daily row every
+          # run, even when prices are unchanged - a new date is a new curve
+          # point). Gate on BOTH so a fresh history row is never dropped just
+          # because prices happened to be flat that day.
+          if [ -n "$(git status --porcelain public/prices.json public/price-history.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add public/prices.json
-            git commit -m "chore: refresh prices.json (TradingView)"
+            git add public/prices.json public/price-history.json
+            git commit -m "chore: refresh prices.json + price-history.json (TradingView)"
             git push
             # A commit made with GITHUB_TOKEN does NOT trigger other workflows'
             # `push` events (GitHub's anti-recursion safeguard). So the deploy
-            # would never run and the new prices.json would never reach Pages.
-            # Explicitly dispatch deploy.yml so the site rebuilds with the file.
+            # would never run and the new files would never reach Pages.
+            # Explicitly dispatch deploy.yml so the site rebuilds with them.
             gh workflow run deploy.yml --ref main
           else
-            echo "prices.json unchanged - nothing to commit / deploy"
+            echo "prices.json + price-history.json unchanged - nothing to commit / deploy"
           fi
