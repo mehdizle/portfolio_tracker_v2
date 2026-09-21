@@ -11821,7 +11821,110 @@ function takeSnapshot(auto) {
   }
   return snaps;
 }
+// Cached daily price+index history (public/price-history.json). Loaded once,
+// lazily; a re-render after it arrives redraws the recomputed curve. null =
+// not yet loaded; false = load failed/absent (fall back to snapshot chart).
+let PRICE_HISTORY = null;
+let _priceHistLoading = false;
+function loadPriceHistory() {
+  if (PRICE_HISTORY !== null || _priceHistLoading) return;
+  _priceHistLoading = true;
+  fetch("price-history.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((doc) => {
+      PRICE_HISTORY =
+        doc && Array.isArray(doc.rows) && doc.rows.length ? doc : false;
+      _priceHistLoading = false;
+      try {
+        renderHistory();
+      } catch (_e) {}
+    })
+    .catch(() => {
+      PRICE_HISTORY = false;
+      _priceHistLoading = false;
+    });
+}
+
 function renderHistory() {
+  loadPriceHistory();
+  // Prefer the RECOMPUTED curve (dense, gap-free, benchmarked) when the daily
+  // price history is available; otherwise fall back to the sparse snapshot chart.
+  if (
+    PRICE_HISTORY &&
+    typeof __core !== "undefined" &&
+    __core.valueHistory &&
+    typeof TXNS !== "undefined"
+  ) {
+    if (renderHistoryRecomputed()) return;
+  }
+  renderHistorySnapshots();
+}
+
+// Recomputed curve: portfolio %-return vs the selected benchmark index, from
+// the local transaction ledger x the committed daily price history. Returns
+// true if it rendered, false if there was nothing to show (caller falls back).
+function renderHistoryRecomputed() {
+  const benchSel =
+    (document.getElementById("histBenchmark") || {}).value || "masi";
+  const r = __core.valueHistory.valueVsBenchmark(TXNS, PRICE_HISTORY);
+  if (!r.points.length) return false;
+
+  const note = document.getElementById("snapNote");
+  if (note)
+    note.textContent =
+      r.points.length +
+      " daily points \u00B7 " +
+      r.first +
+      " \u2192 " +
+      r.last +
+      " \u00B7 % return vs " +
+      (benchSel === "msi20"
+        ? "MASI 20"
+        : benchSel === "none"
+          ? "\u2014"
+          : "MASI") +
+      " (auto-updated daily)";
+
+  const tx2 = themeColor("text2");
+  const cats = r.points.map((p) => p.date);
+  const series = [
+    {
+      name: "Portfolio",
+      type: "area",
+      color: themeColor("primary"),
+      fillOpacity: 0.14,
+      data: r.valuePct.map((x) => (x.pct == null ? null : +x.pct.toFixed(2))),
+    },
+  ];
+  if (benchSel !== "none") {
+    const bench = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
+    series.push({
+      name: benchSel === "msi20" ? "MASI 20" : "MASI",
+      type: "line",
+      color: themeColor("warn"),
+      dashStyle: "ShortDash",
+      data: bench.map((x) => (x.pct == null ? null : +x.pct.toFixed(2))),
+    });
+  }
+  CH_history = Highcharts.chart("historyChart", {
+    chart: { backgroundColor: "transparent" },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { itemStyle: { color: tx2 } },
+    xAxis: { categories: cats, labels: { style: { color: tx2 } } },
+    yAxis: {
+      title: { text: null },
+      gridLineColor: "#2c3742",
+      labels: { style: { color: tx2 }, format: "{value:,.1f}%" },
+    },
+    tooltip: { shared: true, valueDecimals: 2, valueSuffix: "%" },
+    series,
+  });
+  return true;
+}
+
+// Legacy fallback: the sparse, snapshot-based Current Value / Lifetime chart.
+function renderHistorySnapshots() {
   let snaps = loadSnapshots();
   const note = document.getElementById("snapNote");
   if (snaps.length < 2) {
@@ -11869,6 +11972,16 @@ function renderHistory() {
   });
 }
 document.getElementById("snapBtn").onclick = () => takeSnapshot(false);
+// Benchmark selector re-renders the recomputed curve with the chosen index.
+{
+  const _hb = document.getElementById("histBenchmark");
+  if (_hb)
+    _hb.onchange = () => {
+      try {
+        renderHistory();
+      } catch (_e) {}
+    };
+}
 // Snapshots are captured on BACKUP (reliable & travels with the file), not daily-on-open.
 
 // ---------- Transactions multi-select (bulk delete) ----------

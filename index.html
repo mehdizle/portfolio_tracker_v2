@@ -845,14 +845,32 @@
         <div class="sec">
           <h2 style="justify-content: space-between">
             <span>&#x1F4C8; Portfolio Value Over Time</span>
-            <button
-              class="btn sec2"
-              id="snapBtn"
-              style="font-size: 12px"
-              data-tip="Save today's portfolio value as a snapshot"
+            <span
+              style="
+                display: inline-flex;
+                gap: 8px;
+                align-items: center;
+                font-weight: 400;
+              "
             >
-              &#x1F4F8; Save snapshot
-            </button>
+              <label
+                class="mini"
+                style="display: inline-flex; gap: 4px; align-items: center"
+                >Benchmark<select id="histBenchmark" style="font-size: 12px">
+                  <option value="masi">MASI</option>
+                  <option value="msi20">MASI 20</option>
+                  <option value="none">None</option>
+                </select></label
+              >
+              <button
+                class="btn sec2"
+                id="snapBtn"
+                style="font-size: 12px"
+                data-tip="Save today's portfolio value as a snapshot"
+              >
+                &#x1F4F8; Save snapshot
+              </button>
+            </span>
           </h2>
           <div id="historyChart" style="height: 280px"></div>
           <div class="mini" id="snapNote"></div>

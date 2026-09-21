@@ -23,7 +23,13 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "public", "prices.json");
+const HISTORY_OUT = join(ROOT, "public", "price-history.json");
 const ENDPOINT = "https://scanner.tradingview.com/morocco/scan";
+
+// Casablanca indices for the benchmark line (validated: CSEMA:MASI, CSEMA:MSI20).
+const INDEX_SYMBOLS = { masi: "CSEMA:MASI", msi20: "CSEMA:MSI20" };
+// Keep ~3 years of daily rows in the history file (weekdays only ~= 260/yr).
+const HISTORY_MAX_ROWS = 820;
 
 // TradingView symbol -> app master ticker, when they differ. Mirrors
 // TV_TICKER_ALIAS in js/06b-import.js. On TradingView, SSOT is listed as SOT.
@@ -47,7 +53,11 @@ const FIELD_MAP = [
   { key: "dps", tv: "dps_common_stock_prim_issue_fy" },
   { key: "fcf", tv: "free_cash_flow_per_share_ttm" },
   { key: "revenue", tv: "total_revenue" },
-  { key: "epsGrowth", tv: "earnings_per_share_diluted_yoy_growth_ttm", scale100: true },
+  {
+    key: "epsGrowth",
+    tv: "earnings_per_share_diluted_yoy_growth_ttm",
+    scale100: true,
+  },
 ];
 
 // `name` first (the symbol/company), then every mapped TV field in order.
@@ -81,7 +91,10 @@ function toRecords(payload) {
   COLUMNS.forEach((c, i) => (idx[c] = i));
   const out = [];
   for (const row of rows) {
-    const sym = String(row.s || "").split(":").pop().toUpperCase(); // "CSEMA:ATW" -> "ATW"
+    const sym = String(row.s || "")
+      .split(":")
+      .pop()
+      .toUpperCase(); // "CSEMA:ATW" -> "ATW"
     if (!sym) continue;
     const ticker = TV_TICKER_ALIAS[sym] || sym;
     const d = row.d || [];
@@ -99,6 +112,79 @@ function toRecords(payload) {
   return out;
 }
 
+// Fetch the two index levels (MASI, MSI20) via the explicit-symbols scan.
+// Returns { masi, msi20 } with numbers or null. Never throws - a failed index
+// fetch just yields nulls (the value curve still works; benchmark point skipped).
+async function fetchIndices() {
+  const out = { masi: null, msi20: null };
+  try {
+    const body = {
+      symbols: { tickers: Object.values(INDEX_SYMBOLS) },
+      columns: ["close"],
+    };
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "User-Agent": "portfolio-tracker-v2 (github actions price refresh)",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return out;
+    const payload = await res.json();
+    for (const row of payload.data || []) {
+      const close = (row.d || [])[0];
+      if (row.s === INDEX_SYMBOLS.masi && typeof close === "number")
+        out.masi = close;
+      if (row.s === INDEX_SYMBOLS.msi20 && typeof close === "number")
+        out.msi20 = close;
+    }
+  } catch (_e) {
+    /* leave nulls */
+  }
+  return out;
+}
+
+// Append today's closes + index levels to public/price-history.json as ONE row
+// per date (latest wins), pruned to HISTORY_MAX_ROWS. Public data only - no
+// transactions, nothing personal. This is what the app replays against the
+// (local) transaction ledger to draw the value-over-time curve + benchmark.
+function appendHistory(records, indices) {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const closes = {};
+  for (const r of records) if (r.price != null) closes[r.ticker] = r.price;
+
+  let hist = { _kind: "casa_price_history", rows: [] };
+  if (existsSync(HISTORY_OUT)) {
+    try {
+      const prev = JSON.parse(readFileSync(HISTORY_OUT, "utf8"));
+      if (prev && Array.isArray(prev.rows)) hist = prev;
+    } catch (_e) {
+      /* unreadable -> start fresh */
+    }
+  }
+  // One row per date: drop any existing same-day row, then append the fresh one.
+  hist.rows = hist.rows.filter((r) => r && r.date !== today);
+  hist.rows.push({
+    date: today,
+    masi: indices.masi,
+    msi20: indices.msi20,
+    closes,
+  });
+  hist.rows.sort((a, b) => (a.date < b.date ? -1 : 1));
+  if (hist.rows.length > HISTORY_MAX_ROWS)
+    hist.rows = hist.rows.slice(hist.rows.length - HISTORY_MAX_ROWS);
+  hist._updated = new Date().toISOString();
+  hist._count = hist.rows.length;
+
+  mkdirSync(dirname(HISTORY_OUT), { recursive: true });
+  writeFileSync(HISTORY_OUT, JSON.stringify(hist) + "\n", "utf8");
+  console.log(
+    `fetch-prices: history now ${hist.rows.length} daily rows (masi=${indices.masi}, msi20=${indices.msi20}).`,
+  );
+}
+
 async function main() {
   let payload;
   try {
@@ -109,9 +195,18 @@ async function main() {
   }
   const records = toRecords(payload);
   if (!records.length) {
-    console.error("fetch-prices: no records parsed - aborting (not overwriting)");
+    console.error(
+      "fetch-prices: no records parsed - aborting (not overwriting)",
+    );
     process.exit(1);
   }
+
+  // Always append today's daily history row (closes + index levels). Runs even
+  // when prices.json is unchanged, since a new DATE is a new curve point. Index
+  // fetch is best-effort (null on failure; the value curve still works).
+  const indices = await fetchIndices();
+  appendHistory(records, indices);
+
   const doc = {
     _source: "tradingview:morocco",
     _fetched: new Date().toISOString(),
@@ -125,10 +220,11 @@ async function main() {
   if (existsSync(OUT)) {
     try {
       const prev = JSON.parse(readFileSync(OUT, "utf8"));
-      const same =
-        JSON.stringify(prev.records) === JSON.stringify(records);
+      const same = JSON.stringify(prev.records) === JSON.stringify(records);
       if (same) {
-        console.log(`fetch-prices: ${records.length} records, unchanged - not rewriting.`);
+        console.log(
+          `fetch-prices: ${records.length} records, unchanged - not rewriting.`,
+        );
         return;
       }
     } catch (_e) {
@@ -137,7 +233,9 @@ async function main() {
   }
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, json, "utf8");
-  console.log(`fetch-prices: wrote ${records.length} records to public/prices.json`);
+  console.log(
+    `fetch-prices: wrote ${records.length} records to public/prices.json`,
+  );
 }
 
 main();
