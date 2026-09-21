@@ -16,8 +16,9 @@
 //        merge; the slot's month is the modal month of its members).
 //     3. For each slot, build a per-year amount series and project next year:
 //          - method "flat":  only one year -> repeat that amount.
-//          - method "trend": >=2 years -> apply avg year-over-year growth
-//            (geometric mean of ratios), clamped to a sane band.
+//          - method "trend": >=2 years -> apply the compound annual growth
+//            rate from the first to the last year (robust to a single
+//            mid-window spike), clamped to a sane band.
 //     4. The ticker's annual projected DPS = sum of its slots' projections.
 //
 //   The current (ref) year is usually INCOMPLETE (still being entered), so

@@ -304,7 +304,7 @@ function renderSignalOutcomes() {
   }
   if (!rows.length) {
     host.innerHTML =
-      '<div class="mini" style="color:var(--muted)">Signal-outcome tracking is on. Once your saved signals are at least 30 days old, this panel will show how Buy / Hold / Sell calls have performed since. (Snapshots are taken automatically each day you open this tab.)</div>';
+      '<div class="mini" style="color:var(--muted)">Signal-outcome tracking is on. Once your saved signals are at least 30 days old, this panel will show how Buy / Hold / Sell calls have performed since. (Prices update automatically from the daily repo history \u2014 no need to keep the app open.)</div>';
     return;
   }
   // Sort by EXCESS return (signal value-add) when available, else raw return.
