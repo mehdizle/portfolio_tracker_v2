@@ -750,6 +750,12 @@ textarea {
   border-color: transparent;
   box-shadow: 0 4px 14px -4px rgba(59, 130, 246, 0.6);
 }
+/* Global "Fetch latest" button: subtle warn tint when the served prices are
+   stale (>1 day old, e.g. before today's 18:00 UTC refresh or a missed run). */
+#fetchPricesGlobal.stale {
+  border-color: var(--warn, #f5a623);
+  color: var(--warn, #f5a623);
+}
 .salf {
   display: flex;
   flex-direction: column;

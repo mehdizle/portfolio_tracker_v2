@@ -191,63 +191,89 @@ document.getElementById("clearTV").onclick = () => {
 // run yet, or offline), it does nothing destructive: the manual paste box stays
 // exactly as-is and a hint points the user there.
 (function () {
-  const btn = document.getElementById("fetchPrices");
-  if (!btn) return;
-  const stamp = document.getElementById("fetchStamp");
-  const res = document.getElementById("tvResult");
+  const dataBtn = document.getElementById("fetchPrices"); // Data-tab button
+  const stamp = document.getElementById("fetchStamp"); // Data-tab freshness line
+  const res = document.getElementById("tvResult"); // Data-tab result span
+  const gBtn = document.getElementById("fetchPricesGlobal"); // top-bar button (all pages)
+  const gLbl = document.getElementById("fetchPricesGlobalLabel");
 
-  // Reflect the file's own timestamp on load (if present), so the user always
-  // knows how fresh the auto-fetched data is - without importing it.
-  const showStamp = (iso, count) => {
-    if (!stamp) return;
-    try {
-      const d = new Date(iso);
-      stamp.textContent =
-        "\uD83C\uDF10 Auto-fetched prices available \u00B7 " +
-        d.toLocaleString() +
-        (count ? " \u00B7 " + count + " tickers" : "");
-    } catch (_e) {
-      stamp.textContent = "";
+  const REFRESH_URL =
+    "https://github.com/mehdizle/portfolio_tracker_v2/actions/workflows/fetch-prices.yml";
+
+  // Human "how old" from an ISO date. Returns { text, staleDays } where
+  // staleDays counts whole days since the file was fetched.
+  const freshness = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d)) return { text: "", staleDays: Infinity };
+    const ms = Date.now() - d.getTime();
+    const days = Math.floor(ms / 86400000);
+    const hrs = Math.floor(ms / 3600000);
+    let rel;
+    if (hrs < 1) rel = "just now";
+    else if (hrs < 24) rel = hrs + "h ago";
+    else if (days === 1) rel = "yesterday";
+    else rel = days + " days ago";
+    return { text: rel, staleDays: days, when: d };
+  };
+
+  // Update the Data-tab freshness line + the global button label/tooltip from a
+  // fetched doc (or lack thereof). Never imports - purely informational.
+  const reflectStamp = (doc) => {
+    const f = doc && doc._fetched ? freshness(doc._fetched) : null;
+    if (stamp) {
+      stamp.innerHTML = f
+        ? "\uD83C\uDF10 Auto-fetched prices \u00B7 <b>" +
+          escapeHtml(f.text) +
+          "</b> (" +
+          escapeHtml(f.when.toLocaleString()) +
+          ")" +
+          (doc._count ? " \u00B7 " + doc._count + " tickers" : "") +
+          (f.staleDays >= 1
+            ? ' \u00B7 <span style="color:var(--muted)">daily refresh runs 18:00 UTC \u00B7 <a href="' +
+              REFRESH_URL +
+              '" target="_blank" rel="noopener" style="color:var(--primary2)">refresh now</a></span>'
+            : "")
+        : "";
+    }
+    if (gBtn) {
+      // Color the global button by freshness: fresh = normal, stale (>1 day
+      // old, e.g. a missed run or before today's 18:00) = a subtle warn tint.
+      gBtn.dataset.tip = f
+        ? "Auto-fetched prices from " +
+          f.when.toLocaleString() +
+          " (" +
+          f.text +
+          "). Click to apply. Daily refresh runs 18:00 UTC."
+        : "Load the latest auto-fetched prices (updated daily by CI).";
+      gBtn.classList.toggle("stale", !!(f && f.staleDays >= 1));
     }
   };
-  // Peek at the file on tab load (non-blocking) to populate the stamp.
+
+  // Load prices.json once on boot to populate the freshness indicators.
   fetch("prices.json", { cache: "no-store" })
     .then((r) => (r.ok ? r.json() : null))
-    .then((doc) => {
-      if (doc && doc._fetched) showStamp(doc._fetched, doc._count);
-    })
-    .catch(() => {});
+    .then((doc) => reflectStamp(doc))
+    .catch(() => reflectStamp(null));
 
-  btn.onclick = async () => {
-    if (res) {
-      res.style.color = "var(--muted)";
-      res.textContent = "\u2026 fetching latest prices";
-    }
+  // Shared fetch+apply. `report` is a small callback for status text so both the
+  // Data-tab button (rich #tvResult) and the global button (its label) can show
+  // progress/outcome. Returns true on a successful apply.
+  async function fetchAndApply(report) {
+    report("busy", "\u2026 loading latest prices");
     let doc = null;
     try {
       const r = await fetch("prices.json", { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       doc = await r.json();
     } catch (e) {
-      if (res) {
-        res.style.color = "var(--warn)";
-        res.innerHTML =
-          "\u26A0 Couldn't fetch auto prices (" +
-          escapeHtml(e && e.message ? e.message : "unavailable") +
-          "). Paste your TradingView rows above and click <b>Apply pasted</b>.";
-      }
-      return;
+      report("err", e && e.message ? e.message : "unavailable");
+      return false;
     }
     const records = (doc && Array.isArray(doc.records) && doc.records) || [];
     if (!records.length) {
-      if (res) {
-        res.style.color = "var(--warn)";
-        res.textContent =
-          "\u26A0 Auto prices file is empty. Use manual paste instead.";
-      }
-      return;
+      report("empty");
+      return false;
     }
-    // Import through the shared pipeline (identical to a manual paste apply).
     let updated = 0;
     const unmatched = [];
     for (const rec of records) {
@@ -260,23 +286,80 @@ document.getElementById("clearTV").onclick = () => {
       updated++;
     }
     safeSetItem("casa_master_v1", JSON.stringify(M));
-    if (res) {
-      res.style.color = "var(--success)";
-      res.innerHTML =
-        "\u2705 Fetched &amp; applied <b>" +
-        updated +
-        "</b> tickers." +
-        (unmatched.length
-          ? ' <span style="color:var(--muted)">Unmatched: ' +
-            [...new Set(unmatched)].slice(0, 8).join(", ") +
-            (unmatched.length > 8 ? "\u2026" : "") +
-            "</span>"
-          : "");
-    }
-    showStamp(doc._fetched, doc._count);
+    reflectStamp(doc);
     render();
     if (typeof snapshotSignalsNow === "function") snapshotSignalsNow();
-  };
+    report("ok", { updated, unmatched, doc });
+    return true;
+  }
+
+  // Data-tab button: rich messages in #tvResult.
+  if (dataBtn) {
+    dataBtn.onclick = () =>
+      fetchAndApply((kind, info) => {
+        if (!res) return;
+        if (kind === "busy") {
+          res.style.color = "var(--muted)";
+          res.textContent = info;
+        } else if (kind === "err") {
+          res.style.color = "var(--warn)";
+          res.innerHTML =
+            "\u26A0 Couldn't fetch auto prices (" +
+            escapeHtml(info) +
+            "). Paste your TradingView rows above and click <b>Apply pasted</b>.";
+        } else if (kind === "empty") {
+          res.style.color = "var(--warn)";
+          res.textContent =
+            "\u26A0 Auto prices file is empty. Use manual paste instead.";
+        } else if (kind === "ok") {
+          res.style.color = "var(--success)";
+          res.innerHTML =
+            "\u2705 Fetched &amp; applied <b>" +
+            info.updated +
+            "</b> tickers." +
+            (info.unmatched.length
+              ? ' <span style="color:var(--muted)">Unmatched: ' +
+                [...new Set(info.unmatched)].slice(0, 8).join(", ") +
+                (info.unmatched.length > 8 ? "\u2026" : "") +
+                "</span>"
+              : "");
+        }
+      });
+  }
+
+  // Global top-bar button (all pages): brief feedback in its own label, then
+  // a toast. Reuses the exact same fetch+apply pipeline.
+  if (gBtn) {
+    gBtn.onclick = () =>
+      fetchAndApply((kind, info) => {
+        if (gLbl) {
+          if (kind === "busy") gLbl.textContent = "Fetching\u2026";
+          else if (kind === "ok") gLbl.textContent = "Fetch latest";
+          else gLbl.textContent = "Fetch latest";
+        }
+        if (kind === "ok") {
+          if (typeof toast === "function")
+            toast(
+              "Applied latest prices to " + info.updated + " tickers.",
+              "ok",
+            );
+        } else if (kind === "err") {
+          if (typeof toast === "function")
+            toast(
+              "Couldn't fetch prices (" +
+                info +
+                "). Use Data \u2192 paste, or run the refresh in GitHub Actions.",
+              "warn",
+            );
+        } else if (kind === "empty") {
+          if (typeof toast === "function")
+            toast(
+              "No auto prices available yet. Use Data \u2192 paste.",
+              "warn",
+            );
+        }
+      });
+  }
 })();
 
 // ---------- OPCVM performance-file import (native unzip, no libs) ----------

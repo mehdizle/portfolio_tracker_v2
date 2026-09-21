@@ -260,12 +260,21 @@
         </button>
         <button
           class="app-btn"
+          id="fetchPricesGlobal"
+          type="button"
+          aria-label="Fetch latest prices"
+          data-tip="Load the latest auto-fetched prices (updated daily by CI)."
+          style="margin-left: auto"
+        >
+          &#x1F310; <span id="fetchPricesGlobalLabel">Fetch latest</span>
+        </button>
+        <button
+          class="app-btn"
           id="marketSessionBtn"
           type="button"
           data-act="openMarketSession"
           aria-label="Casablanca market session status"
           data-tip="Live Casablanca Stock Exchange session status (Continuous & Fixing groups)"
-          style="margin-left: auto"
         >
           &#x1F551; <span id="marketSessionBtnLabel">Market</span>
         </button>
