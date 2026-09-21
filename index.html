@@ -2573,10 +2573,22 @@
               "
             ></textarea>
             <div class="form-row" style="margin-top: 10px">
-              <button class="btn" id="applyTV">Apply prices</button>
+              <button
+                class="btn"
+                id="fetchPrices"
+                data-tip="Load the latest prices auto-fetched from TradingView (updated daily by CI). Falls back to manual paste if unavailable."
+              >
+                &#x1F310; Fetch latest
+              </button>
+              <button class="btn sec2" id="applyTV">Apply pasted</button>
               <button class="btn sec2" id="clearTV">Clear</button>
               <span class="mini" id="tvResult"></span>
             </div>
+            <div
+              class="mini"
+              id="fetchStamp"
+              style="margin-top: 6px; color: var(--muted)"
+            ></div>
           </div>
           <div class="sec">
             <h2>&#x1F4C5; Import Dividend Calendar</h2>

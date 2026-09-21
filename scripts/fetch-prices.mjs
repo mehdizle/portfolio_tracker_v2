@@ -1,0 +1,143 @@
+// fetch-prices.mjs - fetch latest Casablanca (CSE) prices + fundamentals from
+// TradingView's public scanner endpoint and write public/prices.json.
+//
+// Runs in GitHub Actions (Node >= 22), NOT in the browser: the browser can't
+// call TradingView directly (CORS), but a server/CI request has no such limit.
+// This is the same JSON POST the `tradingview-screener` Python library makes -
+// no library, no auth, no scraping.
+//
+// Output shape is exactly what the app's TradingView importer consumes
+// (src/core/master-schema.js -> applyTvRec / TV_METRICS): a list of records with
+// keys price, low, high, pe, pb, peg, divy, ev, netdebt, roe, eps, bvps, dps,
+// fcf, revenue, epsGrowth. divy/roe/epsGrowth are stored as DECIMALS (%/100),
+// matching how the paste parser scales them. CATEGORY IS DELIBERATELY OMITTED so
+// the app's manual categories are never overwritten.
+//
+// The app never trusts this file blindly: the "Fetch latest" button imports it
+// through the SAME applyTvRec pipeline as a manual paste (null/NaN skipped), and
+// falls back to manual paste if the file is missing/stale/unreadable.
+
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const OUT = join(ROOT, "public", "prices.json");
+const ENDPOINT = "https://scanner.tradingview.com/morocco/scan";
+
+// TradingView symbol -> app master ticker, when they differ. Mirrors
+// TV_TICKER_ALIAS in js/06b-import.js. On TradingView, SSOT is listed as SOT.
+const TV_TICKER_ALIAS = { SOT: "SSOT" };
+
+// app record key -> TradingView scanner field (validated against the Morocco
+// screener). `scale100: true` converts a percentage to a decimal (3% -> 0.03).
+const FIELD_MAP = [
+  { key: "price", tv: "close" },
+  { key: "low", tv: "Low.All" },
+  { key: "high", tv: "High.All" },
+  { key: "pe", tv: "price_earnings_ttm" },
+  { key: "pb", tv: "price_book_ratio" },
+  { key: "peg", tv: "price_earnings_growth_ttm" },
+  { key: "divy", tv: "dividends_yield_current", scale100: true },
+  { key: "ev", tv: "enterprise_value_ebitda_ttm" },
+  { key: "netdebt", tv: "total_debt_to_ebitda_fq" },
+  { key: "roe", tv: "return_on_equity", scale100: true },
+  { key: "eps", tv: "earnings_per_share_basic_ttm" },
+  { key: "bvps", tv: "book_value_per_share_fq" },
+  { key: "dps", tv: "dps_common_stock_prim_issue_fy" },
+  { key: "fcf", tv: "free_cash_flow_per_share_ttm" },
+  { key: "revenue", tv: "total_revenue" },
+  { key: "epsGrowth", tv: "earnings_per_share_diluted_yoy_growth_ttm", scale100: true },
+];
+
+// `name` first (the symbol/company), then every mapped TV field in order.
+const COLUMNS = ["name", ...FIELD_MAP.map((f) => f.tv)];
+
+async function fetchScan() {
+  const body = {
+    columns: COLUMNS,
+    range: [0, 500],
+    markets: ["morocco"],
+    sort: { sortBy: "name", sortOrder: "asc" },
+  };
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "User-Agent": "portfolio-tracker-v2 (github actions price refresh)",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`scanner HTTP ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+function toRecords(payload) {
+  const rows = (payload && payload.data) || [];
+  const idx = {};
+  COLUMNS.forEach((c, i) => (idx[c] = i));
+  const out = [];
+  for (const row of rows) {
+    const sym = String(row.s || "").split(":").pop().toUpperCase(); // "CSEMA:ATW" -> "ATW"
+    if (!sym) continue;
+    const ticker = TV_TICKER_ALIAS[sym] || sym;
+    const d = row.d || [];
+    const rec = { ticker };
+    for (const f of FIELD_MAP) {
+      let v = d[idx[f.tv]];
+      if (v == null || (typeof v === "number" && !isFinite(v))) continue; // skip null/NaN
+      if (typeof v === "number" && f.scale100) v = v / 100;
+      rec[f.key] = v;
+    }
+    // Only keep a record if it has at least a price (nothing else is useful
+    // without it, and it keeps the file tight).
+    if (rec.price != null) out.push(rec);
+  }
+  return out;
+}
+
+async function main() {
+  let payload;
+  try {
+    payload = await fetchScan();
+  } catch (e) {
+    console.error("fetch-prices: request failed -", e.message);
+    process.exit(1); // fail the CI step; the app keeps its previous prices.json
+  }
+  const records = toRecords(payload);
+  if (!records.length) {
+    console.error("fetch-prices: no records parsed - aborting (not overwriting)");
+    process.exit(1);
+  }
+  const doc = {
+    _source: "tradingview:morocco",
+    _fetched: new Date().toISOString(),
+    _count: records.length,
+    records,
+  };
+  const json = JSON.stringify(doc, null, 1) + "\n";
+
+  // Skip writing when only the timestamp would change, so CI doesn't create an
+  // empty-diff commit. Compare the `records` payload, ignoring _fetched.
+  if (existsSync(OUT)) {
+    try {
+      const prev = JSON.parse(readFileSync(OUT, "utf8"));
+      const same =
+        JSON.stringify(prev.records) === JSON.stringify(records);
+      if (same) {
+        console.log(`fetch-prices: ${records.length} records, unchanged - not rewriting.`);
+        return;
+      }
+    } catch (_e) {
+      /* unreadable previous file -> just overwrite */
+    }
+  }
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT, json, "utf8");
+  console.log(`fetch-prices: wrote ${records.length} records to public/prices.json`);
+}
+
+main();

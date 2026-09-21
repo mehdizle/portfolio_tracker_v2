@@ -9236,6 +9236,104 @@ document.getElementById("clearTV").onclick = () => {
   document.getElementById("tvResult").textContent = "";
 };
 
+// ---------- "Fetch latest": load CI-produced public/prices.json ----------
+// Prices + fundamentals are refreshed daily by .github/workflows/fetch-prices.yml
+// (which runs scripts/fetch-prices.mjs against TradingView's scanner) and
+// committed as public/prices.json. This button loads that file and imports it
+// through the SAME applyTvRec pipeline as a manual paste - so category is
+// preserved (applyTvRec omits it here since the file carries no category), and
+// null/NaN fields are skipped. If the file is missing/unreadable (e.g. CI hasn't
+// run yet, or offline), it does nothing destructive: the manual paste box stays
+// exactly as-is and a hint points the user there.
+(function () {
+  const btn = document.getElementById("fetchPrices");
+  if (!btn) return;
+  const stamp = document.getElementById("fetchStamp");
+  const res = document.getElementById("tvResult");
+
+  // Reflect the file's own timestamp on load (if present), so the user always
+  // knows how fresh the auto-fetched data is - without importing it.
+  const showStamp = (iso, count) => {
+    if (!stamp) return;
+    try {
+      const d = new Date(iso);
+      stamp.textContent =
+        "\uD83C\uDF10 Auto-fetched prices available \u00B7 " +
+        d.toLocaleString() +
+        (count ? " \u00B7 " + count + " tickers" : "");
+    } catch (_e) {
+      stamp.textContent = "";
+    }
+  };
+  // Peek at the file on tab load (non-blocking) to populate the stamp.
+  fetch("prices.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((doc) => {
+      if (doc && doc._fetched) showStamp(doc._fetched, doc._count);
+    })
+    .catch(() => {});
+
+  btn.onclick = async () => {
+    if (res) {
+      res.style.color = "var(--muted)";
+      res.textContent = "\u2026 fetching latest prices";
+    }
+    let doc = null;
+    try {
+      const r = await fetch("prices.json", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      doc = await r.json();
+    } catch (e) {
+      if (res) {
+        res.style.color = "var(--warn)";
+        res.innerHTML =
+          "\u26A0 Couldn't fetch auto prices (" +
+          escapeHtml(e && e.message ? e.message : "unavailable") +
+          "). Paste your TradingView rows above and click <b>Apply pasted</b>.";
+      }
+      return;
+    }
+    const records = (doc && Array.isArray(doc.records) && doc.records) || [];
+    if (!records.length) {
+      if (res) {
+        res.style.color = "var(--warn)";
+        res.textContent =
+          "\u26A0 Auto prices file is empty. Use manual paste instead.";
+      }
+      return;
+    }
+    // Import through the shared pipeline (identical to a manual paste apply).
+    let updated = 0;
+    const unmatched = [];
+    for (const rec of records) {
+      const tk = TV_TICKER_ALIAS[rec.ticker] || rec.ticker;
+      if (!tk || !M[tk]) {
+        if (rec.ticker) unmatched.push(rec.ticker);
+        continue;
+      }
+      __core.masterSchema.applyTvRec(M, tk, rec); // category omitted -> manual cats preserved
+      updated++;
+    }
+    safeSetItem("casa_master_v1", JSON.stringify(M));
+    if (res) {
+      res.style.color = "var(--success)";
+      res.innerHTML =
+        "\u2705 Fetched &amp; applied <b>" +
+        updated +
+        "</b> tickers." +
+        (unmatched.length
+          ? ' <span style="color:var(--muted)">Unmatched: ' +
+            [...new Set(unmatched)].slice(0, 8).join(", ") +
+            (unmatched.length > 8 ? "\u2026" : "") +
+            "</span>"
+          : "");
+    }
+    showStamp(doc._fetched, doc._count);
+    render();
+    if (typeof snapshotSignalsNow === "function") snapshotSignalsNow();
+  };
+})();
+
 // ---------- OPCVM performance-file import (native unzip, no libs) ----------
 (function () {
   const fileInpDaily = document.getElementById("opcvmFileDaily");
