@@ -7,6 +7,8 @@ import {
   firstTxnDate,
   buildValueSeries,
   valueVsBenchmark,
+  closeOnOrBefore,
+  latestClose,
 } from "../src/core/value-history.js";
 
 const tx = (date, ticker, action, qty) => ({ date, ticker, action, qty });
@@ -39,7 +41,10 @@ describe("holdingsAsOf", () => {
   });
 
   it("drops fully-sold positions", () => {
-    const t = [tx("2026-01-01", "X", "BUY", 5), tx("2026-02-01", "X", "SELL", 5)];
+    const t = [
+      tx("2026-01-01", "X", "BUY", 5),
+      tx("2026-02-01", "X", "SELL", 5),
+    ];
     expect(holdingsAsOf(t, "2026-02-01")).toEqual({});
   });
 });
@@ -47,7 +52,10 @@ describe("holdingsAsOf", () => {
 describe("firstTxnDate", () => {
   it("returns the earliest date", () => {
     expect(
-      firstTxnDate([tx("2026-03-01", "A", "BUY", 1), tx("2026-01-09", "B", "BUY", 1)]),
+      firstTxnDate([
+        tx("2026-03-01", "A", "BUY", 1),
+        tx("2026-01-09", "B", "BUY", 1),
+      ]),
     ).toBe("2026-01-09");
   });
   it("null when empty", () => {
@@ -132,5 +140,38 @@ describe("valueVsBenchmark (rebased %)", () => {
     const r = valueVsBenchmark(txns, h2);
     expect(r.masiPct[0].pct).toBe(null);
     expect(r.msi20Pct[1].pct).toBeCloseTo(5, 4);
+  });
+});
+
+describe("closeOnOrBefore / latestClose (signal-outcome price lookups)", () => {
+  const h = hist([
+    row("2026-01-02", { ATW: 100, IAM: 50 }, 1, 1),
+    row("2026-01-03", { ATW: 110 }, 1, 1), // IAM didn't trade
+    row("2026-01-06", { ATW: 120, IAM: 55 }, 1, 1),
+  ]);
+
+  it("returns the close on the exact date when present", () => {
+    expect(closeOnOrBefore(h, "ATW", "2026-01-03")).toBe(110);
+  });
+
+  it("carries forward the nearest earlier close when the date has no quote", () => {
+    // IAM has no 2026-01-03 quote -> use its 2026-01-02 close (50).
+    expect(closeOnOrBefore(h, "IAM", "2026-01-03")).toBe(50);
+  });
+
+  it("returns null before the ticker first appears", () => {
+    expect(closeOnOrBefore(h, "ATW", "2026-01-01")).toBe(null);
+    expect(closeOnOrBefore(h, "ZZZ", "2026-01-06")).toBe(null);
+  });
+
+  it("latestClose returns the most recent available close", () => {
+    expect(latestClose(h, "ATW")).toBe(120);
+    expect(latestClose(h, "IAM")).toBe(55);
+    expect(latestClose(h, "ZZZ")).toBe(null);
+  });
+
+  it("is case-insensitive on ticker", () => {
+    expect(closeOnOrBefore(h, "atw", "2026-01-02")).toBe(100);
+    expect(latestClose(h, "iam")).toBe(55);
   });
 });

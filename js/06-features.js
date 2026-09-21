@@ -216,7 +216,36 @@ function renderSignalOutcomes() {
   const hist = loadSigHist();
   const today = new Date();
   const horizonDays = 30; // only judge calls at least this old
-  const curPrice = (tk) => (M[tk] && M[tk].price != null ? M[tk].price : null);
+  // Prices now come from the DAILY REPO HISTORY (price-history.json) when
+  // available, so outcomes densify hands-off (no app-open needed) and the
+  // "price then" is the actual close on the call date, not whatever was cached
+  // in the browser trail. Falls back to the trail's stored price / live M price
+  // when history is absent. The trail is still the source of the signal LABEL
+  // per date (only the browser knows what the engine rated when).
+  const _ph = typeof getPriceHistory === "function" ? getPriceHistory() : null;
+  if (typeof loadPriceHistory === "function") {
+    try {
+      loadPriceHistory();
+    } catch (_e) {}
+  }
+  const _VH = typeof __core !== "undefined" ? __core.valueHistory : null;
+  // Current price: latest close from history, else live master price.
+  const curPrice = (tk) => {
+    if (_ph && _VH) {
+      const c = _VH.latestClose(_ph, tk);
+      if (c != null) return c;
+    }
+    return M[tk] && M[tk].price != null ? M[tk].price : null;
+  };
+  // Price on a call date: close on/before that date from history, else the
+  // price the trail recorded at call time.
+  const priceThen = (h) => {
+    if (_ph && _VH) {
+      const c = _VH.closeOnOrBefore(_ph, h.ticker, h.date);
+      if (c != null) return c;
+    }
+    return h.price != null ? h.price : null;
+  };
   // Keep, per ticker, the OLDEST snapshot that is at least `horizonDays` old,
   // so each name is judged on its earliest qualifying call (longest track).
   const byTk = {};
@@ -235,8 +264,9 @@ function renderSignalOutcomes() {
   const benchByDate = {}; // date -> { sum, n }
   for (const s of hist) {
     const now0 = curPrice(s.ticker);
-    if (now0 == null || !s.price) continue;
-    const r0 = (now0 - s.price) / s.price;
+    const then0 = priceThen(s);
+    if (now0 == null || !then0) continue;
+    const r0 = (now0 - then0) / then0;
     benchByDate[s.date] = benchByDate[s.date] || { sum: 0, n: 0 };
     benchByDate[s.date].sum += r0;
     benchByDate[s.date].n += 1;
@@ -256,8 +286,9 @@ function renderSignalOutcomes() {
   for (const tk in byTk) {
     const h = byTk[tk];
     const now = curPrice(tk);
-    if (now == null || !h.price) continue;
-    const ret = (now - h.price) / h.price; // price change since the call
+    const then = priceThen(h); // close on the call date (repo history) or trail
+    if (now == null || !then) continue;
+    const ret = (now - then) / then; // price change since the call
     const bench = benchFor(h.date); // typical name starting the same day
     const excess = bench != null ? ret - bench : null; // signal value-add
     const bucket = _sigBucket(h.sig);
@@ -269,7 +300,7 @@ function renderSignalOutcomes() {
     }
     allSum += ret;
     allN++;
-    rows.push({ tk, h, now, ret, bench, excess, bucket });
+    rows.push({ tk, h, now, then, ret, bench, excess, bucket });
   }
   if (!rows.length) {
     host.innerHTML =
@@ -333,7 +364,7 @@ function renderSignalOutcomes() {
       "</span></td><td>" +
       escapeHtml(x.h.date) +
       "</td><td>" +
-      money(x.h.price) +
+      money(x.then) +
       "</td><td>" +
       money(x.now) +
       '</td><td class="' +

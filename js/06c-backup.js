@@ -8,7 +8,10 @@ const APP_LS_KEYS = [
   "casa_master_v1",
   "casa_divcal_v1",
   "casa_theme_v1",
-  "casa_snapshots_v1",
+  // casa_snapshots_v1 intentionally NOT backed up: the value-over-time curve is
+  // now recomputed from the repo-hosted daily price history x your (local)
+  // transactions, so stored snapshots are redundant and needn't travel in the
+  // backup. (The backup loop below also excludes it explicitly.)
   "casa_pending_v1",
   "casa_salary_v1",
   "casa_expenses_v1",
@@ -47,6 +50,7 @@ document.getElementById("backupAll").onclick = async () => {
         k &&
         k.indexOf("casa_") === 0 &&
         k !== "casa_last_backup_v1" &&
+        k !== "casa_snapshots_v1" && // redundant: recomputed from repo history
         k !== "casa_carPlanCollapsed_v1" &&
         k !== "casa_incCollapsed_v1" &&
         k !== "casa_last_tab_v1" &&
@@ -437,6 +441,11 @@ function loadPriceHistory() {
       _priceHistLoading = false;
     });
 }
+// Shared accessor so other modules (e.g. the Signals outcome panel) can use the
+// loaded daily price history. Returns the doc, or null if not (yet) loaded.
+function getPriceHistory() {
+  return PRICE_HISTORY && PRICE_HISTORY.rows ? PRICE_HISTORY : null;
+}
 
 function renderHistory() {
   loadPriceHistory();
@@ -564,7 +573,14 @@ function renderHistorySnapshots() {
     ],
   });
 }
-document.getElementById("snapBtn").onclick = () => takeSnapshot(false);
+// The manual "Save snapshot" button was removed: the value curve is now
+// recomputed automatically from the daily price history, so no manual capture
+// is needed. takeSnapshot() still runs on price-apply/backup as a fallback data
+// source. Guard kept in case the button is ever re-added.
+{
+  const _sb = document.getElementById("snapBtn");
+  if (_sb) _sb.onclick = () => takeSnapshot(false);
+}
 // Benchmark selector re-renders the recomputed curve with the chosen index.
 {
   const _hb = document.getElementById("histBenchmark");

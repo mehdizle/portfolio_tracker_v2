@@ -34,6 +34,34 @@ export function holdingsAsOf(txns, asOf) {
   return held;
 }
 
+// Close price for a ticker on `date`, or the nearest trading day AT OR BEFORE it
+// (carry-forward), scanning the history rows. Returns null if the ticker never
+// appears up to that date. Used by the signal-outcome panel to look up the
+// price on a past call date from the repo history (dense, hands-off) instead of
+// the browser trail. `history` is the price-history.json doc.
+export function closeOnOrBefore(history, ticker, date) {
+  const rows = (history && history.rows) || [];
+  const tk = String(ticker || "").toUpperCase();
+  let found = null;
+  for (const row of rows) {
+    if (!row || !row.date || row.date > date) break; // rows are date-sorted asc
+    const c = row.closes && row.closes[tk];
+    if (c != null && isFinite(+c) && +c > 0) found = +c;
+  }
+  return found;
+}
+
+// Latest available close for a ticker (last row that has it). null if none.
+export function latestClose(history, ticker) {
+  const rows = (history && history.rows) || [];
+  const tk = String(ticker || "").toUpperCase();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const c = rows[i] && rows[i].closes && rows[i].closes[tk];
+    if (c != null && isFinite(+c) && +c > 0) return +c;
+  }
+  return null;
+}
+
 // The earliest transaction date (ISO) or null if none. Used to start the curve
 // at the first day the portfolio existed rather than the history file's start.
 export function firstTxnDate(txns) {
