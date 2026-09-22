@@ -11,9 +11,17 @@ name: Fetch latest prices (TradingView)
 
 on:
   schedule:
-    # 18:00 UTC, Mon-Fri. The CSE closes ~16:30 local (Africa/Casablanca), so
-    # this leaves time for TradingView's end-of-day data to settle.
-    - cron: "0 18 * * 1-5"
+    # Mon-Fri. The CSE closes ~16:30 local (Africa/Casablanca), so this leaves
+    # time for TradingView's end-of-day data to settle.
+    #
+    # NOTE on timing: GitHub cron is best-effort - top-of-the-hour schedules
+    # (":00") queue behind everyone else's and can be delayed hours or skipped.
+    # So we (1) use an ODD MINUTE (:17), which is picked up sooner than :00, and
+    # (2) add a SECOND, later run as a backup. A duplicate run is harmless: the
+    # `concurrency` group serializes them and the commit step only writes when
+    # the data actually changed, so at most one no-op extra run per day.
+    - cron: "17 18 * * 1-5" # 18:17 UTC - primary, off-peak minute
+    - cron: "17 20 * * 1-5" # 20:17 UTC - backup if the primary was delayed/skipped
   workflow_dispatch: {}
 
 permissions:
