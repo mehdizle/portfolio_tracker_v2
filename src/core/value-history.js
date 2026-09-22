@@ -77,6 +77,108 @@ export function costBasisAsOf(txns, asOf) {
   return total;
 }
 
+// Build the LIFETIME-RETURN series: for each dated row, the total return as of
+// that date =
+//     (unrealized on shares still held) + (realized gains booked to date)
+//     + (dividends received to date)
+//   -------------------------------------------------------------------------
+//                    (total buy cost incurred to date)
+// expressed in %. This is the SAME definition as the dashboard "Lifetime return"
+// KPI (unreal + realized + divs over lifetime cost), so the chart's final point
+// matches that KPI - unlike cost-basis-on-current-holdings, which ignores booked
+// gains/dividends and can read negative while you're overall in profit.
+//
+// It replays the ledger chronologically with average-cost lots (matching the
+// KPI's basis), accumulating realized P&L and dividends, then marks the still-
+// held shares at each date's close (carry-forward for missing quotes). Amounts
+// here are GROSS of fees/tax (the module is fee-agnostic); the shape tracks the
+// KPI closely - fees are a small drag. Returns { points:[{date, pct}], first, last }.
+export function buildLifetimeSeries(txns, history, opts) {
+  const o = opts || {};
+  const rows = (history && history.rows) || [];
+  const startDate = o.from || firstTxnDate(txns) || null;
+
+  // Pre-sort transactions once (chronological), tag each with its ISO date.
+  const ordered = (txns || [])
+    .filter((t) => t && t.date && t.ticker)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const lastClose = {};
+  const points = [];
+  let ti = 0; // pointer into `ordered`
+
+  // Running state, advanced as we cross each row's date.
+  const lots = {}; // ticker -> { qty, cost } average-cost pool
+  let realized = 0; // cumulative realized gains
+  let divs = 0; // cumulative dividends
+  let buyCost = 0; // cumulative gross buy cost (lifetime cost denominator)
+
+  const applyTxn = (t) => {
+    const act = String(t.action || "").toUpperCase();
+    const qty = +t.qty;
+    if (!isFinite(qty) || !qty) return;
+    const tk = String(t.ticker).toUpperCase();
+    const px = +t.price;
+    const p = lots[tk] || (lots[tk] = { qty: 0, cost: 0 });
+    if (act === "BUY") {
+      p.qty += qty;
+      if (isFinite(px) && px > 0) {
+        p.cost += qty * px;
+        buyCost += qty * px;
+      }
+    } else if (act === "SELL") {
+      const avg = p.qty > 1e-9 ? p.cost / p.qty : 0;
+      if (isFinite(px) && px > 0) realized += qty * (px - avg); // gain vs avg cost
+      p.qty -= qty;
+      p.cost -= qty * avg;
+      if (p.qty <= 1e-9) {
+        p.qty = 0;
+        p.cost = 0;
+      }
+    } else if (act === "DIV") {
+      // DIV rows store per-share amount in price, share count in qty.
+      if (isFinite(px)) divs += qty * px;
+    }
+  };
+
+  for (const row of rows) {
+    if (!row || !row.date) continue;
+    const closes = row.closes || {};
+    for (const tk in closes) {
+      const c = +closes[tk];
+      if (isFinite(c) && c > 0) lastClose[tk] = c;
+    }
+    // Advance the ledger through every txn up to and including this row's date.
+    while (ti < ordered.length && ordered[ti].date <= row.date) {
+      applyTxn(ordered[ti]);
+      ti++;
+    }
+    if (startDate && row.date < startDate) continue;
+
+    // Unrealized on shares still held, marked at this date's close.
+    let unreal = 0;
+    let priced = false;
+    for (const tk in lots) {
+      if (lots[tk].qty <= 1e-9) continue;
+      const px = closes[tk] != null ? +closes[tk] : lastClose[tk];
+      if (isFinite(px) && px > 0) {
+        unreal += lots[tk].qty * px - lots[tk].cost;
+        priced = true;
+      }
+    }
+    if (buyCost <= 1e-9) continue; // nothing bought yet
+    if (!priced && !points.length) continue; // nothing priced yet at the start
+    const pct = ((unreal + realized + divs) / buyCost) * 100;
+    points.push({ date: row.date, pct: +pct.toFixed(2) });
+  }
+  return {
+    points,
+    first: points.length ? points[0].date : null,
+    last: points.length ? points[points.length - 1].date : null,
+  };
+}
+
 // Close price for a ticker on `date`, or the nearest trading day AT OR BEFORE it
 // (carry-forward), scanning the history rows. Returns null if the ticker never
 // appears up to that date. Used by the signal-outcome panel to look up the

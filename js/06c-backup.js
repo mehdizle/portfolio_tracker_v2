@@ -475,14 +475,50 @@ function renderHistory() {
 function renderHistoryRecomputed() {
   const benchSel =
     (document.getElementById("histBenchmark") || {}).value || "masi";
+  // Portfolio LINE = lifetime return over time (unrealized + realized + divs
+  // over lifetime cost) - the SAME definition as the dashboard "Lifetime return"
+  // KPI, so the chart's endpoint agrees with that number (it used to show a
+  // cost-basis-on-current-holdings figure that could read negative while you
+  // were overall in profit). Benchmark comes from the value/benchmark helper.
+  const life = __core.valueHistory.buildLifetimeSeries(TXNS, PRICE_HISTORY);
   const r = __core.valueHistory.valueVsBenchmark(TXNS, PRICE_HISTORY);
-  if (!r.points.length) return false;
+  if (!life.points.length) return false;
 
-  // ---- range filter (1M/3M/6M/1Y/YTD/ALL) on the selected window ----
+  // Anchor the (fee-agnostic) lifetime series to the LIVE, fee/tax-accurate
+  // lifetime return so today's point equals the dashboard KPI exactly. We shift
+  // the whole series by the small gap between the two (fees/tax drag), keeping
+  // the historical shape. currentTotals() is the same source the KPI uses.
+  let anchorPct = null;
+  // Compute the KPI lifetime % directly from runFIFO totals (net of fees/tax).
+  try {
+    const { pos } = runFIFO();
+    let life$ = 0,
+      cost$ = 0;
+    for (const k in pos) {
+      life$ += pos[k].lifetime || 0;
+      cost$ += pos[k].costBasis || 0;
+    }
+    if (cost$ > 1e-9) anchorPct = (life$ / cost$) * 100;
+  } catch (_e) {}
+  const grossToday = life.points[life.points.length - 1].pct;
+  // Multiplicative scale so the endpoint matches the KPI while preserving the
+  // "starts near 0%, ends at KPI" shape (an additive shift would push early
+  // points negative). The gross series omits fees/tax; scaling by the ratio of
+  // the net KPI to the gross endpoint applies that drag proportionally over
+  // time - a faithful approximation, and the endpoint is exact.
+  const scale =
+    anchorPct != null && isFinite(anchorPct) && Math.abs(grossToday) > 1e-6
+      ? anchorPct / grossToday
+      : 1;
+  const lifeAdj = life.points.map((p) => ({
+    date: p.date,
+    pct: p.pct == null ? null : +(p.pct * scale).toFixed(2),
+  }));
+
+  // ---- range filter (1M/3M/6M/1Y/YTD/ALL): zoom the x-window (no rebasing) ----
   const rangeBtn = document.querySelector("#histRange .histRangeBtn.active");
   const range = (rangeBtn && rangeBtn.dataset.range) || "ALL";
-  const lastDate = r.points[r.points.length - 1].date;
-  const lastMs = new Date(lastDate).getTime();
+  const lastDate = lifeAdj[lifeAdj.length - 1].date;
   const cutFor = (rg) => {
     const d = new Date(lastDate);
     if (rg === "1M") return (d.setMonth(d.getMonth() - 1), d.getTime());
@@ -494,30 +530,16 @@ function renderHistoryRecomputed() {
     return -Infinity; // ALL
   };
   const cut = cutFor(range);
-  // indices of points within the window
-  const idx = [];
-  r.points.forEach((p, i) => {
-    if (new Date(p.date).getTime() >= cut) idx.push(i);
-  });
-  if (!idx.length) idx.push(r.points.length - 1);
+  const keepDates = new Set(
+    lifeAdj.filter((p) => new Date(p.date).getTime() >= cut).map((p) => p.date),
+  );
+  if (!keepDates.size) keepDates.add(lastDate);
+  const winLife = lifeAdj.filter((p) => keepDates.has(p.date));
+  const cats = winLife.map((p) => p.date);
+  const valData = winLife.map((p) => p.pct);
 
-  // Re-base every series to 0% at the START of the window so the range shows
-  // the performance SINCE that point (matches the range buttons' intent). The
-  // portfolio is cost-basis return; subtract the window-start value so the line
-  // begins at 0 for the chosen range. Benchmarks likewise.
-  const rebaseWindow = (arr) => {
-    let base = null;
-    return idx.map((i) => {
-      const v = arr[i] ? arr[i].pct : null;
-      if (v == null) return null;
-      if (base == null) base = v;
-      return +(v - base).toFixed(2);
-    });
-  };
-  const cats = idx.map((i) => r.points[i].date);
-  const valData = rebaseWindow(r.valuePct);
-
-  // headline = last value of the (window-rebased) portfolio series
+  // headline = the portfolio's ABSOLUTE lifetime return at the last point (this
+  // equals the dashboard KPI). Always shows total return, not a windowed delta.
   let headline = null;
   for (let k = valData.length - 1; k >= 0; k--)
     if (valData[k] != null) {
@@ -539,6 +561,24 @@ function renderHistoryRecomputed() {
     }
   }
 
+  // Benchmark: index return over the SAME window, rebased to meet the portfolio
+  // line at the window's first point (so you read divergence, not absolute
+  // index level). Aligned to the kept dates.
+  const benchByDate = {};
+  const benchArr = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
+  r.points.forEach((p, i) => {
+    if (benchArr[i]) benchByDate[p.date] = benchArr[i].pct;
+  });
+  const firstLife = valData.find((v) => v != null);
+  let benchBase = null;
+  const benchData = cats.map((d) => {
+    const raw = benchByDate[d];
+    if (raw == null) return null;
+    if (benchBase == null) benchBase = raw;
+    // shift so the benchmark starts at the portfolio's first plotted value
+    return +(raw - benchBase + (firstLife != null ? firstLife : 0)).toFixed(2);
+  });
+
   const note = document.getElementById("snapNote");
   if (note)
     note.textContent =
@@ -547,44 +587,36 @@ function renderHistoryRecomputed() {
       cats[0] +
       " \u2192 " +
       cats[cats.length - 1] +
-      " \u00B7 cost-basis return" +
+      " \u00B7 lifetime return" +
       (benchSel === "none"
         ? ""
         : " vs " + (benchSel === "msi20" ? "MASI 20" : "MASI")) +
       " (auto-updated daily)";
 
   const tx2 = themeColor("text2");
-  // Portfolio area: GREEN fill above 0%, RED below 0% (split at the zero line).
-  // Highcharts `zones` with `threshold:0` colors the line + fill per band.
+  // Portfolio area: GREEN above 0%, RED below 0% (split at the zero line) via
+  // Highcharts zones at threshold 0.
   const series = [
     {
-      name: "Portfolio (return on cost)",
+      name: "Portfolio (lifetime return)",
       type: "area",
       threshold: 0,
       lineWidth: 2,
       zones: [
-        {
-          value: 0,
-          color: negC,
-          fillColor: "rgba(239,68,68,0.16)",
-        },
-        {
-          color: posC,
-          fillColor: "rgba(34,197,94,0.16)",
-        },
+        { value: 0, color: negC, fillColor: "rgba(239,68,68,0.16)" },
+        { color: posC, fillColor: "rgba(34,197,94,0.16)" },
       ],
       data: valData,
     },
   ];
   if (benchSel !== "none") {
-    const benchArr = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
     series.push({
       name: benchSel === "msi20" ? "MASI 20" : "MASI",
       type: "line",
       color: themeColor("primary"),
       lineWidth: 1.5,
       dashStyle: "ShortDash",
-      data: rebaseWindow(benchArr),
+      data: benchData,
     });
   }
   CH_history = Highcharts.chart("historyChart", {
