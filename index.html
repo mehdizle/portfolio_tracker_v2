@@ -853,6 +853,20 @@
                 font-weight: 400;
               "
             >
+              <div
+                id="histRange"
+                class="mini"
+                style="display: inline-flex; gap: 2px"
+              >
+                <button class="chip histRangeBtn" data-range="1M">1M</button>
+                <button class="chip histRangeBtn" data-range="3M">3M</button>
+                <button class="chip histRangeBtn" data-range="6M">6M</button>
+                <button class="chip histRangeBtn" data-range="1Y">1Y</button>
+                <button class="chip histRangeBtn" data-range="YTD">YTD</button>
+                <button class="chip histRangeBtn active" data-range="ALL">
+                  All
+                </button>
+              </div>
               <label
                 class="mini"
                 style="display: inline-flex; gap: 4px; align-items: center"
@@ -864,6 +878,24 @@
               >
             </span>
           </h2>
+          <!-- signed headline: latest cost-basis return over the selected range -->
+          <div
+            id="histHeadline"
+            style="
+              display: flex;
+              align-items: baseline;
+              gap: 10px;
+              margin: 2px 0 6px;
+            "
+          >
+            <span class="mini" style="color: var(--muted)"
+              >Position Price Performance</span
+            >
+            <span
+              id="histHeadlineVal"
+              style="font-size: 22px; font-weight: 800"
+            ></span>
+          </div>
           <div id="historyChart" style="height: 280px"></div>
           <div class="mini" id="snapNote"></div>
         </div>

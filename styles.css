@@ -305,6 +305,26 @@ tr:hover td {
   color: var(--text2);
   border: 1px solid var(--border-l);
 }
+/* range buttons under the value-over-time chart (1M/3M/6M/1Y/YTD/ALL) */
+.histRangeBtn {
+  cursor: pointer;
+  padding: 2px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--sans);
+  background: var(--panel2);
+  color: var(--text2);
+  border: 1px solid var(--border-l);
+}
+.histRangeBtn:hover {
+  border-color: var(--primary);
+}
+.histRangeBtn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  font-weight: 700;
+}
 .st-open {
   color: var(--info);
   font-weight: 600;

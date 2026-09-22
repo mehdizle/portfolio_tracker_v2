@@ -478,14 +478,75 @@ function renderHistoryRecomputed() {
   const r = __core.valueHistory.valueVsBenchmark(TXNS, PRICE_HISTORY);
   if (!r.points.length) return false;
 
+  // ---- range filter (1M/3M/6M/1Y/YTD/ALL) on the selected window ----
+  const rangeBtn = document.querySelector("#histRange .histRangeBtn.active");
+  const range = (rangeBtn && rangeBtn.dataset.range) || "ALL";
+  const lastDate = r.points[r.points.length - 1].date;
+  const lastMs = new Date(lastDate).getTime();
+  const cutFor = (rg) => {
+    const d = new Date(lastDate);
+    if (rg === "1M") return (d.setMonth(d.getMonth() - 1), d.getTime());
+    if (rg === "3M") return (d.setMonth(d.getMonth() - 3), d.getTime());
+    if (rg === "6M") return (d.setMonth(d.getMonth() - 6), d.getTime());
+    if (rg === "1Y") return (d.setFullYear(d.getFullYear() - 1), d.getTime());
+    if (rg === "YTD")
+      return new Date(new Date(lastDate).getFullYear(), 0, 1).getTime();
+    return -Infinity; // ALL
+  };
+  const cut = cutFor(range);
+  // indices of points within the window
+  const idx = [];
+  r.points.forEach((p, i) => {
+    if (new Date(p.date).getTime() >= cut) idx.push(i);
+  });
+  if (!idx.length) idx.push(r.points.length - 1);
+
+  // Re-base every series to 0% at the START of the window so the range shows
+  // the performance SINCE that point (matches the range buttons' intent). The
+  // portfolio is cost-basis return; subtract the window-start value so the line
+  // begins at 0 for the chosen range. Benchmarks likewise.
+  const rebaseWindow = (arr) => {
+    let base = null;
+    return idx.map((i) => {
+      const v = arr[i] ? arr[i].pct : null;
+      if (v == null) return null;
+      if (base == null) base = v;
+      return +(v - base).toFixed(2);
+    });
+  };
+  const cats = idx.map((i) => r.points[i].date);
+  const valData = rebaseWindow(r.valuePct);
+
+  // headline = last value of the (window-rebased) portfolio series
+  let headline = null;
+  for (let k = valData.length - 1; k >= 0; k--)
+    if (valData[k] != null) {
+      headline = valData[k];
+      break;
+    }
+  const up = headline != null && headline >= 0;
+  const posC = themeColor("success");
+  const negC = themeColor("error");
+  const hv = document.getElementById("histHeadlineVal");
+  if (hv) {
+    if (headline == null) {
+      hv.textContent = "\u2014";
+      hv.style.color = themeColor("text2");
+    } else {
+      hv.textContent =
+        (up ? "\u25B2 +" : "\u25BC ") + headline.toFixed(2) + "%";
+      hv.style.color = up ? posC : negC;
+    }
+  }
+
   const note = document.getElementById("snapNote");
   if (note)
     note.textContent =
-      r.points.length +
+      cats.length +
       " daily points \u00B7 " +
-      r.first +
+      cats[0] +
       " \u2192 " +
-      r.last +
+      cats[cats.length - 1] +
       " \u00B7 cost-basis return" +
       (benchSel === "none"
         ? ""
@@ -493,24 +554,37 @@ function renderHistoryRecomputed() {
       " (auto-updated daily)";
 
   const tx2 = themeColor("text2");
-  const cats = r.points.map((p) => p.date);
+  // Portfolio area: GREEN fill above 0%, RED below 0% (split at the zero line).
+  // Highcharts `zones` with `threshold:0` colors the line + fill per band.
   const series = [
     {
       name: "Portfolio (return on cost)",
       type: "area",
-      color: themeColor("primary"),
-      fillOpacity: 0.14,
-      data: r.valuePct.map((x) => (x.pct == null ? null : +x.pct.toFixed(2))),
+      threshold: 0,
+      lineWidth: 2,
+      zones: [
+        {
+          value: 0,
+          color: negC,
+          fillColor: "rgba(239,68,68,0.16)",
+        },
+        {
+          color: posC,
+          fillColor: "rgba(34,197,94,0.16)",
+        },
+      ],
+      data: valData,
     },
   ];
   if (benchSel !== "none") {
-    const bench = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
+    const benchArr = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
     series.push({
       name: benchSel === "msi20" ? "MASI 20" : "MASI",
       type: "line",
-      color: themeColor("warn"),
+      color: themeColor("primary"),
+      lineWidth: 1.5,
       dashStyle: "ShortDash",
-      data: bench.map((x) => (x.pct == null ? null : +x.pct.toFixed(2))),
+      data: rebaseWindow(benchArr),
     });
   }
   CH_history = Highcharts.chart("historyChart", {
@@ -518,10 +592,15 @@ function renderHistoryRecomputed() {
     title: { text: null },
     credits: { enabled: false },
     legend: { itemStyle: { color: tx2 } },
-    xAxis: { categories: cats, labels: { style: { color: tx2 } } },
+    xAxis: {
+      categories: cats,
+      labels: { style: { color: tx2 } },
+      tickPixelInterval: 120,
+    },
     yAxis: {
       title: { text: null },
       gridLineColor: "#2c3742",
+      plotLines: [{ value: 0, color: "#4a5568", width: 1, zIndex: 2 }],
       labels: { style: { color: tx2 }, format: "{value:,.1f}%" },
     },
     tooltip: { shared: true, valueDecimals: 2, valueSuffix: "%" },
@@ -595,6 +674,23 @@ function renderHistorySnapshots() {
         renderHistory();
       } catch (_e) {}
     };
+}
+// Range buttons (1M/3M/6M/1Y/YTD/ALL): set the active chip and re-render the
+// window. Delegated so it works regardless of when the buttons are created.
+{
+  const _rg = document.getElementById("histRange");
+  if (_rg)
+    _rg.addEventListener("click", (e) => {
+      const btn = e.target.closest(".histRangeBtn");
+      if (!btn) return;
+      _rg
+        .querySelectorAll(".histRangeBtn")
+        .forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      try {
+        renderHistory();
+      } catch (_e) {}
+    });
 }
 // Snapshots are captured on BACKUP (reliable & travels with the file), not daily-on-open.
 
