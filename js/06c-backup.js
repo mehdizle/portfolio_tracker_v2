@@ -536,10 +536,24 @@ function renderHistoryRecomputed() {
   if (!keepDates.size) keepDates.add(lastDate);
   const winLife = lifeAdj.filter((p) => keepDates.has(p.date));
   const cats = winLife.map((p) => p.date);
-  const valData = winLife.map((p) => p.pct);
+  // For ALL, show the ABSOLUTE lifetime return (ends at the dashboard KPI). For
+  // a sub-range (YTD/1Y/...), rebase the portfolio to 0% at the window start so
+  // it reads "my return OVER this window" - directly comparable with the MASI
+  // line, which is likewise rebased to 0% at the window start. This is what the
+  // range buttons imply (both lines meet at 0 on the left edge) and fixes MASI
+  // appearing to "start at +20%".
+  const isAll = range === "ALL";
+  let pfBase = null;
+  const valData = winLife.map((p) => {
+    if (p.pct == null) return null;
+    if (isAll) return p.pct; // absolute lifetime return
+    if (pfBase == null) pfBase = p.pct; // window-start baseline
+    return +(p.pct - pfBase).toFixed(2); // return since window start
+  });
 
-  // headline = the portfolio's ABSOLUTE lifetime return at the last point (this
-  // equals the dashboard KPI). Always shows total return, not a windowed delta.
+  // headline = the portfolio return at the last plotted point: absolute
+  // lifetime return for ALL (== dashboard KPI), or the windowed return for a
+  // sub-range.
   let headline = null;
   for (let k = valData.length - 1; k >= 0; k--)
     if (valData[k] != null) {
@@ -549,6 +563,8 @@ function renderHistoryRecomputed() {
   const up = headline != null && headline >= 0;
   const posC = themeColor("success");
   const negC = themeColor("error");
+  const hl = document.getElementById("histHeadlineLabel");
+  if (hl) hl.textContent = isAll ? "Lifetime return" : range + " return";
   const hv = document.getElementById("histHeadlineVal");
   if (hv) {
     if (headline == null) {
@@ -561,22 +577,23 @@ function renderHistoryRecomputed() {
     }
   }
 
-  // Benchmark: index return over the SAME window, rebased to meet the portfolio
-  // line at the window's first point (so you read divergence, not absolute
-  // index level). Aligned to the kept dates.
+  // Benchmark: the index's OWN return over the selected window, rebased to 0%
+  // at the window's first date. So on YTD the MASI line starts at 0% and shows
+  // its actual year-to-date move - NOT lifted to sit on the portfolio line
+  // (which previously made MASI look like it "started at +20%"). The portfolio
+  // line stays as absolute lifetime return; the two answer different questions
+  // (your total return vs the index's move over the window) and are labeled so.
   const benchByDate = {};
   const benchArr = benchSel === "msi20" ? r.msi20Pct : r.masiPct;
   r.points.forEach((p, i) => {
     if (benchArr[i]) benchByDate[p.date] = benchArr[i].pct;
   });
-  const firstLife = valData.find((v) => v != null);
   let benchBase = null;
   const benchData = cats.map((d) => {
     const raw = benchByDate[d];
     if (raw == null) return null;
-    if (benchBase == null) benchBase = raw;
-    // shift so the benchmark starts at the portfolio's first plotted value
-    return +(raw - benchBase + (firstLife != null ? firstLife : 0)).toFixed(2);
+    if (benchBase == null) benchBase = raw; // window-start baseline
+    return +(raw - benchBase).toFixed(2); // index return since window start
   });
 
   const note = document.getElementById("snapNote");
@@ -587,7 +604,8 @@ function renderHistoryRecomputed() {
       cats[0] +
       " \u2192 " +
       cats[cats.length - 1] +
-      " \u00B7 lifetime return" +
+      " \u00B7 " +
+      (isAll ? "lifetime return" : range + " return") +
       (benchSel === "none"
         ? ""
         : " vs " + (benchSel === "msi20" ? "MASI 20" : "MASI")) +
