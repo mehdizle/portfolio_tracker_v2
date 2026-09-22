@@ -303,8 +303,40 @@ function renderSignalOutcomes() {
     rows.push({ tk, h, now, then, ret, bench, excess, bucket });
   }
   if (!rows.length) {
+    // Nothing is judgeable yet. Be specific about WHY: if signals have been
+    // recorded but none has reached the 30-day horizon, show the oldest call's
+    // age and the date the first outcome will appear - far more useful than a
+    // generic "come back later". If there are no recorded signals at all, say so.
+    let msg;
+    if (hist.length) {
+      const oldest = hist.reduce(
+        (m, h) => (m == null || h.date < m ? h.date : m),
+        null,
+      );
+      const ageOldest = Math.floor((today - new Date(oldest)) / 86400000);
+      const readyOn = new Date(
+        new Date(oldest).getTime() + horizonDays * 86400000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      msg =
+        "Signal-outcome tracking is on \u2014 <b>" +
+        hist.length +
+        "</b> signal snapshot(s) recorded, oldest <b>" +
+        ageOldest +
+        " day(s)</b> old. Calls are judged once they reach <b>" +
+        horizonDays +
+        " days</b>, so the first outcomes appear around <b>" +
+        readyOn +
+        "</b>. (Prices update automatically from the daily repo history \u2014 no need to keep the app open.)";
+    } else {
+      msg =
+        "Signal-outcome tracking is on. Open the Signals tab periodically so calls get recorded; once a call is at least " +
+        horizonDays +
+        " days old this panel scores how Buy / Hold / Sell calls performed since. (Prices update automatically from the daily repo history \u2014 no need to keep the app open.)";
+    }
     host.innerHTML =
-      '<div class="mini" style="color:var(--muted)">Signal-outcome tracking is on. Once your saved signals are at least 30 days old, this panel will show how Buy / Hold / Sell calls have performed since. (Prices update automatically from the daily repo history \u2014 no need to keep the app open.)</div>';
+      '<div class="mini" style="color:var(--muted)">' + msg + "</div>";
     return;
   }
   // Sort by EXCESS return (signal value-add) when available, else raw return.
