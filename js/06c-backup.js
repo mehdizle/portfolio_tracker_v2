@@ -620,6 +620,9 @@ function renderHistoryRecomputed() {
       type: "area",
       threshold: 0,
       lineWidth: 2,
+      // Bridge the rare missing point (e.g. a bank holiday with no quote) so the
+      // line stays continuous instead of breaking into segments.
+      connectNulls: true,
       zones: [
         { value: 0, color: negC, fillColor: "rgba(239,68,68,0.16)" },
         { color: posC, fillColor: "rgba(34,197,94,0.16)" },
@@ -634,6 +637,7 @@ function renderHistoryRecomputed() {
       color: themeColor("primary"),
       lineWidth: 1.5,
       dashStyle: "ShortDash",
+      connectNulls: true, // bridge index gaps (holidays) so MASI line is unbroken
       data: benchData,
     });
   }

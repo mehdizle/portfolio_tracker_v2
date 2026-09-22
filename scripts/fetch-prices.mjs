@@ -151,7 +151,18 @@ async function fetchIndices() {
 // transactions, nothing personal. This is what the app replays against the
 // (local) transaction ledger to draw the value-over-time curve + benchmark.
 function appendHistory(records, indices) {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const now = new Date();
+  // The CSE is closed on weekends, so never record a weekend row - it would only
+  // duplicate Friday's close and put a flat blip in the value-over-time chart.
+  // (The scheduled cron is Mon-Fri, but a manual/weekend dispatch could hit this.)
+  const dow = now.getUTCDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) {
+    console.log(
+      "fetch-prices: weekend - skipping history row (market closed).",
+    );
+    return;
+  }
+  const today = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   const closes = {};
   for (const r of records) if (r.price != null) closes[r.ticker] = r.price;
 
