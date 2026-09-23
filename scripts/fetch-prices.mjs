@@ -1,5 +1,7 @@
 // fetch-prices.mjs - fetch latest Casablanca (CSE) prices + fundamentals from
-// TradingView's public scanner endpoint and write public/prices.json.
+// TradingView's public scanner endpoint and write public/prices.json, and
+// append a daily row (stock closes + MASI/MSI20 index levels + OPCVM fund NAVs
+// from ASFIM) to public/price-history.json for the value-over-time curve.
 //
 // Runs in GitHub Actions (Node >= 22), NOT in the browser: the browser can't
 // call TradingView directly (CORS), but a server/CI request has no such limit.
@@ -30,6 +32,29 @@ const ENDPOINT = "https://scanner.tradingview.com/morocco/scan";
 const INDEX_SYMBOLS = { masi: "CSEMA:MASI", msi20: "CSEMA:MSI20" };
 // Keep ~3 years of daily rows in the history file (weekdays only ~= 260/yr).
 const HISTORY_MAX_ROWS = 820;
+
+// ---- OPCVM funds (ASFIM) ----
+// TradingView only lists exchange-traded equities, NOT OPCVM mutual funds, so
+// fund NAVs come from ASFIM's public API (fundshare.asfim.ma) instead - the
+// authoritative source (Moroccan fund-managers' association). We fetch each
+// fund's latest NAV (`vl`) by its ISIN and merge it into the same daily history
+// row as the stock closes, so the value-over-time curve prices held funds too.
+//
+// This is PUBLIC fund data (ISINs + published NAVs), nothing personal. The map
+// is app-ticker -> ISIN; add a fund here to have its NAV tracked. NOTE: many
+// funds are WEEKLY-priced (periodicite HEBDOMADAIRE), so their NAV only changes
+// once a week - the app carries the last NAV forward between pricing days.
+const ASFIM_API = "https://fundshare.asfim.ma/api";
+const FUND_ISINS = {
+  "ATJ ACT": "MA0000036063",
+  "ATJ DIV": "MA0000041477",
+  "ATJ MOU": "MA0000040156",
+  "ATJ VAL": "MA0000042137",
+  "FCP A": "MA0000042590",
+  "FCP B": "MA0000041568",
+  "FCP C": "MA0000041956",
+  "SG E": "MA0000041709",
+};
 
 // TradingView symbol -> app master ticker, when they differ. Mirrors
 // TV_TICKER_ALIAS in js/06b-import.js. On TradingView, SSOT is listed as SOT.
@@ -146,11 +171,53 @@ async function fetchIndices() {
   return out;
 }
 
+// Fetch the latest NAV for each configured OPCVM fund from ASFIM, keyed by ISIN.
+// Returns { "ATJ ACT": 921.01, ... } (app-ticker -> latest NAV). Best-effort and
+// per-fund isolated: one fund failing (or ASFIM being down) never throws and
+// never blocks the stock closes - that fund is simply omitted from today's row,
+// and the app carries its previous NAV forward. Only NAVs dated within the last
+// few days are accepted, so a stale/dormant fund can't inject an old number.
+async function fetchFundNavs() {
+  const out = {};
+  const MAX_STALE_DAYS = 10; // reject a "latest" NAV older than this
+  const cutoff = new Date(Date.now() - MAX_STALE_DAYS * 86400000)
+    .toISOString()
+    .slice(0, 10);
+  const entries = Object.entries(FUND_ISINS);
+  await Promise.all(
+    entries.map(async ([ticker, isin]) => {
+      try {
+        // Latest performance row for this ISIN (ordering=-date, one item).
+        const url =
+          `${ASFIM_API}/performances/?opcvm__code_isin=${encodeURIComponent(isin)}` +
+          `&ordering=-date&page_size=1`;
+        const res = await fetch(url, {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "portfolio-tracker-v2 (github actions fund refresh)",
+          },
+        });
+        if (!res.ok) return;
+        const payload = await res.json();
+        const row = (payload.results || [])[0];
+        if (!row || !row.date || row.date < cutoff) return; // missing/stale
+        const vl = row.vl;
+        if (typeof vl === "number" && isFinite(vl) && vl > 0) {
+          out[ticker] = Math.round(vl * 10000) / 10000;
+        }
+      } catch (_e) {
+        /* skip this fund; leave it to carry-forward */
+      }
+    }),
+  );
+  return out;
+}
+
 // Append today's closes + index levels to public/price-history.json as ONE row
 // per date (latest wins), pruned to HISTORY_MAX_ROWS. Public data only - no
 // transactions, nothing personal. This is what the app replays against the
 // (local) transaction ledger to draw the value-over-time curve + benchmark.
-function appendHistory(records, indices) {
+function appendHistory(records, indices, fundNavs) {
   const now = new Date();
   // The CSE is closed on weekends, so never record a weekend row - it would only
   // duplicate Friday's close and put a flat blip in the value-over-time chart.
@@ -165,6 +232,12 @@ function appendHistory(records, indices) {
   const today = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   const closes = {};
   for (const r of records) if (r.price != null) closes[r.ticker] = r.price;
+  // Merge OPCVM fund NAVs (from ASFIM) into the same day's closes, alongside the
+  // stock closes. Funds without a fresh NAV today are simply absent and the app
+  // carries their previous NAV forward.
+  for (const [tk, vl] of Object.entries(fundNavs || {})) {
+    if (typeof vl === "number" && isFinite(vl) && vl > 0) closes[tk] = vl;
+  }
 
   let hist = { _kind: "casa_price_history", rows: [] };
   if (existsSync(HISTORY_OUT)) {
@@ -191,8 +264,10 @@ function appendHistory(records, indices) {
 
   mkdirSync(dirname(HISTORY_OUT), { recursive: true });
   writeFileSync(HISTORY_OUT, JSON.stringify(hist) + "\n", "utf8");
+  const fundCount = Object.keys(fundNavs || {}).length;
   console.log(
-    `fetch-prices: history now ${hist.rows.length} daily rows (masi=${indices.masi}, msi20=${indices.msi20}).`,
+    `fetch-prices: history now ${hist.rows.length} daily rows ` +
+      `(masi=${indices.masi}, msi20=${indices.msi20}, ${fundCount} fund NAVs).`,
   );
 }
 
@@ -212,11 +287,15 @@ async function main() {
     process.exit(1);
   }
 
-  // Always append today's daily history row (closes + index levels). Runs even
-  // when prices.json is unchanged, since a new DATE is a new curve point. Index
-  // fetch is best-effort (null on failure; the value curve still works).
-  const indices = await fetchIndices();
-  appendHistory(records, indices);
+  // Always append today's daily history row (stock closes + index levels +
+  // OPCVM fund NAVs). Runs even when prices.json is unchanged, since a new DATE
+  // is a new curve point. Index and fund fetches are best-effort (a failure
+  // just omits those values; the value curve still works and carries forward).
+  const [indices, fundNavs] = await Promise.all([
+    fetchIndices(),
+    fetchFundNavs(),
+  ]);
+  appendHistory(records, indices, fundNavs);
 
   const doc = {
     _source: "tradingview:morocco",
