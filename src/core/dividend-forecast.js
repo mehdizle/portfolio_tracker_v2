@@ -33,6 +33,12 @@
 // tightly-clamped trend. This keeps projections realistic on 2-3 data points.
 const TREND_CAP = 0.1; // clamp the annualized trend nudge to +/-10%.
 const LEVEL_WINDOW = 3; // years used for the trailing-average level.
+// Consistency (the reliability chip) is measured over as much REAL history as
+// the ticker has, capped here, rather than a fixed 3-year window. With a deep
+// calendar this lets a long-unbroken payer read as far more dependable than a
+// 3-year newcomer - the projected AMOUNT is unchanged (still LEVEL_WINDOW-based),
+// only the confidence signal improves.
+const CONSISTENCY_MAX_YEARS = 10;
 const REAL_MATCH_MONTHS = 1; // a real/recorded event within +/-1 month of a slot
 // counts as "that slot already happened" (allows for a payment date drifting a
 // few weeks year to year) without cross-suppressing an adjacent slot.
@@ -256,10 +262,20 @@ export function buildForecast(divcal, refYear, opts) {
         ? Math.round((projectedDps / baseDps - 1) * 10000) / 10000
         : 0;
 
+    // Consistency window: use the ticker's ACTUAL history depth (first payment
+    // year -> refYear), capped at CONSISTENCY_MAX_YEARS, and floored at the
+    // caller's windowYears so a brand-new payer still gets a sensible
+    // denominator. So a 14-year unbroken payer reads 10/10; a 3-year one 3/3.
+    const firstYear = years.length ? years[0] : refYear;
+    const histSpan = refYear - firstYear + 1; // inclusive
+    const consWindow = Math.max(
+      windowYears,
+      Math.min(CONSISTENCY_MAX_YEARS, histSpan),
+    );
     let paid = 0;
-    for (let y = refYear - windowYears + 1; y <= refYear; y++)
+    for (let y = refYear - consWindow + 1; y <= refYear; y++)
       if (byYear[y] > 0) paid++;
-    const consistency = Math.round((paid / windowYears) * 100) / 100;
+    const consistency = Math.round((paid / consWindow) * 100) / 100;
 
     // Typical payments per year = max slot-count observed in a complete year,
     // falling back to the number of distinct slots.
@@ -285,7 +301,7 @@ export function buildForecast(divcal, refYear, opts) {
       method: slots.some((s) => s.method === "trend") ? "trend" : "flat",
       consistency,
       yearsCounted: paid,
-      windowYears,
+      windowYears: consWindow, // effective consistency window (per-ticker history depth)
       paymentsPerYear,
       expectedMonth: slots.length ? slots[0].month : null,
       partialCurrentYear: Math.round((byYear[refYear] || 0) * 10000) / 10000,
