@@ -45,7 +45,14 @@ const HISTORY_MAX_ROWS = 820;
 // funds are WEEKLY-priced (periodicite HEBDOMADAIRE), so their NAV only changes
 // once a week - the app carries the last NAV forward between pricing days.
 const ASFIM_API = "https://fundshare.asfim.ma/api";
-const FUND_ISINS = {
+const FUND_ISINS_FILE = join(ROOT, "public", "fund-isins.json");
+
+// Built-in fallback fund list (app-ticker -> ISIN). This is a SAFETY DEFAULT:
+// the source of truth is public/fund-isins.json, which the app's "Match Funds
+// to ASFIM" UI generates for you to commit. If that file is present it REPLACES
+// this map (so newly-matched funds are tracked hands-off); if it's missing or
+// unreadable, we fall back to this list so the workflow never breaks.
+const FUND_ISINS_DEFAULT = {
   "ATJ ACT": "MA0000036063",
   "ATJ DIV": "MA0000041477",
   "ATJ MOU": "MA0000040156",
@@ -55,6 +62,32 @@ const FUND_ISINS = {
   "FCP C": "MA0000041956",
   "SG E": "MA0000041709",
 };
+
+// Load the committed fund map (public/fund-isins.json = { ticker: isin }); fall
+// back to the built-in default. Ignores non-string/empty ISINs defensively.
+function loadFundIsins() {
+  if (existsSync(FUND_ISINS_FILE)) {
+    try {
+      const parsed = JSON.parse(readFileSync(FUND_ISINS_FILE, "utf8"));
+      const clean = {};
+      for (const [tk, isin] of Object.entries(parsed || {})) {
+        if (tk && typeof isin === "string" && isin.trim())
+          clean[tk] = isin.trim();
+      }
+      if (Object.keys(clean).length) {
+        console.log(
+          `fetch-prices: fund list from public/fund-isins.json (${Object.keys(clean).length} funds).`,
+        );
+        return clean;
+      }
+    } catch (_e) {
+      console.warn(
+        "fetch-prices: public/fund-isins.json unreadable - using built-in fund list.",
+      );
+    }
+  }
+  return FUND_ISINS_DEFAULT;
+}
 
 // TradingView symbol -> app master ticker, when they differ. Mirrors
 // TV_TICKER_ALIAS in js/06b-import.js. On TradingView, SSOT is listed as SOT.
@@ -183,7 +216,7 @@ async function fetchFundNavs() {
   const cutoff = new Date(Date.now() - MAX_STALE_DAYS * 86400000)
     .toISOString()
     .slice(0, 10);
-  const entries = Object.entries(FUND_ISINS);
+  const entries = Object.entries(loadFundIsins());
   await Promise.all(
     entries.map(async ([ticker, isin]) => {
       try {

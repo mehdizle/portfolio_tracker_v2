@@ -2793,6 +2793,46 @@
           </div>
           <div class="sec">
             <h2 style="justify-content: space-between">
+              <span>&#x1F517; Match Funds to ASFIM (auto price history)</span>
+            </h2>
+            <div class="mini" style="margin-bottom: 10px">
+              Match each OPCVM fund you hold to its official ASFIM record so its
+              daily NAV is fetched automatically into the value-over-time curve.
+              Search by fund name or ISIN, pick the match, and it's saved by
+              <b>ISIN</b>. New funds are tracked hands-off once you also update
+              the workflow file (the <b>Copy for workflow</b> block below).
+            </div>
+            <!-- per-held-fund match rows are rendered here -->
+            <div id="fundMatchList"></div>
+            <!-- free search (for a fund not yet held, or to re-match) -->
+            <div
+              class="form-row"
+              style="margin-top: 10px; gap: 8px; flex-wrap: wrap"
+            >
+              <input
+                id="fundMatchSearch"
+                type="text"
+                placeholder="Search ASFIM: fund name or ISIN&hellip;"
+                style="flex: 1; min-width: 220px"
+                data-tip="Type a fund name (e.g. ATTIJARI ACTIONS) or an ISIN (MA0000&hellip;)"
+              />
+              <button class="btn sec2" id="fundMatchSearchBtn">Search</button>
+            </div>
+            <div id="fundMatchResults" style="margin-top: 8px"></div>
+            <div class="form-row" style="margin-top: 12px">
+              <button
+                class="btn sec2"
+                id="fundIsinsExportBtn"
+                data-tip="Show the fund ISIN list to copy into public/fund-isins.json so the daily workflow tracks them"
+              >
+                &#x1F4CB; Copy for workflow (fund-isins.json)
+              </button>
+              <span class="mini" id="fundMatchResult"></span>
+            </div>
+            <div id="fundIsinsExport" style="margin-top: 8px"></div>
+          </div>
+          <div class="sec">
+            <h2 style="justify-content: space-between">
               <span
                 >&#x1F3F7;&#xFE0F; Import Stock Categories
                 <span class="mini" id="catStamp" style="font-weight: 400"></span
