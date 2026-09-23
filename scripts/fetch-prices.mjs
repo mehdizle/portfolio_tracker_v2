@@ -341,7 +341,10 @@ async function fetchDividends() {
       const amount = parseAmount(r.dividende);
       const ex_date = iso(r.dateDetachement);
       const pay_date = iso(r.datePaiement);
-      const div_type = String((r && r.typeDividende) || "Ordinary").trim();
+      // Default a blank/missing type to "Ordinary" (older calendar rows sometimes
+      // omit it). Trim FIRST so "  " also defaults, not just "".
+      const div_type =
+        String((r && r.typeDividende) || "").trim() || "Ordinary";
       if (!ex_date && !pay_date) continue; // need at least one date
       if (amount == null) continue; // skip 0,00 / unparseable amounts (not a real payout)
       rows.push({ ticker, issuer, amount, ex_date, pay_date, div_type });
