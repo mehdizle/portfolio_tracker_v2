@@ -1496,6 +1496,249 @@ let DIVCAL = (() => {
 function saveDivCal() {
   if (safeSetItem("casa_divcal_v1", JSON.stringify(DIVCAL))) markSaved();
 }
+
+// ---- Auto-merge the committed dividend calendar (public/dividends.json) ----
+// The daily workflow writes public/dividends.json (issuer->ticker-mapped rows
+// from the Bourse de Casablanca calendar). On load we fetch it and UPSERT it
+// into DIVCAL via the same mergeDivcal used by manual import - so new/updated
+// dividends appear automatically and manual entries are never deleted. The file
+// also carries `_unmapped` (issuers with no ticker) which the Data-tab matcher
+// surfaces. Best-effort and idempotent: a missing file or a no-op merge is
+// silent. Runs once, shortly after boot so it can't delay first paint.
+let DIVIDENDS_UNMAPPED = []; // issuers from the feed with no ticker mapping
+function loadDividendsUnmapped() {
+  try {
+    return JSON.parse(localStorage.getItem("casa_div_unmapped_v1") || "[]");
+  } catch (_e) {
+    return [];
+  }
+}
+DIVIDENDS_UNMAPPED = loadDividendsUnmapped();
+let _autoDivDone = false;
+function autoMergeDividends() {
+  if (_autoDivDone) return;
+  _autoDivDone = true;
+  fetch("dividends.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((doc) => {
+      if (!doc || !Array.isArray(doc.rows) || !doc.rows.length) return;
+      // Remember unmapped issuers for the matcher UI (persist so it survives
+      // to the Data tab even before the next fetch).
+      if (Array.isArray(doc._unmapped)) {
+        DIVIDENDS_UNMAPPED = doc._unmapped;
+        try {
+          localStorage.setItem(
+            "casa_div_unmapped_v1",
+            JSON.stringify(doc._unmapped),
+          );
+        } catch (_e) {}
+      }
+      if (
+        typeof __core === "undefined" ||
+        !__core.divcalMerge ||
+        !__core.divcalMerge.mergeDivcal
+      )
+        return;
+      const res = __core.divcalMerge.mergeDivcal(DIVCAL, doc.rows);
+      if (res.added || res.updated) {
+        DIVCAL = res.list;
+        saveDivCal();
+        if (typeof render === "function") {
+          try {
+            render();
+          } catch (_e) {}
+        }
+        if (typeof toast === "function")
+          toast(
+            "Dividend calendar auto-updated: " +
+              res.added +
+              " added, " +
+              res.updated +
+              " updated.",
+            "ok",
+          );
+      }
+    })
+    .catch(() => {
+      /* no committed dividends.json / offline -> silent */
+    });
+}
+// Defer so it never blocks first render.
+setTimeout(() => {
+  try {
+    autoMergeDividends();
+  } catch (_e) {}
+}, 1200);
+
+// ---- Data-tab: match unmapped dividend issuers to tickers ----
+// Lists the issuers the daily feed couldn't map (DIVIDENDS_UNMAPPED), lets the
+// user bind each to a ticker (stored locally in casa_issuer_overrides_v1), and
+// generates the FULL issuer-name -> ticker map to paste into
+// public/issuer-map.json (committed baseline + local overrides). Best-effort,
+// mirrors the fund-matcher UX.
+(function () {
+  const listEl = document.getElementById("issuerMatchList");
+  const exportBtn = document.getElementById("issuerMapExportBtn");
+  const exportEl = document.getElementById("issuerMapExport");
+  const statusEl = document.getElementById("issuerMatchResult");
+  if (!listEl || !exportBtn) return;
+
+  const OV_LS = "casa_issuer_overrides_v1"; // { "ISSUER NAME": "TICKER" }
+  const loadOv = () => {
+    try {
+      return JSON.parse(localStorage.getItem(OV_LS) || "{}");
+    } catch (e) {
+      return {};
+    }
+  };
+  const saveOv = (m) => {
+    if (safeSetItem(OV_LS, JSON.stringify(m))) markSaved();
+  };
+
+  // Ticker <datalist> options from the master list.
+  function tickerOptions() {
+    return Object.keys(M)
+      .sort()
+      .map((t) => '<option value="' + escapeHtml(t) + '">')
+      .join("");
+  }
+
+  function renderList() {
+    const ov = loadOv();
+    // Unmapped issuers that are STILL unmapped (not yet given a local override).
+    const pending = (DIVIDENDS_UNMAPPED || []).filter((iss) => !ov[iss]);
+    const done = Object.keys(ov).sort();
+    let html = "";
+    if (!pending.length && !done.length) {
+      listEl.innerHTML =
+        '<div class="mini" style="color:var(--muted)">No unmapped dividend issuers. Everything in the calendar maps to a ticker.</div>';
+      return;
+    }
+    if (pending.length) {
+      html += '<datalist id="issuerTickers">' + tickerOptions() + "</datalist>";
+      html += pending
+        .map(
+          (iss) =>
+            '<div class="form-row" style="align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<span style="flex:1;min-width:200px">' +
+            escapeHtml(iss) +
+            "</span>" +
+            '<input list="issuerTickers" class="issuerBindInput" data-iss="' +
+            escapeHtml(iss) +
+            '" placeholder="ticker" style="width:110px">' +
+            '<button class="chip issuerBindBtn" data-iss="' +
+            escapeHtml(iss) +
+            '" style="cursor:pointer">Map</button>' +
+            "</div>",
+        )
+        .join("");
+    }
+    if (done.length) {
+      html +=
+        '<div class="mini" style="margin-top:8px;color:var(--success)">Your mappings:</div>' +
+        done
+          .map(
+            (iss) =>
+              '<div class="form-row" style="align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">' +
+              '<span style="flex:1;min-width:200px">' +
+              escapeHtml(iss) +
+              "</span><b>" +
+              escapeHtml(ov[iss]) +
+              "</b>" +
+              '<button class="chip issuerUnbindBtn" data-iss="' +
+              escapeHtml(iss) +
+              '" style="cursor:pointer">Remove</button>' +
+              "</div>",
+          )
+          .join("");
+    }
+    listEl.innerHTML = html;
+  }
+
+  listEl.addEventListener("click", (e) => {
+    const bind = e.target.closest(".issuerBindBtn");
+    if (bind) {
+      const iss = bind.dataset.iss;
+      const inp = listEl.querySelector(
+        '.issuerBindInput[data-iss="' + CSS.escape(iss) + '"]',
+      );
+      const tk = ((inp && inp.value) || "").trim().toUpperCase();
+      if (!tk) {
+        statusEl.textContent = "Enter a ticker for " + iss + ".";
+        return;
+      }
+      const ov = loadOv();
+      ov[iss] = tk;
+      saveOv(ov);
+      statusEl.textContent = "\u2705 " + iss + " \u2192 " + tk + " mapped.";
+      renderList();
+      return;
+    }
+    const unbind = e.target.closest(".issuerUnbindBtn");
+    if (unbind) {
+      const ov = loadOv();
+      delete ov[unbind.dataset.iss];
+      saveOv(ov);
+      renderList();
+      return;
+    }
+  });
+
+  // Build the FULL map (committed baseline fetched live + local overrides) for
+  // pasting into public/issuer-map.json.
+  exportBtn.onclick = async () => {
+    let base = {};
+    try {
+      const res = await fetch("issuer-map.json", { cache: "no-store" });
+      if (res.ok) base = await res.json();
+    } catch (_e) {
+      /* no committed file yet -> overrides only */
+    }
+    const ov = loadOv();
+    const merged = {};
+    for (const k of Object.keys(base)) merged[k] = base[k];
+    for (const k of Object.keys(ov)) merged[k] = ov[k];
+    const ordered = {};
+    for (const k of Object.keys(merged).sort()) ordered[k] = merged[k];
+    if (!Object.keys(ordered).length) {
+      exportEl.innerHTML =
+        '<div class="mini" style="color:var(--muted)">Nothing to export yet.</div>';
+      return;
+    }
+    const json = JSON.stringify(ordered, null, 2);
+    exportEl.innerHTML =
+      '<div class="mini" style="margin-bottom:4px">Copy this into <code>public/issuer-map.json</code> and commit it:</div>' +
+      '<textarea readonly rows="' +
+      Math.min(16, Object.keys(ordered).length + 3) +
+      '" style="width:100%;font-family:var(--mono);font-size:12px" id="issuerMapJson">' +
+      escapeHtml(json) +
+      "</textarea>" +
+      '<button class="chip" id="issuerMapCopy" style="cursor:pointer;margin-top:4px">Copy to clipboard</button>';
+    const copyBtn = document.getElementById("issuerMapCopy");
+    if (copyBtn)
+      copyBtn.onclick = () => {
+        const ta = document.getElementById("issuerMapJson");
+        if (ta) {
+          ta.select();
+          try {
+            navigator.clipboard.writeText(ta.value);
+          } catch (_e) {
+            document.execCommand("copy");
+          }
+          copyBtn.textContent = "Copied \u2714";
+          setTimeout(() => {
+            copyBtn.textContent = "Copy to clipboard";
+          }, 1500);
+        }
+      };
+  };
+
+  // Re-render the list after the auto-merge has had a chance to populate
+  // DIVIDENDS_UNMAPPED (autoMergeDividends runs at ~1200ms).
+  renderList();
+  setTimeout(renderList, 1600);
+})();
+
 function fixDate(raw) {
   if (raw == null || raw === "") return null;
   const s = String(raw).trim();

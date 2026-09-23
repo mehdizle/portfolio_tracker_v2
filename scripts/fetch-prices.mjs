@@ -47,6 +47,19 @@ const HISTORY_MAX_ROWS = 820;
 const ASFIM_API = "https://fundshare.asfim.ma/api";
 const FUND_ISINS_FILE = join(ROOT, "public", "fund-isins.json");
 
+// ---- Dividend calendar (Bourse de Casablanca) ----
+// The official financial-calendar page embeds the FULL dividend calendar in its
+// HTML as drupalSettings.boursenova.dividendesData (keyed by year). We fetch the
+// page, parse that JSON, map each issuer NAME to an app ticker via the committed
+// public/issuer-map.json, normalize, and write public/dividends.json. The app
+// then upserts those rows into its dividend calendar (never deleting manual
+// entries). Public data only; issuers we can't map are skipped (listed for the
+// in-app matcher). All best-effort - a failure never blocks the price refresh.
+const CAL_URL =
+  "https://www.casablanca-bourse.com/en/emetteurs/calendrier-financier";
+const ISSUER_MAP_FILE = join(ROOT, "public", "issuer-map.json");
+const DIVIDENDS_OUT = join(ROOT, "public", "dividends.json");
+
 // Built-in fallback fund list (app-ticker -> ISIN). This is a SAFETY DEFAULT:
 // the source of truth is public/fund-isins.json, which the app's "Match Funds
 // to ASFIM" UI generates for you to commit. If that file is present it REPLACES
@@ -246,6 +259,137 @@ async function fetchFundNavs() {
   return out;
 }
 
+// Load the committed issuer-name -> ticker map (public/issuer-map.json). Keys
+// are uppercased for case-insensitive matching. Returns {} if missing/unreadable.
+function loadIssuerMap() {
+  if (!existsSync(ISSUER_MAP_FILE)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(ISSUER_MAP_FILE, "utf8"));
+    const out = {};
+    for (const [name, tk] of Object.entries(parsed || {})) {
+      if (name && typeof tk === "string" && tk.trim())
+        out[name.trim().toUpperCase()] = tk.trim().toUpperCase();
+    }
+    return out;
+  } catch (_e) {
+    console.warn(
+      "fetch-prices: issuer-map.json unreadable - dividends skipped.",
+    );
+    return {};
+  }
+}
+
+// Parse "1 234,50 MAD" / "14,00 MAD" -> 14.0 (French decimal comma, spaces as
+// thousands sep). Returns null if not a positive finite number.
+function parseAmount(s) {
+  const t = String(s == null ? "" : s)
+    .replace(/mad/i, "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s/g, "")
+    .replace(",", ".");
+  const n = parseFloat(t);
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+// Fetch the Bourse de Casablanca dividend calendar and return app-shaped rows:
+//   [{ ticker, issuer, amount, ex_date, pay_date, div_type }]
+// Issuers absent from issuer-map.json are skipped and returned in `unmapped`.
+// Best-effort: returns { rows: [], unmapped: [] } on any failure.
+async function fetchDividends() {
+  const empty = { rows: [], unmapped: [] };
+  const map = loadIssuerMap();
+  if (!Object.keys(map).length) return empty;
+  let html;
+  try {
+    const res = await fetch(CAL_URL, {
+      headers: {
+        Accept: "text/html",
+        "User-Agent":
+          "portfolio-tracker-v2 (github actions dividend calendar refresh)",
+      },
+    });
+    if (!res.ok) return empty;
+    html = await res.text();
+  } catch (_e) {
+    return empty;
+  }
+  // The calendar lives in the Drupal settings JSON island.
+  const m = html.match(
+    /data-drupal-selector="drupal-settings-json"[^>]*>([\s\S]*?)<\/script>/,
+  );
+  if (!m) return empty;
+  let data;
+  try {
+    data = JSON.parse(m[1]);
+  } catch (_e) {
+    return empty;
+  }
+  const byYear =
+    (data && data.boursenova && data.boursenova.dividendesData) || {};
+  const rows = [];
+  const unmapped = new Set();
+  const iso = (s) => String(s == null ? "" : s).slice(0, 10); // "...T00:00:00" -> date
+  for (const yr of Object.keys(byYear)) {
+    for (const r of byYear[yr] || []) {
+      const issuer = String((r && r.emetteur) || "").trim();
+      if (!issuer) continue;
+      const ticker = map[issuer.toUpperCase()];
+      if (!ticker) {
+        unmapped.add(issuer);
+        continue;
+      }
+      const amount = parseAmount(r.dividende);
+      const ex_date = iso(r.dateDetachement);
+      const pay_date = iso(r.datePaiement);
+      const div_type = String((r && r.typeDividende) || "Ordinary").trim();
+      if (!ex_date && !pay_date) continue; // need at least one date
+      if (amount == null) continue; // skip 0,00 / unparseable amounts (not a real payout)
+      rows.push({ ticker, issuer, amount, ex_date, pay_date, div_type });
+    }
+  }
+  return { rows, unmapped: [...unmapped].sort() };
+}
+
+// Write public/dividends.json from the fetched rows. Skips writing when the
+// row set is unchanged (avoids empty-diff commits). Returns true if written.
+function writeDividends(result) {
+  if (!result || !result.rows.length) {
+    console.log("fetch-prices: no mapped dividends parsed - leaving as-is.");
+    return false;
+  }
+  const doc = {
+    _kind: "casa_dividends",
+    _source: "casablanca-bourse:calendrier-financier",
+    _updated: new Date().toISOString(),
+    _count: result.rows.length,
+    _unmapped: result.unmapped, // issuers with no ticker (for the in-app matcher)
+    rows: result.rows,
+  };
+  const json = JSON.stringify(doc) + "\n";
+  if (existsSync(DIVIDENDS_OUT)) {
+    try {
+      const prev = JSON.parse(readFileSync(DIVIDENDS_OUT, "utf8"));
+      if (
+        JSON.stringify(prev.rows) === JSON.stringify(result.rows) &&
+        JSON.stringify(prev._unmapped || []) === JSON.stringify(result.unmapped)
+      ) {
+        console.log(
+          `fetch-prices: dividends unchanged (${result.rows.length} rows) - not rewriting.`,
+        );
+        return false;
+      }
+    } catch (_e) {
+      /* unreadable -> overwrite */
+    }
+  }
+  mkdirSync(dirname(DIVIDENDS_OUT), { recursive: true });
+  writeFileSync(DIVIDENDS_OUT, json, "utf8");
+  console.log(
+    `fetch-prices: wrote ${result.rows.length} dividends (${result.unmapped.length} unmapped issuers) to public/dividends.json`,
+  );
+  return true;
+}
+
 // Append today's closes + index levels to public/price-history.json as ONE row
 // per date (latest wins), pruned to HISTORY_MAX_ROWS. Public data only - no
 // transactions, nothing personal. This is what the app replays against the
@@ -324,11 +468,19 @@ async function main() {
   // OPCVM fund NAVs). Runs even when prices.json is unchanged, since a new DATE
   // is a new curve point. Index and fund fetches are best-effort (a failure
   // just omits those values; the value curve still works and carries forward).
-  const [indices, fundNavs] = await Promise.all([
+  const [indices, fundNavs, dividends] = await Promise.all([
     fetchIndices(),
     fetchFundNavs(),
+    fetchDividends(),
   ]);
   appendHistory(records, indices, fundNavs);
+  // Refresh the dividend calendar (public/dividends.json) in the same run. The
+  // app upserts it into its calendar on load; best-effort, never blocks prices.
+  try {
+    writeDividends(dividends);
+  } catch (e) {
+    console.warn("fetch-prices: writeDividends failed -", e && e.message);
+  }
 
   const doc = {
     _source: "tradingview:morocco",

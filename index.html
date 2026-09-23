@@ -2833,6 +2833,31 @@
           </div>
           <div class="sec">
             <h2 style="justify-content: space-between">
+              <span>&#x1F4B0; Match Dividend Issuers (auto calendar)</span>
+            </h2>
+            <div class="mini" style="margin-bottom: 10px">
+              The dividend calendar is fetched automatically from Bourse de
+              Casablanca and merged in. Any issuer whose name isn't yet mapped
+              to a ticker is listed below (usually delisted names). Map one to a
+              ticker, then copy the block into
+              <code>public/issuer-map.json</code> and commit it, so its
+              dividends attach on the next daily run.
+            </div>
+            <div id="issuerMatchList"></div>
+            <div class="form-row" style="margin-top: 12px">
+              <button
+                class="btn sec2"
+                id="issuerMapExportBtn"
+                data-tip="Show the full issuer-name to ticker map to copy into public/issuer-map.json"
+              >
+                &#x1F4CB; Copy for workflow (issuer-map.json)
+              </button>
+              <span class="mini" id="issuerMatchResult"></span>
+            </div>
+            <div id="issuerMapExport" style="margin-top: 8px"></div>
+          </div>
+          <div class="sec">
+            <h2 style="justify-content: space-between">
               <span
                 >&#x1F3F7;&#xFE0F; Import Stock Categories
                 <span class="mini" id="catStamp" style="font-weight: 400"></span
