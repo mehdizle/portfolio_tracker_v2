@@ -118,15 +118,20 @@ function renderSignals() {
   document.querySelector("#sigTable tbody").innerHTML =
     _tb ||
     `<tr><td colspan="12" class="l" style="color:var(--muted);padding:14px">${_sq ? "No opportunities match \u201c" + escapeHtml(_sq) + "\u201d." : "No opportunities."}</td></tr>`;
-  // Signal-outcome tracking: snapshot today's signals (once/day) and render how
-  // past calls have played out. Wrapped in try so it can never break the table.
+  // Signal-outcome tracking: snapshot today's signals (once/day) so the trail
+  // keeps feeding. The outcome PANEL now lives in its own "Scorecard" tab
+  // (#signalOutcomes) and is rendered when that tab opens - not here - so the
+  // Signals table stays lean. Wrapped in try so it can never break the table.
   try {
     recordSignalSnapshot(computeSignalsRows());
   } catch (e) {
     console.error("sig snapshot", e);
   }
+  // If the Scorecard tab is currently open, refresh its panel too (e.g. the
+  // user re-runs signals while viewing it). Otherwise this is a cheap no-op.
   try {
-    renderSignalOutcomes();
+    const scv = document.getElementById("signalOutcomes");
+    if (scv && scv.classList.contains("active")) renderSignalOutcomes();
   } catch (e) {
     console.error("sig outcomes", e);
   }
@@ -2050,6 +2055,21 @@ document.querySelectorAll(".tab[data-view]").forEach(
         CH_topSector
       )
         setTimeout(() => CH_topSector.reflow(), 10);
+      // Signal Scorecard is its own tab now. Refresh the trail from the current
+      // signals (so a call gets recorded even if the Signals tab wasn't opened
+      // today), then render the outcome panel into this view's #sigOutcomes.
+      if (b.dataset.view === "signalOutcomes") {
+        try {
+          snapshotSignalsNow();
+        } catch (e) {
+          console.error("sig snapshot (scorecard)", e);
+        }
+        try {
+          renderSignalOutcomes();
+        } catch (e) {
+          console.error("sig outcomes", e);
+        }
+      }
     }),
 );
 document.getElementById("sigFilter").onchange = () => {

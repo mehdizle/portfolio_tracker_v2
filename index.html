@@ -108,6 +108,16 @@
             </button>
             <button
               class="tab"
+              data-view="signalOutcomes"
+              role="tab"
+              aria-label="Signal Scorecard"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              &#x1F4C8; Scorecard
+            </button>
+            <button
+              class="tab"
               data-view="rebalance"
               role="tab"
               aria-label="Rebalance"
@@ -1470,7 +1480,23 @@
             Score blends Valuation &#xB7; Safety &#xB7; Quality &#xB7; Growth
             &#xB7; Yield &#xB7; Book &#xB7; FCF Yield &#xB7; Timing (0&#x2013;1)
           </div>
-          <div id="sigOutcomes" style="margin-top: 16px"></div>
+        </div>
+      </div>
+
+      <!-- SIGNAL SCORECARD (signal-outcome tracking, its own tab) -->
+      <div class="view" id="signalOutcomes">
+        <div class="sec">
+          <div style="font-weight: 700; margin-bottom: 4px">
+            &#x1F4C8; Signal Scorecard
+          </div>
+          <div class="mini" style="color: var(--text2); margin-bottom: 12px">
+            A report card for the signal engine: for every call at least 30 days
+            old, it compares the price then vs now and asks whether the rating
+            beat the average stock that started on the same day. This is a
+            backward-looking scorecard only &#x2014; it does not drive the
+            Rebalance tab, which uses today&#x2019;s live signals.
+          </div>
+          <div id="sigOutcomes"></div>
         </div>
       </div>
 
