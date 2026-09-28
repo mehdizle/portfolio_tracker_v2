@@ -511,23 +511,37 @@ async function main() {
     console.warn("fetch-prices: writeDividends failed -", e && e.message);
   }
 
+  // Add OPCVM fund NAVs to prices.json as {ticker, price} records, so the app's
+  // "Fetch latest" button updates fund prices in POSITIONS (M[ticker].price) the
+  // same way it does stocks. Without this, funds only reached price-history.json
+  // (the value curve) and the Funds table kept showing a stale NAV. applyTvRec
+  // writes price for any ticker already in the master (our funds are), and omits
+  // category, so manual fund categorisation is preserved.
+  const fundRecords = [];
+  for (const [ticker, info] of Object.entries(fundNavs || {})) {
+    const price = info && info.vl;
+    if (typeof price === "number" && isFinite(price) && price > 0)
+      fundRecords.push({ ticker, price });
+  }
+  const allRecords = records.concat(fundRecords);
+
   const doc = {
-    _source: "tradingview:morocco",
+    _source: "tradingview:morocco + asfim:opcvm",
     _fetched: new Date().toISOString(),
-    _count: records.length,
-    records,
+    _count: allRecords.length,
+    records: allRecords,
   };
   const json = JSON.stringify(doc, null, 1) + "\n";
 
   // Skip writing when only the timestamp would change, so CI doesn't create an
-  // empty-diff commit. Compare the `records` payload, ignoring _fetched.
+  // empty-diff commit. Compare the full `records` payload (stocks + funds).
   if (existsSync(OUT)) {
     try {
       const prev = JSON.parse(readFileSync(OUT, "utf8"));
-      const same = JSON.stringify(prev.records) === JSON.stringify(records);
+      const same = JSON.stringify(prev.records) === JSON.stringify(allRecords);
       if (same) {
         console.log(
-          `fetch-prices: ${records.length} records, unchanged - not rewriting.`,
+          `fetch-prices: ${allRecords.length} records, unchanged - not rewriting.`,
         );
         return;
       }
@@ -538,7 +552,8 @@ async function main() {
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, json, "utf8");
   console.log(
-    `fetch-prices: wrote ${records.length} records to public/prices.json`,
+    `fetch-prices: wrote ${allRecords.length} records ` +
+      `(${records.length} stocks + ${fundRecords.length} funds) to public/prices.json`,
   );
 }
 
