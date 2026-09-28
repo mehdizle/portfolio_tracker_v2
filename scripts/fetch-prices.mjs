@@ -249,7 +249,9 @@ async function fetchFundNavs() {
         if (!row || !row.date || row.date < cutoff) return; // missing/stale
         const vl = row.vl;
         if (typeof vl === "number" && isFinite(vl) && vl > 0) {
-          out[ticker] = Math.round(vl * 10000) / 10000;
+          // Keep the NAV WITH its own ASFIM date, so it's recorded on the real
+          // pricing day (weekly funds price ~once/week) rather than "today".
+          out[ticker] = { vl: Math.round(vl * 10000) / 10000, date: row.date };
         }
       } catch (_e) {
         /* skip this fund; leave it to carry-forward */
@@ -412,12 +414,6 @@ function appendHistory(records, indices, fundNavs) {
   const today = now.toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
   const closes = {};
   for (const r of records) if (r.price != null) closes[r.ticker] = r.price;
-  // Merge OPCVM fund NAVs (from ASFIM) into the same day's closes, alongside the
-  // stock closes. Funds without a fresh NAV today are simply absent and the app
-  // carries their previous NAV forward.
-  for (const [tk, vl] of Object.entries(fundNavs || {})) {
-    if (typeof vl === "number" && isFinite(vl) && vl > 0) closes[tk] = vl;
-  }
 
   let hist = { _kind: "casa_price_history", rows: [] };
   if (existsSync(HISTORY_OUT)) {
@@ -428,7 +424,9 @@ function appendHistory(records, indices, fundNavs) {
       /* unreadable -> start fresh */
     }
   }
-  // One row per date: drop any existing same-day row, then append the fresh one.
+  // One row per date: drop any existing same-day row, then append the fresh one
+  // (today's stock closes + index levels). Fund NAVs are placed separately, on
+  // their OWN pricing date, below.
   hist.rows = hist.rows.filter((r) => r && r.date !== today);
   hist.rows.push({
     date: today,
@@ -436,6 +434,33 @@ function appendHistory(records, indices, fundNavs) {
     msi20: indices.msi20,
     closes,
   });
+
+  // Place each OPCVM fund NAV on ITS OWN date (from ASFIM), not on `today`.
+  // Weekly funds (HEBDOMADAIRE) price ~once/week, so the latest NAV belongs on
+  // its real pricing day - stamping it on `today` mis-dated it (a Mon NAV would
+  // land on Thu) and made the curve look frozen. We find-or-create the row for
+  // the NAV's date and set the close there; the app carries it forward to the
+  // days in between. Only writes if the value actually changed for that date.
+  let fundApplied = 0;
+  for (const [tk, info] of Object.entries(fundNavs || {})) {
+    const vl = info && info.vl;
+    const navDate = info && info.date;
+    if (!(typeof vl === "number" && isFinite(vl) && vl > 0) || !navDate)
+      continue;
+    let row = hist.rows.find((r) => r && r.date === navDate);
+    if (!row) {
+      // NAV date has no row yet (e.g. a Fri pricing day the workflow didn't run):
+      // create a minimal row so the fund value is recorded on the correct day.
+      row = { date: navDate, masi: null, msi20: null, closes: {} };
+      hist.rows.push(row);
+    }
+    if (!row.closes) row.closes = {};
+    if (row.closes[tk] !== vl) {
+      row.closes[tk] = vl;
+      fundApplied++;
+    }
+  }
+
   hist.rows.sort((a, b) => (a.date < b.date ? -1 : 1));
   if (hist.rows.length > HISTORY_MAX_ROWS)
     hist.rows = hist.rows.slice(hist.rows.length - HISTORY_MAX_ROWS);
@@ -447,7 +472,8 @@ function appendHistory(records, indices, fundNavs) {
   const fundCount = Object.keys(fundNavs || {}).length;
   console.log(
     `fetch-prices: history now ${hist.rows.length} daily rows ` +
-      `(masi=${indices.masi}, msi20=${indices.msi20}, ${fundCount} fund NAVs).`,
+      `(masi=${indices.masi}, msi20=${indices.msi20}, ` +
+      `${fundCount} funds seen, ${fundApplied} NAV cells set).`,
   );
 }
 
