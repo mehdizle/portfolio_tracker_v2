@@ -7,7 +7,9 @@ import {
   costBasisAsOf,
   firstTxnDate,
   buildValueSeries,
+  buildLifetimeSeries,
   valueVsBenchmark,
+  benchmarkSeries,
   closeOnOrBefore,
   latestClose,
 } from "../src/core/value-history.js";
@@ -255,5 +257,185 @@ describe("closeOnOrBefore / latestClose (signal-outcome price lookups)", () => {
   it("is case-insensitive on ticker", () => {
     expect(closeOnOrBefore(h, "atw", "2026-01-02")).toBe(100);
     expect(latestClose(h, "iam")).toBe(55);
+  });
+});
+
+describe("buildLifetimeSeries (lifetime-return line == dashboard KPI)", () => {
+  it("simple unrealized-only: pct = (mark - cost) / cost", () => {
+    // Buy 10 @ 100 (cost 1000). Marks: 100 -> 0%, 110 -> +10%, 120 -> +20%.
+    const t = [txp("2026-01-02", "ATW", "BUY", 10, 100)];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-03", { ATW: 110 }, 1, 1),
+      row("2026-01-06", { ATW: 120 }, 1, 1),
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points.map((p) => p.pct)).toEqual([0, 10, 20]);
+    expect(s.first).toBe("2026-01-02");
+    expect(s.last).toBe("2026-01-06");
+  });
+
+  it("is IMMUNE to adding capital at fair value (no phantom jump)", () => {
+    // Buy 10 @ 100 day1, 10 MORE @ 120 day2 (price already 120). Lifetime cost
+    // becomes 2200; value 20*120=2400 -> unreal 200 -> 200/2200 = +9.09%.
+    const t = [
+      txp("2026-01-02", "ATW", "BUY", 10, 100),
+      txp("2026-01-03", "ATW", "BUY", 10, 120),
+    ];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-03", { ATW: 120 }, 1, 1),
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points[0].pct).toBeCloseTo(0, 2);
+    expect(s.points[1].pct).toBeCloseTo(+((200 / 2200) * 100).toFixed(2), 2);
+    expect(s.points[1].pct).toBeLessThan(15); // not +100%+ from the injection
+  });
+
+  it("books realized gains into the numerator (denominator stays lifetime cost)", () => {
+    // Buy 10 @ 100 (cost 1000). Sell 5 @ 140 -> realized 5*(140-100)=200.
+    // After the sell, still hold 5 (cost 500) marked at 140 -> unreal 5*40=200.
+    // Numerator = unreal 200 + realized 200 = 400; lifetime buy cost = 1000.
+    // -> +40%.
+    const t = [
+      txp("2026-01-02", "ATW", "BUY", 10, 100),
+      txp("2026-01-03", "ATW", "SELL", 5, 140),
+    ];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-03", { ATW: 140 }, 1, 1),
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points[0].pct).toBeCloseTo(0, 2);
+    expect(s.points[1].pct).toBeCloseTo(40, 2);
+  });
+
+  it("stays positive after a FULL exit (realized gain over lifetime cost)", () => {
+    // Buy 10 @ 100 (cost 1000), then sell all 10 @ 130 -> realized 300.
+    // Nothing held afterwards, but the lifetime return is still +30% (booked),
+    // NOT 0/negative - this is the bug the lifetime line fixes vs cost-basis.
+    const t = [
+      txp("2026-01-02", "ATW", "BUY", 10, 100),
+      txp("2026-01-05", "ATW", "SELL", 10, 130),
+    ];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-05", { ATW: 130 }, 1, 1),
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points[s.points.length - 1].pct).toBeCloseTo(30, 2);
+  });
+
+  it("adds dividends to the numerator", () => {
+    // Buy 10 @ 100 (cost 1000). DIV of 5/share on 10 shares = 50. Price flat at
+    // 100 -> unreal 0, divs 50 -> 50/1000 = +5%.
+    const t = [
+      txp("2026-01-02", "ATW", "BUY", 10, 100),
+      txp("2026-01-03", "ATW", "DIV", 10, 5),
+    ];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-03", { ATW: 100 }, 1, 1),
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points[1].pct).toBeCloseTo(5, 2);
+  });
+
+  it("carries the last close forward for a day with no quote", () => {
+    const t = [txp("2026-01-02", "ATW", "BUY", 10, 100)];
+    const h = hist([
+      row("2026-01-02", { ATW: 100 }, 1, 1),
+      row("2026-01-03", { ATW: 130 }, 1, 1),
+      row("2026-01-06", {}, 1, 1), // no quote -> carry 130
+    ]);
+    const s = buildLifetimeSeries(t, h);
+    expect(s.points[2].pct).toBeCloseTo(30, 2); // still marked at 130
+  });
+
+  it("skips rows before anything is bought, and honours opts.from", () => {
+    const t = [txp("2026-01-03", "ATW", "BUY", 10, 100)];
+    const h = hist([
+      row("2026-01-02", { ATW: 90 }, 1, 1), // before the buy -> no point
+      row("2026-01-03", { ATW: 100 }, 1, 1),
+      row("2026-01-06", { ATW: 110 }, 1, 1),
+    ]);
+    const all = buildLifetimeSeries(t, h);
+    expect(all.first).toBe("2026-01-03"); // nothing bought on the 2nd
+    expect(all.points).toHaveLength(2);
+    const fromLater = buildLifetimeSeries(t, h, { from: "2026-01-06" });
+    expect(fromLater.points).toHaveLength(1);
+    expect(fromLater.first).toBe("2026-01-06");
+  });
+
+  it("returns an empty series when there are no transactions", () => {
+    const h = hist([row("2026-01-02", { ATW: 100 }, 1, 1)]);
+    const s = buildLifetimeSeries([], h);
+    expect(s.points).toEqual([]);
+    expect(s.first).toBe(null);
+    expect(s.last).toBe(null);
+  });
+});
+
+describe("benchmarkSeries (benchmark-only, no txn replay)", () => {
+  const h = hist([
+    row("2026-01-02", { ATW: 100 }, 10000, 1000),
+    row("2026-01-03", { ATW: 120 }, 11000, 1050),
+    row("2026-01-06", { ATW: 120 }, 12000, 1100),
+  ]);
+
+  it("rebases each index to 0% at its first level (its own return)", () => {
+    const b = benchmarkSeries(h);
+    expect(b.masiPct.map((x) => x.pct)).toEqual([0, 10, 20]); // 10000 base
+    expect(b.msi20Pct.map((x) => x.pct)).toEqual([0, 5, 10]); // 1000 base
+    expect(b.first).toBe("2026-01-02");
+    expect(b.last).toBe("2026-01-06");
+  });
+
+  it("does NOT anchor to the portfolio (unlike valueVsBenchmark)", () => {
+    // valueVsBenchmark would lift the benchmark to the portfolio's first return;
+    // benchmarkSeries always starts the index at 0%.
+    const txnsP = [txp("2026-01-02", "ATW", "BUY", 10, 100)];
+    const hb = hist([
+      row("2026-01-02", { ATW: 120 }, 10000, 1000), // portfolio starts +20%
+      row("2026-01-03", { ATW: 120 }, 11000, 1050),
+    ]);
+    const anchored = valueVsBenchmark(txnsP, hb);
+    const plain = benchmarkSeries(hb);
+    expect(anchored.masiPct[0].pct).toBeCloseTo(20, 4); // lifted to portfolio
+    expect(plain.masiPct[0].pct).toBeCloseTo(0, 6); // stays at 0%
+    // ...but the DELTA over the window is identical (both rise 10% on MASI).
+    expect(plain.masiPct[1].pct).toBeCloseTo(10, 4);
+    expect(anchored.masiPct[1].pct).toBeCloseTo(30, 4);
+  });
+
+  it("yields null pct where an index level is missing", () => {
+    const h2 = hist([
+      row("2026-01-02", { ATW: 100 }, null, 1000),
+      row("2026-01-03", { ATW: 120 }, null, 1050),
+    ]);
+    const b = benchmarkSeries(h2);
+    expect(b.masiPct.every((x) => x.pct === null)).toBe(true);
+    expect(b.msi20Pct.map((x) => x.pct)).toEqual([0, 5]);
+  });
+
+  it("honours opts.from (windowing)", () => {
+    const b = benchmarkSeries(h, { from: "2026-01-03" });
+    expect(b.points.map((p) => p.date)).toEqual(["2026-01-03", "2026-01-06"]);
+    // rebased to the NEW first row (11000): 0%, then +9.09%.
+    expect(b.masiPct[0].pct).toBeCloseTo(0, 6);
+    expect(b.masiPct[1].pct).toBeCloseTo((12000 / 11000 - 1) * 100, 4);
+  });
+
+  it("matches valueVsBenchmark's index deltas point-for-point", () => {
+    // The benchmark SHAPE must be identical between the two functions (only the
+    // constant anchor differs), so swapping to benchmarkSeries can't change the
+    // rendered MASI line after the chart re-baselines it.
+    const txnsP = [txp("2026-01-02", "ATW", "BUY", 10, 100)];
+    const full = valueVsBenchmark(txnsP, h);
+    const lite = benchmarkSeries(h);
+    const delta = (arr) =>
+      arr.map((x) => (x.pct == null ? null : x.pct - arr[0].pct));
+    expect(delta(lite.masiPct)).toEqual(delta(full.masiPct));
+    expect(delta(lite.msi20Pct)).toEqual(delta(full.msi20Pct));
   });
 });

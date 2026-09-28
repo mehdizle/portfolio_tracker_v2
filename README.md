@@ -62,9 +62,13 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
 - **Casablanca session tracker** — a "Market" button opens a live popup showing
   the current CSE phase (Group 1 continuous vs Group 3 fixing), what's passed and
   what's next, in Africa/Casablanca time regardless of the viewer's timezone.
-- **Ticker logos (SVG + PNG, offline)** — every ticker shows a deterministic
-  colored monogram; dropping a logo into `public/logos/` overrides it with a real
-  one. No external calls.
+- **Ticker logos (auto-fetched, SVG + PNG, offline)** — every ticker shows a
+  deterministic colored monogram, upgraded to a real logo when one is present. A
+  **monthly** GitHub Action (`fetch-logos.yml` → `scripts/fetch-logos.mjs`)
+  auto-downloads each Casablanca equity's vector logo from TradingView's public
+  CDN into `public/logos/CSEMA/` (overwrite-if-changed, server-side in CI); you
+  can still drop your own file in to override. The **browser** makes no external
+  logo calls.
 - **Positions: group by sector + sector pie** — a Group/Ungroup toggle (sector
   header rows with per-sector totals) that persists, and a Dashboard sector pie.
 
@@ -114,8 +118,8 @@ The Dividends tab is the most feature-rich area.
 index.html                 HTML shell. Loads Highcharts (CDN) + the Vite entry.
 styles.css                 All styles (imported by the entry, fingerprinted by Vite).
 public/                    Static files copied verbatim to the site root by Vite.
-  logos/                   Optional per-ticker logos (SVG/PNG), by exchange or flat.
-    CSEMA/                 Casablanca logos, e.g. CSEMA/ATW.svg.
+  logos/                   Per-ticker logos (SVG/PNG), by exchange or flat.
+    CSEMA/                 Casablanca logos (auto-fetched monthly), e.g. CSEMA/ATW.svg.
   prices.json              Latest TradingView snapshot (public; committed by CI).
   price-history.json       Daily closes + MASI/MSI20 levels, one row/date (public; CI).
 src/
@@ -140,6 +144,7 @@ src/
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
 scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
+scripts/fetch-logos.mjs    CI logo fetcher (monthly): TradingView CDN -> public/logos/CSEMA/*.svg
 js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO/forecast math to src/core via __core.
   01-core.js               globals, persistence, ticker badges, fee/tax wrappers
@@ -159,6 +164,7 @@ test/                      Vitest suite (see "Tests" below)
 .github/
   workflows/deploy.yml       test -> build -> deploy to GitHub Pages (self-healing lockfile)
   workflows/fetch-prices.yml weekday cron: fetch prices -> commit public JSON -> trigger deploy
+  workflows/fetch-logos.yml  monthly cron: fetch ticker logos -> commit SVGs -> trigger deploy
   dependabot.yml             grouped weekly dependency PRs (npm + GitHub Actions)
 ```
 
@@ -228,7 +234,8 @@ sector-icon.test.js          every sector maps to a distinct, non-default icon
 market-session.test.js       CSE trading-phase boundary classification
 divcal-merge.test.js         calendar upsert: add / update / keep old years / Ord+Exc same date
 dividend-forecast.test.js    slots, level+trend, current-year gap-fill, split flag, tax-net income
-value-history.test.js        holdings-as-of-date, value curve, carry-forward, rebased % vs benchmark
+value-history.test.js        holdings/cost-basis-as-of-date, value curve, carry-forward,
+                             lifetime-return line (== dashboard KPI), benchmark rebasing
 ```
 
 ---
@@ -316,16 +323,28 @@ the caches — nothing breaks across versions.
 
 Every ticker shows a small badge. By default it's a deterministic colored
 monogram (initials on a stable per-ticker color) — always available, offline,
-private. To show a real logo, drop a file into `public/logos/`:
+private. Real logos are **kept up to date automatically**, and you can also drop
+your own in. See `public/logos/README.md` for the full details.
 
-- **SVG is preferred, PNG accepted.** For each ticker the badge tries, in order,
-  the exchange subfolders in `LOGO_DIRS` (currently `CSEMA`) then the flat
-  `logos/` root, **`.svg` before `.png`**. First match wins; if none exist, the
-  monogram stays.
+- **Auto-fetched monthly.** `.github/workflows/fetch-logos.yml` runs
+  `scripts/fetch-logos.mjs` on a monthly cron: it reads each Casablanca ticker's
+  `logoid` from TradingView's public scanner and downloads the matching vector
+  logo from `s3-symbol-logo.tradingview.com/<logoid>.svg` into
+  `public/logos/CSEMA/<KEY>.svg`. It **overwrites only when the SVG changed** (so
+  a brand refresh or a wrong logo self-corrects, with no commit churn) and
+  **never deletes** a logo it couldn't refresh. This is the same server-side/CI
+  posture as the price fetcher — the **browser** never calls TradingView.
+- **Manual override / funds.** Drop an **SVG (preferred) or PNG** into
+  `public/logos/`. For each ticker the badge tries, in order, the exchange
+  subfolders in `LOGO_DIRS` (currently `CSEMA`) then the flat `logos/` root,
+  **`.svg` before `.png`**; first match wins, else the monogram stays. The
+  fetcher only writes `CSEMA/<KEY>.svg`, so OPCVM **funds** (not on TradingView)
+  and any flat/`.png` drop-in are yours to hand-maintain.
 - File name = the ticker, uppercased, non-alphanumerics → `_`. Examples:
   `CSEMA/ATW.svg`, `CSEMA/ATJ_ACT.svg`, or flat `NKL.png`.
 - Vite copies `public/` to the site root; served at
-  `/portfolio_tracker_v2/logos/...`. There are **no external logo requests**.
+  `/portfolio_tracker_v2/logos/...`. There are **no external logo requests from
+  the browser**.
 - To add another market, add its folder name to `LOGO_DIRS` in `js/01-core.js`.
 
 The fallback is delegated and CodeQL-safe: the `<img>` src is rebuilt from a

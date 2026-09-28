@@ -481,7 +481,11 @@ function renderHistoryRecomputed() {
   // cost-basis-on-current-holdings figure that could read negative while you
   // were overall in profit). Benchmark comes from the value/benchmark helper.
   const life = __core.valueHistory.buildLifetimeSeries(TXNS, PRICE_HISTORY);
-  const r = __core.valueHistory.valueVsBenchmark(TXNS, PRICE_HISTORY);
+  // Benchmark lines only: benchmarkSeries walks the price history once and skips
+  // the per-day holdings/cost replay that valueVsBenchmark would run (we draw
+  // the portfolio line from buildLifetimeSeries above, and re-baseline the
+  // benchmark to the window start below, so its portfolio anchor is unused).
+  const r = __core.valueHistory.benchmarkSeries(PRICE_HISTORY);
   if (!life.points.length) return false;
 
   // Anchor the (fee-agnostic) lifetime series to the LIVE, fee/tax-accurate

@@ -315,6 +315,42 @@ function shiftSeries(series, offsetPct) {
   );
 }
 
+// Build the benchmark-only comparison dataset (no transaction/value replay).
+//   { points:[{date, masi, msi20}], first, last, masiPct:[{date,pct}],
+//     msi20Pct:[...] }
+// masiPct/msi20Pct are each index REBASED to 0% at its first available level -
+// the index's own return over the window. This is what the chart draws for the
+// MASI / MASI 20 line: it re-baselines to the window start on its own, so no
+// portfolio anchor is needed here.
+//
+// This is deliberately CHEAP: it walks the price-history rows once and never
+// touches the ledger (no holdingsAsOf/costBasisAsOf per day). The portfolio
+// line is a separate concern - see buildLifetimeSeries. (valueVsBenchmark below
+// still layers the portfolio anchor on top for callers that want all three
+// lines from one call.)
+export function benchmarkSeries(history, opts) {
+  const o = opts || {};
+  const rows = (history && history.rows) || [];
+  const startDate = o.from || null;
+  const points = [];
+  for (const row of rows) {
+    if (!row || !row.date) continue;
+    if (startDate && row.date < startDate) continue;
+    points.push({
+      date: row.date,
+      masi: row.masi != null ? +row.masi : null,
+      msi20: row.msi20 != null ? +row.msi20 : null,
+    });
+  }
+  return {
+    points,
+    first: points.length ? points[0].date : null,
+    last: points.length ? points[points.length - 1].date : null,
+    masiPct: rebasePct(points, (p) => p.masi),
+    msi20Pct: rebasePct(points, (p) => p.msi20),
+  };
+}
+
 // Convenience: build the full comparison dataset for the chart.
 //   { points, valuePct:[{date,pct}], masiPct:[...], msi20Pct:[...] }
 // - valuePct is the portfolio's COST-BASIS return (value/cost - 1), which is
@@ -322,6 +358,11 @@ function shiftSeries(series, offsetPct) {
 // - masiPct/msi20Pct are the index's rebased return, SHIFTED to start at the
 //   portfolio's first return so all three lines meet at the left edge and the
 //   comparison is about slope/divergence, not absolute level.
+// NOTE: the live chart draws the portfolio line from buildLifetimeSeries and
+// the benchmark from benchmarkSeries (it re-baselines the benchmark itself), so
+// it does NOT need this function. It is kept as the all-in-one helper (and is
+// unit-tested) for any caller that wants value + both benchmarks anchored
+// together in one pass.
 export function valueVsBenchmark(txns, history, opts) {
   const series = buildValueSeries(txns, history, opts);
   const points = series.points;
