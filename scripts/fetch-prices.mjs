@@ -517,9 +517,31 @@ async function main() {
   // (the value curve) and the Funds table kept showing a stale NAV. applyTvRec
   // writes price for any ticker already in the master (our funds are), and omits
   // category, so manual fund categorisation is preserved.
+  //
+  // CARRY-FORWARD: if ASFIM is briefly unreachable, fetchFundNavs returns fewer
+  // (or no) funds. We MUST NOT drop the funds from prices.json in that case -
+  // that would blank out fund positions until ASFIM recovers. So for any
+  // configured fund missing from this run, reuse its price from the PREVIOUS
+  // prices.json. This keeps every configured fund present every run.
+  let prevFundPrice = {};
+  if (existsSync(OUT)) {
+    try {
+      const prev = JSON.parse(readFileSync(OUT, "utf8"));
+      for (const r of prev.records || [])
+        if (r && r.ticker) prevFundPrice[r.ticker] = r.price;
+    } catch (_e) {
+      /* ignore */
+    }
+  }
+  const fundTickers = Object.keys(loadFundIsins());
   const fundRecords = [];
-  for (const [ticker, info] of Object.entries(fundNavs || {})) {
-    const price = info && info.vl;
+  for (const ticker of fundTickers) {
+    const info = (fundNavs || {})[ticker];
+    let price = info && info.vl;
+    if (!(typeof price === "number" && isFinite(price) && price > 0)) {
+      // No fresh NAV this run -> carry forward the last known price.
+      price = prevFundPrice[ticker];
+    }
     if (typeof price === "number" && isFinite(price) && price > 0)
       fundRecords.push({ ticker, price });
   }
