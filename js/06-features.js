@@ -355,6 +355,145 @@ function renderSignalOutcomes() {
   const avg = (b) => (b.n ? b.sum / b.n : null);
   const exAvg = (b) => (b.exN ? b.exSum / b.exN : null);
   const overallBench = allN ? allSum / allN : null;
+  // Days a call has been tracked (call date -> today), for the tooltips.
+  const ageOf = (dt) => Math.round((today - new Date(dt)) / 86400000);
+  // Reusable tip helpers if the shared ones (from 04-render.js) aren't loaded.
+  const tHead =
+    typeof _tipHead === "function"
+      ? _tipHead
+      : (t) => `<div style="font-weight:700;margin-bottom:6px">${t}</div>`;
+  const tRow =
+    typeof _tipRow === "function"
+      ? _tipRow
+      : (l, v, c) =>
+          `<div style="display:flex;justify-content:space-between;gap:18px"><span>${l}</span><span class="${c || ""}" style="font-family:var(--mono)">${v}</span></div>`;
+  const tRule =
+    typeof _tipRule === "function"
+      ? _tipRule
+      : () =>
+          '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
+  const note = (t) =>
+    `<div class="mini" style="color:var(--text2);margin-top:6px;max-width:280px;white-space:normal">${t}</div>`;
+
+  // \u2500\u2500 PER-CELL TOOLTIP BUILDERS (explain how each number is derived) \u2500\u2500
+  // "Call" cell: what was rated, when, and how old the call is now.
+  const tipCall = (x) =>
+    tHead("The call \u00B7 " + escapeHtml(x.tk)) +
+    tRow(
+      "Rated",
+      "<b>" + escapeHtml(x.h.label || x.h.sig || "\u2014") + "</b>",
+    ) +
+    tRow("On", escapeHtml(x.h.date)) +
+    tRow("Tracked for", ageOf(x.h.date) + " days") +
+    (x.h.score != null
+      ? tRow("Score that day", Math.round(x.h.score * 100) + "%")
+      : "") +
+    (x.h.fv != null ? tRow("Fair value then", money(x.h.fv)) : "") +
+    note(
+      "This is the engine's EARLIEST rating for " +
+        escapeHtml(x.tk) +
+        " that is now at least 30 days old \u2014 the call being graded.",
+    );
+  // "Price then/now" cells: where the two prices came from.
+  const tipPrices = (x) =>
+    tHead("Prices \u00B7 " + escapeHtml(x.tk)) +
+    tRow("Price on " + escapeHtml(x.h.date), money(x.then)) +
+    tRow("Price now", money(x.now)) +
+    tRule() +
+    tRow(
+      "<b>Change</b>",
+      '<b class="' + cls(x.ret) + '">' + pctS(x.ret) + "</b>",
+    ) +
+    note(
+      "Closes come from the daily repo price history (carried forward on non-trading days), so this updates hands-off. Price-only \u2014 excludes dividends &amp; fees.",
+    );
+  // "Change" cell: the raw return arithmetic spelled out.
+  const tipChange = (x) =>
+    tHead("Change since the call \u00B7 " + escapeHtml(x.tk)) +
+    tRow("Price then", money(x.then)) +
+    tRow("Price now", money(x.now)) +
+    tRule() +
+    tRow(
+      "(" +
+        money(x.now) +
+        " \u2212 " +
+        money(x.then) +
+        ") \u00F7 " +
+        money(x.then),
+      '<b class="' + cls(x.ret) + '">' + pctS(x.ret) + "</b>",
+    ) +
+    note(
+      "The stock's own price move over " +
+        ageOf(x.h.date) +
+        " days. It does NOT yet say if the signal was good \u2014 for that, see \u201Cvs bench\u201D.",
+    );
+  // "vs bench" cell: the whole point - excess vs same-start-date peers.
+  const tipBench = (x) => {
+    if (x.excess == null)
+      return (
+        tHead("vs bench \u00B7 " + escapeHtml(x.tk)) +
+        note(
+          "No benchmark available for the start date " +
+            escapeHtml(x.h.date) +
+            ".",
+        )
+      );
+    const bd = benchByDate[x.h.date];
+    const peers = bd ? bd.n : 0;
+    const good =
+      (x.bucket === "buy" && x.excess > 0) ||
+      (x.bucket === "sell" && x.excess < 0);
+    const verdict =
+      x.bucket === "buy"
+        ? x.excess > 0
+          ? "Good call \u2014 this Buy beat the market."
+          : "This Buy trailed the market."
+        : x.bucket === "sell"
+          ? x.excess < 0
+            ? "Good call \u2014 this Sell/Trim lagged the market (right to avoid)."
+            : "This Sell/Trim actually rose vs the market."
+          : "Hold/Wait \u2014 no action was implied.";
+    return (
+      tHead("vs bench \u00B7 " + escapeHtml(x.tk)) +
+      tRow(
+        "This name's change",
+        '<span class="' + cls(x.ret) + '">' + pctS(x.ret) + "</span>",
+      ) +
+      tRow(
+        "Avg of " +
+          peers +
+          " name" +
+          (peers === 1 ? "" : "s") +
+          " from " +
+          escapeHtml(x.h.date),
+        '<span class="' +
+          cls(x.bench) +
+          '">' +
+          (x.bench != null ? pctS(x.bench) : "\u2014") +
+          "</span>",
+      ) +
+      tRule() +
+      tRow(
+        "<b>Excess (value-add)</b>",
+        '<b class="' +
+          cls(x.excess) +
+          '">' +
+          pctS(x.ret) +
+          " \u2212 " +
+          pctS(x.bench) +
+          " = " +
+          pctS(x.excess) +
+          "</b>",
+      ) +
+      note(
+        "Every name snapshotted on " +
+          escapeHtml(x.h.date) +
+          " forms the benchmark (a \u201Ctypical stock starting that day\u201D), so this isolates the SIGNAL from the market's drift. " +
+          (good ? "\u2705 " : "\u26A0\uFE0F ") +
+          verdict,
+      )
+    );
+  };
   // Bucket card now shows raw avg AND excess-vs-benchmark (the value-add).
   const aggCard = (label, b, tip) => {
     const ex = exAvg(b);
@@ -468,24 +607,44 @@ function renderSignalOutcomes() {
     h +=
       '<tr><td class="l"><b>' +
       escapeHtml(x.tk) +
-      '</b></td><td class="l"><span class="badge ' +
+      // Call badge (hover: what was rated, when, how old)
+      '</b></td><td class="l nis-cell" style="cursor:help" data-tip="' +
+      tipRef(tipCall(x)) +
+      '"><span class="badge ' +
       (x.h.sig || "") +
       '">' +
       escapeHtml(x.h.label || x.h.sig || "\u2014") +
-      "</span></td><td>" +
+      '</span> <span style="color:var(--muted)">\u24D8</span></td>' +
+      // On (call date) - shares the "call" tooltip
+      '<td class="nis-cell" style="cursor:help" data-tip="' +
+      tipRef(tipCall(x)) +
+      '">' +
       escapeHtml(x.h.date) +
-      "</td><td>" +
+      "</td>" +
+      // Price then / Price now (hover: source of each price)
+      '<td class="nis-cell" style="cursor:help" data-tip="' +
+      tipRef(tipPrices(x)) +
+      '">' +
       money(x.then) +
-      "</td><td>" +
+      '</td><td class="nis-cell" style="cursor:help" data-tip="' +
+      tipRef(tipPrices(x)) +
+      '">' +
       money(x.now) +
-      '</td><td class="' +
+      // Change (hover: raw-return arithmetic)
+      '</td><td class="nis-cell ' +
       cls(x.ret) +
+      '" style="cursor:help" data-tip="' +
+      tipRef(tipChange(x)) +
       '">' +
       pctS(x.ret) +
-      '</td><td class="' +
+      // vs bench (hover: excess = this - peers, with verdict)
+      '</td><td class="nis-cell ' +
       (x.excess != null ? cls(x.excess) : "") +
+      '" style="cursor:help" data-tip="' +
+      tipRef(tipBench(x)) +
       '">' +
       (x.excess != null ? pctS(x.excess) : "\u2014") +
+      ' <span style="color:var(--muted)">\u24D8</span>' +
       "</td></tr>";
   }
   h += "</tbody></table></div>";
