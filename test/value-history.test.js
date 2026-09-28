@@ -385,8 +385,13 @@ describe("benchmarkSeries (benchmark-only, no txn replay)", () => {
 
   it("rebases each index to 0% at its first level (its own return)", () => {
     const b = benchmarkSeries(h);
-    expect(b.masiPct.map((x) => x.pct)).toEqual([0, 10, 20]); // 10000 base
-    expect(b.msi20Pct.map((x) => x.pct)).toEqual([0, 5, 10]); // 1000 base
+    // Rebased %s are (v/base - 1) * 100, so compare with tolerance (float noise).
+    [0, 10, 20].forEach((exp, i) =>
+      expect(b.masiPct[i].pct).toBeCloseTo(exp, 6),
+    ); // 10000 base
+    [0, 5, 10].forEach((exp, i) =>
+      expect(b.msi20Pct[i].pct).toBeCloseTo(exp, 6),
+    ); // 1000 base
     expect(b.first).toBe("2026-01-02");
     expect(b.last).toBe("2026-01-06");
   });
@@ -415,7 +420,8 @@ describe("benchmarkSeries (benchmark-only, no txn replay)", () => {
     ]);
     const b = benchmarkSeries(h2);
     expect(b.masiPct.every((x) => x.pct === null)).toBe(true);
-    expect(b.msi20Pct.map((x) => x.pct)).toEqual([0, 5]);
+    expect(b.msi20Pct[0].pct).toBeCloseTo(0, 6);
+    expect(b.msi20Pct[1].pct).toBeCloseTo(5, 6); // 1000 -> 1050
   });
 
   it("honours opts.from (windowing)", () => {
@@ -435,7 +441,16 @@ describe("benchmarkSeries (benchmark-only, no txn replay)", () => {
     const lite = benchmarkSeries(h);
     const delta = (arr) =>
       arr.map((x) => (x.pct == null ? null : x.pct - arr[0].pct));
-    expect(delta(lite.masiPct)).toEqual(delta(full.masiPct));
-    expect(delta(lite.msi20Pct)).toEqual(delta(full.msi20Pct));
+    const sameDeltas = (a, b) => {
+      const da = delta(a),
+        db = delta(b);
+      expect(da).toHaveLength(db.length);
+      da.forEach((v, i) => {
+        if (v == null) expect(db[i]).toBe(null);
+        else expect(v).toBeCloseTo(db[i], 6); // tolerate float noise (anchor add/sub)
+      });
+    };
+    sameDeltas(lite.masiPct, full.masiPct);
+    sameDeltas(lite.msi20Pct, full.msi20Pct);
   });
 });
