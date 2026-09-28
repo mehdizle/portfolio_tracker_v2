@@ -47,20 +47,26 @@ jobs:
       - name: Fetch prices -> public/prices.json
         run: node scripts/fetch-prices.mjs
 
-      - name: Commit prices.json + price-history.json + trigger deploy (only if changed)
+      - name: Commit refreshed data + trigger deploy (only if changed)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Two files can change per run: prices.json (latest snapshot, only when
-          # stock prices moved) and price-history.json (one NEW daily row every
-          # run, even when prices are unchanged - a new date is a new curve
-          # point). Gate on BOTH so a fresh history row is never dropped just
-          # because prices happened to be flat that day.
-          if [ -n "$(git status --porcelain public/prices.json public/price-history.json)" ]; then
+          # Up to three files can change per run:
+          #  - prices.json         : latest snapshot (only when stock prices moved)
+          #  - price-history.json  : one NEW daily row every run (a new date is a
+          #                          new curve point), so it changes almost daily
+          #  - dividends.json      : the Bourse de Casablanca dividend calendar,
+          #                          changes only when the calendar is updated
+          # Gate on ALL THREE so a fresh row/calendar update is never dropped.
+          if [ -n "$(git status --porcelain public/prices.json public/price-history.json public/dividends.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add public/prices.json public/price-history.json
-            git commit -m "chore: refresh prices.json + price-history.json (TradingView)"
+            # Add only the files that actually exist (dividends.json may be absent
+            # on the very first run, or if the calendar fetch was skipped).
+            for f in public/prices.json public/price-history.json public/dividends.json; do
+              [ -f "$f" ] && git add "$f"
+            done
+            git commit -m "chore: refresh prices, price-history + dividend calendar"
             git push
             # A commit made with GITHUB_TOKEN does NOT trigger other workflows'
             # `push` events (GitHub's anti-recursion safeguard). So the deploy
@@ -68,5 +74,5 @@ jobs:
             # Explicitly dispatch deploy.yml so the site rebuilds with them.
             gh workflow run deploy.yml --ref main
           else
-            echo "prices.json + price-history.json unchanged - nothing to commit / deploy"
+            echo "prices / price-history / dividends unchanged - nothing to commit / deploy"
           fi

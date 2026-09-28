@@ -1,0 +1,53 @@
+name: Refresh ticker logos (TradingView)
+
+# Downloads each Casablanca ticker's vector logo from TradingView's public CDN
+# (scripts/fetch-logos.mjs) into public/logos/CSEMA/<TICKER>.svg, overwriting
+# only when the SVG changed. Logos change rarely, so this runs MONTHLY (and can
+# be run on demand). Committing to main triggers deploy.yml to republish.
+
+on:
+  schedule:
+    # 03:17 UTC on the 1st of each month (off-peak minute; see fetch-prices.yml
+    # note on GitHub cron being best-effort).
+    - cron: "17 3 1 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # commit refreshed logos
+  actions: write # dispatch deploy.yml after committing
+
+concurrency:
+  group: fetch-logos
+  cancel-in-progress: false
+
+jobs:
+  logos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Refresh logos -> public/logos/CSEMA/
+        run: node scripts/fetch-logos.mjs
+
+      - name: Commit changed logos + trigger deploy (only if changed)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "$(git status --porcelain public/logos/CSEMA)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add public/logos/CSEMA
+            git commit -m "chore: refresh ticker logos (TradingView)"
+            git push
+            # A commit made with GITHUB_TOKEN does NOT trigger other workflows'
+            # push events (anti-recursion), so dispatch the deploy explicitly.
+            gh workflow run deploy.yml --ref main
+          else
+            echo "logos unchanged - nothing to commit / deploy"
+          fi
