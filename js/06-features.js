@@ -366,8 +366,82 @@ function renderSignalOutcomes() {
       `</div>`
     );
   };
+  // \u2500\u2500 PLAIN-ENGLISH VERDICT \u2500\u2500
+  // Turn the buy/sell excess numbers into a one-line "is the engine working?"
+  // takeaway, so the user doesn't have to interpret the cards themselves.
+  // Buy is "good" when its excess is positive (beat the market); Sell is "good"
+  // when its excess is NEGATIVE (the names it flagged lagged the market).
+  const buyEx = exAvg(agg.buy);
+  const sellEx = exAvg(agg.sell);
+  const buyGood = buyEx != null && buyEx > 0.005; // beat market by >0.5pt
+  const buyBad = buyEx != null && buyEx < -0.005;
+  const sellGood = sellEx != null && sellEx < -0.005; // flagged names lagged
+  const sellBad = sellEx != null && sellEx > 0.005;
+  const goods = (buyGood ? 1 : 0) + (sellGood ? 1 : 0);
+  const bads = (buyBad ? 1 : 0) + (sellBad ? 1 : 0);
+  let verdictTxt, verdictColor;
+  if (buyEx == null && sellEx == null) {
+    verdictTxt =
+      "Not enough judged Buy/Sell calls yet to grade the engine \u2014 check back as more calls pass 30 days.";
+    verdictColor = "var(--text2)";
+  } else if (goods && !bads) {
+    verdictTxt =
+      "\u2705 The engine is adding value so far: " +
+      (buyGood ? "Buy-rated names beat the market by " + pctS(buyEx) : "") +
+      (buyGood && sellGood ? ", and " : "") +
+      (sellGood
+        ? "Sell/Trim names lagged it by " + pctS(sellEx) + " (correct)"
+        : "") +
+      ". Treat the engine's calls as a credible signal \u2014 but still size positions with the Rebalance tab.";
+    verdictColor = "var(--success)";
+  } else if (bads && !goods) {
+    verdictTxt =
+      "\u26A0\uFE0F The engine is NOT adding value over this sample: " +
+      (buyBad ? "Buy-rated names trailed the market by " + pctS(buyEx) : "") +
+      (buyBad && sellBad ? ", and " : "") +
+      (sellBad
+        ? "Sell/Trim names actually rose " + pctS(sellEx) + " vs the market"
+        : "") +
+      ". Lean on your own judgement and don't follow the signals mechanically.";
+    verdictColor = "var(--error)";
+  } else {
+    verdictTxt =
+      "\u2696\uFE0F Mixed so far: " +
+      "Buy calls are " +
+      (buyEx != null ? pctS(buyEx) + " vs market" : "n/a") +
+      ", Sell calls are " +
+      (sellEx != null ? pctS(sellEx) + " vs market" : "n/a") +
+      ". The edge is small on this sample \u2014 use the signals as one input, not a rule. More history makes this clearer.";
+    verdictColor = "var(--warn)";
+  }
+
   let h =
     '<div style="font-weight:700;margin-bottom:6px">\uD83D\uDCC8 Signal outcomes <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 price change since each call (\u2265 30 days old, earliest call per name). "vs bench" = excess over the average name from the same start date.</span></div>';
+  // Verdict banner: the single most useful line on the page.
+  h +=
+    '<div style="border-left:3px solid ' +
+    verdictColor +
+    ';background:var(--panel2);padding:9px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;line-height:1.45">' +
+    verdictTxt +
+    "</div>";
+  // Collapsible "how to read this" so it's explicit without cluttering.
+  h +=
+    '<details style="margin-bottom:12px;font-size:12.5px;line-height:1.5">' +
+    '<summary style="cursor:pointer;color:var(--primary2);font-weight:600">\u2753 How to read this / what to do</summary>' +
+    '<div style="color:var(--text2);margin-top:8px">' +
+    "<b>What this tab is.</b> A report card that grades the Signals engine on its OWN past calls. It is <b>not</b> a to-do list of trades \u2014 it tells you <i>how much to trust</i> the Buy/Hold/Sell ratings you see on the Signals tab.<br><br>" +
+    "<b>How a call is graded.</b> When a ticker is first rated (Buy, Hold, or Sell), that date + price is saved. Once the call is \u2265 30 days old, the tab compares its price then vs now, and subtracts the return of the <i>average</i> stock that started the same day. That difference is <b>\u201Cvs bench\u201D</b> \u2014 the part due to the signal, not the whole market drifting.<br><br>" +
+    "<b>The three cards (the important part):</b><br>" +
+    "\u2022 <b>Buy-rated</b> \u2014 you want <b>vs bench positive</b> (the engine's buys beat the market).<br>" +
+    "\u2022 <b>Sell/Trim</b> \u2014 you want <b>vs bench negative</b> (the names it told you to sell/trim did worse than the market \u2014 so avoiding them was right).<br>" +
+    "\u2022 <b>Hold/Wait</b> \u2014 expected to sit near the market (near 0). No action implied.<br><br>" +
+    "<b>What to actually do:</b><br>" +
+    "1. Read the green/amber/red verdict line above \u2014 it already summarises whether the engine is earning its keep.<br>" +
+    "2. If it\u2019s <b>green</b>, you can lean on the Signals tab\u2019s ratings with more confidence when picking buys/trims (then size them in <b>Rebalance</b>).<br>" +
+    "3. If it\u2019s <b>red/amber</b>, treat the ratings as just one opinion and rely more on your own view + fair-value gap.<br>" +
+    "4. Scan the table for outliers: a Buy with a big <b>negative</b> vs bench, or a Sell that <b>rose</b> a lot, is a call the engine got wrong \u2014 worth a closer look on that name.<br><br>" +
+    "<b>Caveats.</b> Price-only (ignores dividends &amp; fees), each name counts once (its earliest \u2265 30-day call), and small samples are noisy \u2014 a handful of calls isn\u2019t proof. It grades the engine; it does <b>not</b> feed the Rebalance math." +
+    "</div></details>";
   h +=
     '<div class="grid kpis" style="margin-bottom:10px">' +
     `<div class="card nis-cell" data-tip="${tipRef("Average price change of ALL judged names over their tracking windows - the market baseline the signal buckets are compared against.")}" style="cursor:help"><div class="label">Benchmark (all) <span class="mini">(${allN})</span></div><div class="value ${overallBench != null ? cls(overallBench) : ""}">${overallBench != null ? pctS(overallBench) : "\u2014"}</div></div>` +
