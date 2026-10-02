@@ -1,0 +1,50 @@
+name: CI (test + build)
+
+# Verification-only CI for pull requests (and manual runs). This does NOT deploy
+# - it just proves the test suite and the production build pass on the PR branch.
+# It's what makes Dependabot auto-merge safe: a dependency bump can only merge
+# after this is green. deploy.yml still owns the real build+deploy on push to main.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          # Same self-healing install as deploy.yml: prefer strict npm ci, fall
+          # back to npm install when the lockfile is missing/out of sync.
+          if [ -f package-lock.json ]; then
+            npm ci || {
+              echo "npm ci failed (lockfile out of sync) - using npm install";
+              npm install;
+            }
+          else
+            npm install
+          fi
+
+      - name: Run tests (financial core)
+        run: npm test
+
+      - name: Build (concat UI + Vite bundle/minify)
+        run: npm run build

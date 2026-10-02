@@ -1,0 +1,47 @@
+name: Dependabot auto-merge
+
+# Hands-off dependency updates: when Dependabot opens a PR, enable GitHub's
+# "auto-merge" so the PR merges ITSELF once all required checks pass (the CI
+# workflow in ci.yml: test + build). Nothing merges while tests are red.
+#
+# SAFETY: auto-merge is enabled ONLY for patch and minor bumps. MAJOR version
+# bumps (e.g. a future Vite 9 / Vitest 6) are left for you to review and merge
+# by hand, because a major can carry breaking changes that a green test suite
+# won't necessarily catch. Today's vite 8.3.0->8.3.1 and vitest 5.0.1->5.0.2 are
+# patch bumps, so they would auto-merge.
+#
+# NOTE: this fires on Dependabot's PRs only. GitHub runs Dependabot events with a
+# read-only token by default, so we grant the minimal write scopes here.
+
+on: pull_request_target
+
+permissions:
+  contents: write # needed to enable auto-merge / merge the PR
+  pull-requests: write # needed to approve + comment on the PR
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-24.04
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Enable auto-merge for patch & minor updates
+        if: >-
+          ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+              steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Leave a note on major updates (manual review)
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-major' }}
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "This is a **major** version bump (${{ steps.meta.outputs.dependency-names }}). Auto-merge is intentionally disabled for majors - please review the changelog and merge manually once CI is green."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
