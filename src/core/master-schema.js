@@ -40,6 +40,7 @@ export const TV_METRICS = [
   { key: "dps" },
   { key: "fcf" },
   { key: "revenue" },
+  { key: "shares" }, // total shares outstanding (for Revenue/Sh = revenue/shares)
   { key: "epsGrowth", scaledInParser: true }, // % -> decimal
 ];
 

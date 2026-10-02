@@ -124,6 +124,11 @@ const FIELD_MAP = [
   { key: "dps", tv: "dps_common_stock_prim_issue_fy" },
   { key: "fcf", tv: "free_cash_flow_per_share_ttm" },
   { key: "revenue", tv: "total_revenue" },
+  // Shares outstanding - needed to turn the TOTAL revenue above into a per-share
+  // figure in the UI (Revenue/Sh). total_shares_outstanding has full coverage on
+  // the Morocco screener (revenue_per_share_ttm is spotty), so we store shares
+  // and divide app-side.
+  { key: "shares", tv: "total_shares_outstanding" },
   {
     key: "epsGrowth",
     tv: "earnings_per_share_diluted_yoy_growth_ttm",

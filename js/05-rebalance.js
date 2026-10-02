@@ -1104,16 +1104,46 @@ function _cdKeyMetrics(m, pir, trow) {
     );
   }
   {
+    // Revenue-per-share needs shares outstanding. `m.revenue` from the feed is
+    // TOTAL revenue (TTM), so dividing by `m.shares` (total_shares_outstanding)
+    // gives the per-share figure. When shares aren't available (e.g. a manual
+    // paste, or data fetched before `shares` was added), we DON'T fake a
+    // per-share number - we show Total Revenue with an honest label instead, so
+    // the row is never misleading (the old code labelled total revenue
+    // "Revenue/Sh", showing e.g. 1.6B "per share").
     const _revPS =
-      m.revenue != null && m.price != null && m.revenue > 0
-        ? m.price / m.revenue
-        : null; // crude P/S (price/revenue-per-share-ish)
-    m1 += trow(
-      "Revenue/Sh",
-      m.revenue != null ? money(m.revenue) + " MAD" : "\u2014",
-      "",
-      "Revenue Per Share (from Total Revenue TTM / Shares). Useful for loss-making companies where P/E is meaningless \u2014 the P/S (Price/Sales) ratio is a fallback valuation anchor.\n\nNo color coding \u2014 revenue alone doesn\u2019t indicate cheap or expensive; compare with margins and sector peers.",
-    );
+      m.revenue != null && m.revenue > 0 && m.shares != null && m.shares > 0
+        ? m.revenue / m.shares
+        : null;
+    // P/S (Price / Sales) = price / revenue-per-share, a fallback valuation
+    // anchor for loss-making names where P/E is meaningless.
+    const _ps =
+      _revPS != null && m.price != null && _revPS > 0 ? m.price / _revPS : null;
+    if (_revPS != null) {
+      m1 += trow(
+        "Revenue/Sh",
+        money(_revPS) + " MAD",
+        "",
+        "Revenue Per Share = Total Revenue (TTM) \u00F7 shares outstanding = " +
+          money(m.revenue) +
+          " \u00F7 " +
+          Math.round(m.shares).toLocaleString() +
+          " shares." +
+          (_ps != null
+            ? "\n\nP/S (Price/Sales) \u2248 " +
+              _ps.toFixed(2) +
+              "x \u2014 a fallback valuation anchor for loss-making companies where P/E is meaningless."
+            : "") +
+          "\n\nNo color coding \u2014 revenue alone doesn\u2019t indicate cheap or expensive; compare with margins and sector peers.",
+      );
+    } else {
+      m1 += trow(
+        "Revenue (TTM)",
+        m.revenue != null ? money(m.revenue) + " MAD" : "\u2014",
+        "",
+        "Total Revenue (trailing twelve months) \u2014 the company\u2019s whole top line, NOT per share (shares-outstanding data isn\u2019t available for this ticker yet, so a per-share figure can\u2019t be computed). It will switch to Revenue/Sh automatically once the next automated price refresh adds the share count.\n\nNo color coding \u2014 revenue alone doesn\u2019t indicate cheap or expensive.",
+      );
+    }
   }
   {
     const _grCl =
