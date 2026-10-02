@@ -63,6 +63,28 @@ jobs:
             echo "lockfile unchanged - nothing to commit"
           fi
 
+      - name: Verify lockfile state (Dependabot needs a committed lockfile)
+        run: |
+          # Make the lockfile state loud and visible in the run summary. A MISSING
+          # package-lock.json is exactly what makes Dependabot's npm updater fail
+          # ("The updater encountered one or more errors"), so surface it clearly
+          # instead of letting it fail silently off-screen.
+          #
+          # Note: on the very first run that CREATES the lockfile, the commit in
+          # the previous step pushed it to the repo, but THIS checkout's working
+          # tree already has the file too - so `-f package-lock.json` is true here
+          # even on run #1. If it's somehow still absent, warn (don't hard-fail:
+          # the build can still proceed via npm install; it's Dependabot that
+          # cares). Set FAIL_IF_NO_LOCKFILE=1 later to turn this into a hard gate.
+          if [ -f package-lock.json ]; then
+            PKGS=$(grep -c '"resolved"' package-lock.json || echo "?")
+            echo "lockfile OK (resolved entries: $PKGS)"
+            echo "- lockfile: present (resolved entries: $PKGS) - Dependabot npm updates will work" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=No package-lock.json::Lockfile is missing. Dependabot's npm updater will error until a committed lockfile exists. The self-healing install step should have created it - check the 'Commit refreshed lockfile' step's push for failures (e.g. branch protection blocking the bot push)."
+            echo "- lockfile: MISSING - Dependabot npm updates will keep failing until this is committed" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Run tests (financial core)
         run: npm test
 
