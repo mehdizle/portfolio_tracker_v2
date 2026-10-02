@@ -388,17 +388,34 @@ function computeRebalance() {
       // Weights interpolate with the slider: at vTilt=0 they are exactly the
       // original (sectorNeed 1.0, value 0.6, no factor-lean, no overweight
       // penalty). At vTilt=1 valuation/quality lead and diversification eases.
-      const wSector = 1.0 - 0.5 * vTilt; // 1.0 -> 0.5
-      const wValue = 0.6 + 0.6 * vTilt; // 0.6 -> 1.2
-      const wFactor = 0.5 * vTilt; // 0   -> 0.5
+      // Greedy pick score: canonical impl in src/core/signal-math.js (tested),
+      // reached via __core. Inline fallback mirrors it for eval-order safety.
+      const _rbCtx = {
+        secW,
+        cap: _cap,
+        disc: r._disc,
+        cycleNeed,
+        styleNeed,
+        isBuy: !!(r.sig && r.sig.c === "b-buy"),
+        fscore: r._fscore,
+      };
       const score =
-        sectorNeed * wSector +
-        valueTilt * wValue +
-        cycleNeed * 0.35 +
-        styleNeed * 0.35 +
-        (r.sig && r.sig.c === "b-buy" ? 0.15 : 0) +
-        (r._fscore || 0) * wFactor -
-        overPen * 1.2 * vTilt;
+        typeof __core !== "undefined" && __core.signalMath
+          ? __core.signalMath.rbScore(_rbCtx, vTilt)
+          : (function () {
+              const wSector = 1.0 - 0.5 * vTilt;
+              const wValue = 0.6 + 0.6 * vTilt;
+              const wFactor = 0.5 * vTilt;
+              return (
+                sectorNeed * wSector +
+                valueTilt * wValue +
+                cycleNeed * 0.35 +
+                styleNeed * 0.35 +
+                (_rbCtx.isBuy ? 0.15 : 0) +
+                (r._fscore || 0) * wFactor -
+                overPen * 1.2 * vTilt
+              );
+            })();
       if (score > candScore) {
         candScore = score;
         cand = r;

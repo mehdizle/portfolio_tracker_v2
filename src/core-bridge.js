@@ -17,6 +17,7 @@ import * as marketSession from "./core/market-session.js";
 import * as divcalMerge from "./core/divcal-merge.js";
 import * as dividendForecast from "./core/dividend-forecast.js";
 import * as valueHistory from "./core/value-history.js";
+import * as signalMath from "./core/signal-math.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -39,5 +40,6 @@ globalThis.__core = {
   divcalMerge,
   dividendForecast,
   valueHistory,
+  signalMath,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };

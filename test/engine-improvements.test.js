@@ -3,68 +3,30 @@
 // IMPORTANT SCOPE NOTE: the signals + rebalance engines live in the shared-scope
 // bundle (js/03-signals.js, js/05-rebalance.js) as plain top-level functions, NOT
 // importable ES modules, so Vitest cannot import them directly. These tests
-// therefore replicate the EXACT scoring math that was added and assert the
-// design invariants against the replica. They lock the math (FCF direction,
-// missing-FCF no-op, graded epsGrowth, rebalance slider extremes); they do NOT
-// prove the bundle wired them - that's covered by the brace/ASCII checks and the
-// browser smoke test. The replicas below are copied verbatim from the engine.
+// UPDATE: the core scoring primitives (soft, num, growthScore, fcfyScore,
+// rbScore) are now EXTRACTED into src/core/signal-math.js and imported below, so
+// those specs test the REAL engine code (js/03-signals.js & js/05-rebalance.js
+// both delegate to that module via __core). The remaining stand-ins in this
+// file - the simplified fairValue model and the signal-outcome aggregation /
+// recordDay helpers - are NOT yet extracted; they assert design invariants, not
+// the shipped functions, and are labelled as such. (TODO: extract fairValue and
+// the outcome engine next.)
 import { describe, it, expect } from "vitest";
+// These are now imported from the REAL tested module (src/core/signal-math.js),
+// which both the Signals engine (js/03-signals.js) and the Rebalance helper
+// (js/05-rebalance.js) delegate to via __core. So these tests exercise the SAME
+// code the app runs - a regression in the engine math now fails CI (previously
+// they tested verbatim copies that could silently drift from the engine).
+import {
+  num,
+  soft,
+  growthScore,
+  fcfyScore,
+  rbScore,
+} from "../src/core/signal-math.js";
 
-// ---- verbatim replica of soft() from js/03-signals.js ----
-function soft(v, best, worst) {
-  if (!(typeof v === "number" && isFinite(v))) return null;
-  if (best === worst) return 0.5;
-  let t = (v - worst) / (best - worst);
-  if (t < -0.5) t = -0.5;
-  else if (t > 1.5) t = 1.5;
-  return 1 / (1 + Math.exp(-4 * (t - 0.5)));
-}
-
-// ---- replica of the new continuous growth term ----
-function growthScore(m) {
-  const _pegS = soft(m.peg, 0.7, 2.0);
-  const _egS = m.epsGrowth != null ? soft(m.epsGrowth, 0.2, -0.05) : null;
-  let g;
-  if (_pegS == null && _egS == null) g = null;
-  else if (_pegS == null) g = _egS;
-  else if (_egS == null)
-    g = m.epsGrowth != null && m.epsGrowth <= 0 ? 0.15 : _pegS;
-  else g = 0.5 * _pegS + 0.5 * _egS;
-  if (g != null && m.epsGrowth != null && m.epsGrowth <= 0)
-    g = Math.min(g, 0.2);
-  return g;
-}
-
-// ---- replica of the new FCF-yield factor score ----
-function fcfyScore(m, best, worst) {
-  const y = num(m.fcf) && num(m.price) && m.price > 0 ? m.fcf / m.price : null;
-  return y == null ? null : soft(y, best, worst);
-}
-const num = (v) => typeof v === "number" && isFinite(v);
-
-// ---- replica of the rebalance greedy score (js/05-rebalance.js) ----
-// score at vTilt for one candidate given its context weights.
-function rbScore(
-  { secW, cap, disc, cycleNeed, styleNeed, isBuy, fscore },
-  vTilt,
-) {
-  const sectorNeed = 1 - secW / cap;
-  const valueTilt = disc >= 0 ? disc : disc * vTilt;
-  const overPen = Math.max(0, (secW - cap) / cap);
-  const wSector = 1.0 - 0.5 * vTilt;
-  const wValue = 0.6 + 0.6 * vTilt;
-  const wFactor = 0.5 * vTilt;
-  return (
-    sectorNeed * wSector +
-    valueTilt * wValue +
-    cycleNeed * 0.35 +
-    styleNeed * 0.35 +
-    (isBuy ? 0.15 : 0) +
-    (fscore || 0) * wFactor -
-    overPen * 1.2 * vTilt
-  );
-}
-// The soft ceiling that replaced the hard `if (secW >= cap) continue`.
+// The soft ceiling that replaced the hard `if (secW >= cap) continue` lives in
+// js/05-rebalance.js as a one-off (not part of the scoring module); kept local.
 const rbCeiling = (cap, vTilt) => cap * (1 + 0.5 * vTilt);
 
 describe("Spec A: FCF-yield factor", () => {
@@ -219,7 +181,15 @@ describe("Spec B: value-led mode lets an undervalued name in a full sector throu
   });
 });
 
-// ---- replica of fairValue() with the new FCF anchor (js/03-signals.js) ----
+// ---- SIMPLIFIED fairValue model (NOT the shipped engine) ----
+// NOTE: unlike soft/growthScore/fcfyScore/rbScore above (now imported from the
+// real src/core/signal-math.js), this is a deliberately simplified stand-in for
+// js/03-signals.js fairValue(). The shipped fairValue adds a cyclical peak-
+// earnings haircut, anchorWeights(), ddmValue() and a median-trim that are not
+// yet extracted to a module. These tests therefore assert fair-value DESIGN
+// INVARIANTS (FCF raises FV; banks ignore FCF), not the engine's exact output.
+// TODO: extract the full fairValue (with anchorWeights/ddmValue) into
+// signal-math.js and point these at the real function.
 function fairValue(m, prof) {
   if (!num(m.price)) return null;
   const eps =
@@ -306,7 +276,9 @@ describe("Spec #1: FCF feeds into fair value", () => {
   });
 });
 
-// ---- replica of signal-outcome aggregation (js/06-features.js) ----
+// ---- stand-in for signal-outcome aggregation (NOT extracted from js/06-features.js) ----
+// Asserts the aggregation DESIGN (bucketing, horizon gating, oldest-call-per-name);
+// the shipped logic lives in renderSignalOutcomes and is not yet in a module.
 function sigBucket(c) {
   if (c === "b-buy") return "buy";
   if (c === "b-sell" || c === "b-trim") return "sell";
@@ -363,7 +335,7 @@ describe("Spec #3: signal-outcome aggregation", () => {
   });
 });
 
-// ---- replica of the benchmark-relative outcome logic (js/06-features.js) ----
+// ---- stand-in for the benchmark-relative outcome logic (NOT extracted from js/06-features.js) ----
 function outcomesWithBench(hist, cur, todayISO, horizonDays) {
   const today = new Date(todayISO);
   const byTk = {};
@@ -445,7 +417,7 @@ describe("Spec #3b: benchmark-relative signal outcomes", () => {
   });
 });
 
-// ---- replica of recordSignalSnapshot's LATEST-of-day dedup (js/06-features.js) ----
+// ---- stand-in for recordSignalSnapshot's LATEST-of-day dedup (NOT extracted from js/06-features.js) ----
 // A re-snapshot on the same day (e.g. after re-importing prices) overwrites that
 // ticker's entry in place; prior days are untouched; today never duplicates.
 function recordDay(hist, rows, today) {

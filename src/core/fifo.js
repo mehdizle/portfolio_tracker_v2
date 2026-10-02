@@ -41,6 +41,25 @@ export function computeRow(t, avgCostForSell, ctx) {
   const { master, brokers, fp, fpPea, divtax } = ctx;
   const vat = vatRate(fp);
   const tpcvm = fp && fp.tpcvm != null ? fp.tpcvm : 0.15;
+  // Guard: every return below divides by t.qty to get the per-share ttc, so a
+  // zero/negative/non-finite qty would emit Infinity/NaN into ttc & net and
+  // poison portfolio totals. Normal entry (forms, CSV import) validates qty, so
+  // this is defensive - a malformed row degrades to a harmless zero-row instead
+  // of corrupting the ledger.
+  const _q = +t.qty;
+  if (!isFinite(_q) || _q <= QTY_EPS) {
+    const isOpcvm0 =
+      t.opcvm === true ||
+      !!(master && master[t.ticker] && master[t.ticker].cat === "OPCVM");
+    return {
+      fees: 0,
+      tax: 0,
+      ttc: 0,
+      net: 0,
+      opcvm: isOpcvm0,
+      invalidQty: true,
+    };
+  }
   const gross = roundMoney(t.price * t.qty);
   const yr = new Date(t.date).getFullYear();
   const meta = master ? master[t.ticker] : null;
@@ -132,6 +151,14 @@ export function computeRow(t, avgCostForSell, ctx) {
     };
   }
   // SELL
+  // INTENTIONAL BASIS SPLIT (not a bug): capital-gains TAX is computed on the
+  // WEIGHTED-AVERAGE cost of the holding (`avgCostForSell`), matching v1 and the
+  // Moroccan TPCVM convention of taxing against average acquisition cost. The
+  // realized GAIN that runFIFO reports, however, is computed from the true FIFO
+  // lot walk (consuming oldest lots first). On a position built from lots at
+  // different prices these two numbers can differ: the tax uses average cost,
+  // the displayed gain uses FIFO cost. This is deliberate - do not "unify" them
+  // without confirming the intended tax treatment, as it would change tax output.
   const costBasis = t.qty * (avgCostForSell || 0);
   const tax = capitalGainsTax(gross, fees, costBasis, t.pea, tpcvm);
   const net = roundMoney(gross - fees - tax);
@@ -292,6 +319,14 @@ export function runFIFO(txns, ctx) {
         rem -= take;
         if (lot[0] <= QTY_EPS) lots[k].shift();
       }
+      // Oversell: the ledger tried to sell more than was held, so `cost` only
+      // reflects the lots that existed and the realized gain is overstated by
+      // the proceeds of never-owned shares. We can't invent a cost, but we flag
+      // it on the account so the UI can surface a data-entry warning rather than
+      // silently reporting an inflated gain. (A clean ledger never hits this.)
+      if (rem > QTY_EPS) {
+        acc[k].oversold = roundMoney((acc[k].oversold || 0) + rem);
+      }
       cost = roundMoney(cost);
       const proceeds = roundMoney(r.ttc * t.qty);
       const gain = roundMoney(proceeds - cost);
@@ -329,7 +364,12 @@ export function runFIFO(txns, ctx) {
     const held = L.reduce((s, l) => s + l[0], 0);
     const avg =
       held > QTY_EPS ? L.reduce((s, l) => s + l[0] * l[1], 0) / held : 0;
-    const a = acc[k] || { realized: 0, divs: 0, soldQty: 0, totalBuyCost: 0 };
+    const a = acc[k] || {
+      realized: 0,
+      divs: 0,
+      soldQty: 0,
+      totalBuyCost: 0,
+    };
     const price =
       master && master[tk] && master[tk].price != null
         ? master[tk].price
@@ -391,6 +431,7 @@ export function runFIFO(txns, ctx) {
       lifetime,
       costBasis,
       isFund,
+      oversold: a.oversold || 0, // >0 means more was sold than held (data-entry issue)
       lifepct: costBasis > QTY_EPS ? lifetime / costBasis : 0,
       status: held > 0 ? (a.realized !== 0 ? "Partial" : "Open") : "Closed",
     };

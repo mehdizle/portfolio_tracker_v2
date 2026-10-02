@@ -76,7 +76,7 @@ function renderConcentration() {
     const w = p.value / total;
     if (w > 0.2)
       warns.push(
-        `\u26A0 <b>${p.ticker}</b> (${escapeHtml((M[p.ticker] && M[p.ticker].name) || p.ticker)}) is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 consider trimming for diversification.`,
+        `\u26A0 <b>${escapeHtml(p.ticker)}</b> (${escapeHtml((M[p.ticker] && M[p.ticker].name) || p.ticker)}) is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 consider trimming for diversification.`,
       );
   });
   // Sector > 40%
@@ -89,7 +89,7 @@ function renderConcentration() {
     const w = bySec[c] / total;
     if (w > 0.4)
       warns.push(
-        `\u26A0 Sector <b>${c}</b> is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 high sector concentration.`,
+        `\u26A0 Sector <b>${escapeHtml(c)}</b> is <b>${(w * 100).toFixed(0)}%</b> of your portfolio \u2014 high sector concentration.`,
       );
   });
   if (!warns.length) {

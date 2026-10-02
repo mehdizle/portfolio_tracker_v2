@@ -10,7 +10,13 @@
 //     normalized by the weights actually used -> always a fair 0..1, never null.
 //  2. Every factor is normalized to 0..1 then weighted (no silent 0.85 cap).
 //  3. Targets guarantee sell > buy.
-const num = (v) => typeof v === "number" && isFinite(v);
+// num / soft are the canonical scoring primitives, now defined ONCE in the
+// tested core module src/core/signal-math.js and reached via __core. The inline
+// fallbacks keep the UI working even if the bundle somehow evaluates before the
+// bridge (it never does - main.js imports the bridge first - but defensive).
+const _SM =
+  typeof __core !== "undefined" && __core.signalMath ? __core.signalMath : null;
+const num = _SM ? _SM.num : (v) => typeof v === "number" && isFinite(v);
 // linear score helper: value maps to 1 at 'best', 0 at 'worst' (either direction)
 function lin(v, best, worst) {
   if (!num(v)) return null;
@@ -22,20 +28,19 @@ function lin(v, best, worst) {
 // penalises beyond 'worst' with a gentle asymptote instead of a hard clamp.
 // Maps 'worst'->~0.12, midpoint->0.5, 'best'->~0.88, and keeps rising/falling
 // past the bounds toward 0/1 (never fully saturating). Preserves direction.
-function soft(v, best, worst) {
-  if (!num(v)) return null;
-  if (!isFinite(v)) return null; // reject NaN/Infinity outright
-  if (best === worst) return 0.5;
-  let t = (v - worst) / (best - worst); // 0 at worst, 1 at best, can exceed
-  // Clamp extreme outliers: allow a little beyond best/worst (rewards/penalties
-  // past the bounds) but cap the excursion so a garbage input (e.g. PEG=40,
-  // ROE=-500%) can't keep dominating the blended score. t in [-0.5, 1.5]
-  // => soft in ~[0.018, 0.982]. Preserves direction; kills runaway leverage.
-  if (t < -0.5) t = -0.5;
-  else if (t > 1.5) t = 1.5;
-  // logistic centred at t=0.5, slope tuned so t=0->~0.12, t=1->~0.88
-  return 1 / (1 + Math.exp(-4 * (t - 0.5)));
-}
+// soft(): canonical logistic scorer, now defined ONCE in src/core/signal-math.js
+// and reached via __core (tested there). Inline fallback mirrors it exactly for
+// eval-order safety. t clamped to [-0.5,1.5] => soft in ~[0.018,0.982].
+const soft = _SM
+  ? _SM.soft
+  : function (v, best, worst) {
+      if (!(typeof v === "number" && isFinite(v))) return null;
+      if (best === worst) return 0.5;
+      let t = (v - worst) / (best - worst);
+      if (t < -0.5) t = -0.5;
+      else if (t > 1.5) t = 1.5;
+      return 1 / (1 + Math.exp(-4 * (t - 0.5)));
+    };
 
 // Sector weighting profiles \u2014 SAME factors, re-weighted per sector.
 // Financials (banks/insurers/REITs) judged on P/B, ROE, Yield \u2014 NOT EV/EBITDA.
@@ -301,41 +306,39 @@ function factorScores(m) {
   if (!m) return null;
   const pir = posInRange(m);
   const prof = sectorProfile(m.cat);
-  // \u2500\u2500 Continuous growth factor \u2500\u2500
-  // Blend PEG (valuation-of-growth) with the RAW eps-growth rate so a fast
-  // grower scores high and a shrinking-EPS name scores low CONTINUOUSLY,
-  // instead of the old binary cliff (epsGrowth<=0 -> flat 0.15). Each half
-  // is dropped if its input is missing (soft() returns null), and if BOTH
-  // are missing the growth factor is skipped by the normaliser below.
-  // A hard negative-EPS floor keeps a deeply-shrinking name from being
-  // rescued by a low (misleading) PEG.
-  const _pegS = soft(m.peg, 0.7, 2.0); // null if peg missing
-  const _egS = m.epsGrowth != null ? soft(m.epsGrowth, 0.2, -0.05) : null;
-  let _growthS;
-  if (_pegS == null && _egS == null) _growthS = null;
-  else if (_pegS == null) _growthS = _egS;
-  else if (_egS == null)
-    _growthS = m.epsGrowth != null && m.epsGrowth <= 0 ? 0.15 : _pegS;
-  else _growthS = 0.5 * _pegS + 0.5 * _egS;
-  if (_growthS != null && m.epsGrowth != null && m.epsGrowth <= 0)
-    _growthS = Math.min(_growthS, 0.2); // negative-EPS floor (cap upside)
+  // \u2500\u2500 Continuous growth factor \u2500\u2500 (canonical impl in signal-math.js)
+  // Blends PEG with the RAW eps-growth rate so a fast grower scores high and a
+  // shrinking-EPS name scores low continuously, with a negative-EPS floor. The
+  // tested core function is the single source of truth; inline fallback mirrors
+  // it for eval-order safety.
+  const _growthS = _SM
+    ? _SM.growthScore(m)
+    : (function () {
+        const _pegS = soft(m.peg, 0.7, 2.0);
+        const _egS = m.epsGrowth != null ? soft(m.epsGrowth, 0.2, -0.05) : null;
+        let g;
+        if (_pegS == null && _egS == null) g = null;
+        else if (_pegS == null) g = _egS;
+        else if (_egS == null)
+          g = m.epsGrowth != null && m.epsGrowth <= 0 ? 0.15 : _pegS;
+        else g = 0.5 * _pegS + 0.5 * _egS;
+        if (g != null && m.epsGrowth != null && m.epsGrowth <= 0)
+          g = Math.min(g, 0.2);
+        return g;
+      })();
 
-  // \u2500\u2500 FCF-yield factor \u2500\u2500
-  // Free-cash-flow yield = FCF per share / price. The hardest fundamental to
-  // fake and orthogonal to P/E-style value. Per-sector bounds live on the
-  // profile (fcfyBest/fcfyWorst); financials/REITs set weight 0 because bank
-  // cash flows don't carry the same meaning (book/ROE already cover them).
-  // Missing FCF -> soft() null -> factor skipped, score re-normalised.
-  const _fcfy =
-    num(m.fcf) && num(m.price) && m.price > 0 ? m.fcf / m.price : null;
-  const _fcfyS =
-    _fcfy == null
-      ? null
-      : soft(
-          _fcfy,
-          num(prof.fcfyBest) ? prof.fcfyBest : 0.07,
-          num(prof.fcfyWorst) ? prof.fcfyWorst : 0.0,
-        );
+  // \u2500\u2500 FCF-yield factor \u2500\u2500 (canonical impl in signal-math.js)
+  // Free-cash-flow yield = FCF per share / price, scored against per-sector
+  // bounds (fcfyBest/fcfyWorst). Missing FCF -> null -> factor skipped.
+  const _fcfBest = num(prof.fcfyBest) ? prof.fcfyBest : 0.07;
+  const _fcfWorst = num(prof.fcfyWorst) ? prof.fcfyWorst : 0.0;
+  const _fcfyS = _SM
+    ? _SM.fcfyScore(m, _fcfBest, _fcfWorst)
+    : (function () {
+        const y =
+          num(m.fcf) && num(m.price) && m.price > 0 ? m.fcf / m.price : null;
+        return y == null ? null : soft(y, _fcfBest, _fcfWorst);
+      })();
   const F = {
     valuation: { w: prof.valuation, s: soft(m.ev, 6, 16) },
     safety: { w: prof.safety, s: soft(m.netdebt, 0, 5) },
