@@ -122,14 +122,74 @@ function median(xs) {
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
 
+// Allocate a sell of `qty` shares across tax lots to MINIMISE the capital-gains
+// hit. `lots` = [{ qty, cost (per-share), pea }]. Preference: PEA lots first
+// (gains tax-exempt), then Regular lots HIGHEST cost-basis first (smallest gain
+// per share / realise losses before gains). Returns an array of
+// { account, qty, costPS, gainPS } slices totalling `qty`. If `lots` is absent,
+// returns a single undifferentiated slice so callers still work.
+export function allocSellLots(lots, qty, price) {
+  if (!Array.isArray(lots) || !lots.length) {
+    return [{ account: "", qty, costPS: null, gainPS: null }];
+  }
+  const norm = lots
+    .filter((l) => l && _num(l.qty) && l.qty > 0)
+    .map((l) => ({
+      qty: l.qty,
+      costPS: _num(l.cost) ? l.cost : 0,
+      pea: !!l.pea,
+    }));
+  // Sort: PEA before Regular; within each, highest cost-basis first.
+  norm.sort((a, b) => {
+    if (a.pea !== b.pea) return a.pea ? -1 : 1;
+    return b.costPS - a.costPS;
+  });
+  const out = [];
+  let rem = qty;
+  for (const l of norm) {
+    if (rem <= EPS) break;
+    const take = Math.min(rem, l.qty);
+    if (take <= EPS) continue;
+    out.push({
+      account: l.pea ? "PEA" : "Regular",
+      qty: take,
+      costPS: l.costPS,
+      gainPS: _num(price) ? price - l.costPS : null,
+    });
+    rem -= take;
+  }
+  if (rem > EPS)
+    out.push({ account: "", qty: rem, costPS: null, gainPS: null });
+  return out;
+}
+
+// The account that holds the biggest slice of a lot plan (for the row label).
+function _dominantAccount(lotPlan) {
+  if (!Array.isArray(lotPlan) || !lotPlan.length) return "";
+  const byAcct = {};
+  for (const s of lotPlan) byAcct[s.account] = (byAcct[s.account] || 0) + s.qty;
+  let best = "",
+    bestQ = -1;
+  for (const a in byAcct)
+    if (byAcct[a] > bestQ) {
+      bestQ = byAcct[a];
+      best = a;
+    }
+  return best;
+}
+
 // ---- Target weights --------------------------------------------------------
 // candidates: [{ ticker, cat, base, disc, conviction, vol, sellRated }]
 // caps: { nameCap (0..1), sectorCap (0..1), opcvmCap (0..1), opcvmCats:Set|arr }
-// opts: { valueTilt, riskAdjust, volFloor, reservePct (0..1) }
-// Returns { weights: {ticker:w}, attract: {ticker:A}, volRef, dropped:[...] }
-// where weights sum to (1 - reservePct) of the sleeve. Sell-rated / zero-base
-// names get weight 0. Capped-renormalisation runs to convergence so no name
-// exceeds nameCap and no sector exceeds its cap.
+// opts: { valueTilt, riskAdjust, volFloor, reservePct (0..1),
+//         pinned:{ticker: weight 0..1} }
+// `pinned` lets the user MANUALLY fix a name's target weight (override the
+// model). Each pin is clamped to nameCap and the sleeve budget; pinned names are
+// then held fixed and the REMAINING budget is water-filled across the rest
+// (respecting caps). This is how the UI's per-name "pin" control works.
+// Returns { weights: {ticker:w}, attract: {ticker:A}, volRef, pinned:{...} }
+// where weights sum to (1 - reservePct) of the sleeve (minus any infeasible
+// remainder). Sell-rated / zero-base names get weight 0.
 export function targetWeights(candidates, caps, opts) {
   const o = opts || {};
   const c = caps || {};
@@ -139,6 +199,7 @@ export function targetWeights(candidates, caps, opts) {
   const opcvmSet = new Set(c.opcvmCats || ["OPCVM"]);
   const reservePct = clamp(o.reservePct != null ? o.reservePct : 0, 0, 0.95);
   const budget = 1 - reservePct;
+  const pinsIn = o.pinned || {};
 
   const vols = candidates.map((x) => x.vol).filter(_num);
   const volRef = median(vols) || 0.25;
@@ -153,11 +214,30 @@ export function targetWeights(candidates, caps, opts) {
     attract[cand.ticker] = A;
     if (A > EPS) list.push({ ...cand, A });
   }
-  const totalA = list.reduce((s, x) => s + x.A, 0);
   const weights = {};
   for (const cand of candidates || [])
     if (cand && cand.ticker) weights[cand.ticker] = 0;
-  if (totalA <= EPS) return { weights, attract, volRef, dropped: [] };
+
+  // ---- Pinned overrides: fix these names, hold out their budget ----
+  // A pin applies even to a name the model would score 0 (the user is forcing
+  // it in). Each pin is clamped to [0, nameCap] and the running pin total is
+  // clamped to the sleeve budget (earlier pins win if they'd overflow).
+  const pinned = {};
+  let pinnedTotal = 0;
+  for (const tk of Object.keys(pinsIn)) {
+    let pw = +pinsIn[tk];
+    if (!_num(pw) || pw < 0) continue;
+    pw = Math.min(pw, nameCap);
+    pw = Math.min(pw, Math.max(0, budget - pinnedTotal));
+    pinned[tk] = pw;
+    pinnedTotal += pw;
+    weights[tk] = pw; // record even if not in `list`
+  }
+  const flexList = list.filter((x) => !(x.ticker in pinned));
+  const flexBudget = Math.max(0, budget - pinnedTotal);
+  const totalA = flexList.reduce((s, x) => s + x.A, 0);
+  if (totalA <= EPS || flexBudget <= EPS)
+    return { weights, attract, volRef, pinned, dropped: [] };
 
   // ---- Capped water-filling ----
   // Caps are HARD constraints; the budget is a target we approach but never
@@ -170,16 +250,25 @@ export function targetWeights(candidates, caps, opts) {
   // simply not allocated (it becomes implicit cash - a valid outcome, since
   // forcing a cap breach to deploy every MAD would wreck diversification).
   const sectorCapOf = (cat) => (opcvmSet.has(cat) ? opcvmCap : sectorCap);
-  for (const x of list) x.w = 0;
-  let toPlace = budget;
+  // Sector usage seeded with PINNED weights so pins count against their sector
+  // cap (a pin can leave little/no room for the model's own picks in that sector).
+  const pinnedSecUsed = {};
+  for (const tk of Object.keys(pinned)) {
+    const cand = list.find((x) => x.ticker === tk);
+    const cat = cand ? cand.cat : null;
+    if (cat) pinnedSecUsed[cat] = (pinnedSecUsed[cat] || 0) + pinned[tk];
+  }
+  for (const x of flexList) x.w = 0;
+  let toPlace = flexBudget;
   for (let iter = 0; iter < 200 && toPlace > 1e-7; iter++) {
     // Names with remaining headroom: below their name cap AND their sector has
-    // remaining room below its sector cap.
+    // remaining room below its sector cap (pinned usage counts against it).
     const secUsed = {};
-    for (const x of list) secUsed[x.cat] = (secUsed[x.cat] || 0) + x.w;
-    const open = list.filter((x) => {
+    for (const x of flexList) secUsed[x.cat] = (secUsed[x.cat] || 0) + x.w;
+    const secTotal = (cat) => (secUsed[cat] || 0) + (pinnedSecUsed[cat] || 0);
+    const open = flexList.filter((x) => {
       const nameRoom = nameCap - x.w;
-      const secRoom = sectorCapOf(x.cat) - (secUsed[x.cat] || 0);
+      const secRoom = sectorCapOf(x.cat) - secTotal(x.cat);
       return nameRoom > 1e-9 && secRoom > 1e-9;
     });
     if (!open.length) break; // fully capped out -> remainder stays as cash
@@ -194,7 +283,7 @@ export function targetWeights(candidates, caps, opts) {
       // Sector room is shared; approximate per-name cap by the whole sector's
       // remaining room (the loop re-checks sector totals next pass, so over-
       // allocation self-corrects on the following iteration).
-      const secRoom = sectorCapOf(x.cat) - (secUsed[x.cat] || 0);
+      const secRoom = sectorCapOf(x.cat) - secTotal(x.cat);
       const add = Math.min(want, nameRoom, Math.max(0, secRoom));
       if (add > 0) {
         x.w += add;
@@ -206,8 +295,8 @@ export function targetWeights(candidates, caps, opts) {
     if (placedThisPass <= 1e-9) break; // no progress -> infeasible, stop
   }
 
-  for (const x of list) weights[x.ticker] = x.w;
-  return { weights, attract, volRef, dropped: [] };
+  for (const x of flexList) weights[x.ticker] = x.w;
+  return { weights, attract, volRef, pinned, dropped: [] };
 }
 
 // ---- Trade planning --------------------------------------------------------
@@ -219,7 +308,11 @@ export function targetWeights(candidates, caps, opts) {
 // helpers: { buyCost(ticker,qty,price), sellNet(ticker,qty,price), lotRound(ticker,qty) }
 // opts: { minAttract, trimWinners, trimTolerance, overvaluedBand, dcaBoost,
 //         recycleTrims, maxBuys }
-// Returns { buys:[], sells:[], holdCash, rows:[per-name model-vs-actual], notes:[] }
+// positions may also carry: cat, cyc, sty, vol (for the readout), and lots:[{qty,
+//   cost, pea}] (for tax-lot-aware trim ordering - prefer PEA then highest-cost).
+// Returns { buys, sells, holdCash, sleeve, rows, notes,
+//           skipped:[{ticker, reason}],          // positive target, no buy (why)
+//           readout:{ sectors, cycles, styles, wAttract, wVol, cashPct } }
 export function planTrades(targets, positions, cash, helpers, opts) {
   const o = opts || {};
   const h = helpers || {};
@@ -283,6 +376,14 @@ export function planTrades(targets, positions, cash, helpers, opts) {
       if (qty > EPS) {
         const net = sellNet(tk, qty, p.price);
         if (net > EPS) {
+          // TAX-LOT-AWARE allocation: decide WHICH shares to sell to minimise
+          // the capital-gains hit. Order of preference:
+          //   1. PEA lots (capital gains are tax-exempt in a PEA);
+          //   2. then Regular lots, HIGHEST cost-basis first (smallest taxable
+          //      gain per share, and realises losses before gains).
+          // `p.lots` is [{qty, cost(perShare), pea}]. Falls back to a single
+          // undifferentiated lot when lot detail isn't supplied.
+          const lotPlan = allocSellLots(p.lots, qty, p.price);
           sells.push({
             ticker: tk,
             qty,
@@ -291,6 +392,8 @@ export function planTrades(targets, positions, cash, helpers, opts) {
             reason,
             curWt,
             tgtWt,
+            lotPlan, // [{ account:"PEA"/"Regular", qty, costPS, gainPS }]
+            account: _dominantAccount(lotPlan),
           });
         }
       }
@@ -303,18 +406,28 @@ export function planTrades(targets, positions, cash, helpers, opts) {
 
   // ---- BUYS: close positive drift, ranked by (drift x attractiveness) ----
   // Only names that clear the min-attractiveness bar are eligible; otherwise
-  // the cash they'd absorb is intentionally left idle.
+  // the cash they'd absorb is intentionally left idle. `skip` records WHY a
+  // positive-target name didn't get bought (surfaced in the UI's "why not").
+  const skip = {}; // ticker -> reason
   const buyCands = [];
   for (const tk of names) {
     const p = posByTk[tk];
     const tgtWt = w[tk] || 0;
     if (tgtWt <= EPS) continue;
     const A = attract[tk] || 0;
-    if (A < minAttract) continue;
+    if (A < minAttract) {
+      skip[tk] =
+        "below the attractiveness bar (" +
+        A.toFixed(2) +
+        " < " +
+        minAttract +
+        ")";
+      continue;
+    }
     const curVal = p && _num(p.value) ? p.value : 0;
     const targetVal = tgtWt * sleeve;
     const gap = targetVal - curVal;
-    if (gap <= EPS) continue;
+    if (gap <= EPS) continue; // already at/above target - nothing to buy
     // DCA: a held name below the user's avg cost, still sound, gets a boost.
     let dca = 0;
     if (
@@ -334,23 +447,36 @@ export function planTrades(targets, positions, cash, helpers, opts) {
 
   const distinct = new Set();
   for (const bc of buyCands) {
-    if (remaining <= EPS) break;
     const alreadyHeld = bc.p && bc.p.held > EPS;
-    if (!alreadyHeld && distinct.size >= maxBuys) continue;
+    if (remaining <= EPS) {
+      skip[bc.tk] = "cash ran out before reaching this name";
+      continue;
+    }
+    if (!alreadyHeld && distinct.size >= maxBuys) {
+      skip[bc.tk] = "max new-names limit (" + maxBuys + ") reached";
+      continue;
+    }
     const price = bc.p && _num(bc.p.price) ? bc.p.price : null;
     // price must come from the position OR the candidate; UI supplies it.
     const px = price != null ? price : bc.price;
-    if (!_num(px) || px <= 0) continue;
+    if (!_num(px) || px <= 0) {
+      skip[bc.tk] = "no price available";
+      continue;
+    }
     // Buy as close to the gap as cash + whole-share lots allow.
     let qty = lotRound(bc.tk, bc.gap / px);
     while (qty > 0 && buyCost(bc.tk, qty, px) > remaining)
       qty = lotRound(bc.tk, qty - 1);
     if (qty <= EPS) {
-      // can't even afford a minimal lot; skip (cash may stay idle)
+      // can't even afford a minimal whole-share lot; cash may stay idle.
+      skip[bc.tk] = "can't afford a whole-share lot with remaining cash";
       continue;
     }
     const cost = buyCost(bc.tk, qty, px);
-    if (cost > remaining + EPS) continue;
+    if (cost > remaining + EPS) {
+      skip[bc.tk] = "can't afford a whole-share lot with remaining cash";
+      continue;
+    }
     remaining -= cost;
     distinct.add(bc.tk);
     buys.push({
@@ -402,5 +528,63 @@ export function planTrades(targets, positions, cash, helpers, opts) {
       "Partially deployed; remaining cash held (whole-share lots / cap limits / attractiveness bar).",
     );
 
-  return { buys, sells, holdCash, sleeve, rows, notes };
+  // ---- "why not bought" list: positive-target names that got no buy ----
+  const skipped = Object.keys(skip)
+    .filter((tk) => !buys.find((b) => b.ticker === tk))
+    .map((tk) => ({ ticker: tk, reason: skip[tk] }));
+
+  // ---- portfolio readout: the PROJECTED portfolio shape after the plan ----
+  // Post-trade value per name = current value + buys - sells, then aggregate by
+  // sector/cycle/style, plus value-weighted attractiveness & volatility and the
+  // cash %. Uses position metadata (cat/cyc/sty/vol) when present.
+  const postVal = {};
+  for (const p of positions || [])
+    if (p && p.ticker) postVal[p.ticker] = _num(p.value) ? p.value : 0;
+  for (const b of buys)
+    postVal[b.ticker] = (postVal[b.ticker] || 0) + b.qty * b.price;
+  for (const s of sells)
+    postVal[s.ticker] = Math.max(0, (postVal[s.ticker] || 0) - s.qty * s.price);
+  const investedPost = Object.values(postVal).reduce((s, v) => s + v, 0);
+  const totalPost = investedPost + holdCash;
+  const metaOf = (tk) => posByTk[tk] || {};
+  const groupBy = (key, fallback) => {
+    const g = {};
+    for (const tk in postVal) {
+      if (postVal[tk] <= EPS) continue;
+      const k = metaOf(tk)[key] || fallback;
+      g[k] = (g[k] || 0) + postVal[tk];
+    }
+    // -> [{ name, weight }] of the TOTAL (incl cash), sorted desc
+    return Object.keys(g)
+      .map((k) => ({ name: k, weight: totalPost > 0 ? g[k] / totalPost : 0 }))
+      .sort((a, b) => b.weight - a.weight);
+  };
+  let wA = 0,
+    wV = 0,
+    wBase = 0;
+  for (const tk in postVal) {
+    const v = postVal[tk];
+    if (v <= EPS) continue;
+    const A = attract[tk];
+    const vol = metaOf(tk).vol;
+    if (_num(A)) {
+      wA += A * v;
+    }
+    if (_num(vol)) {
+      wV += vol * v;
+      wBase += v;
+    }
+  }
+  const readout = {
+    sectors: groupBy("cat", "Uncategorized"),
+    cycles: groupBy("cyc", "Unclassified"),
+    styles: groupBy("sty", "Unclassified"),
+    wAttract: investedPost > 0 ? wA / investedPost : null,
+    wVol: wBase > 0 ? wV / wBase : null,
+    cashPct: totalPost > 0 ? holdCash / totalPost : 0,
+    investedPost,
+    totalPost,
+  };
+
+  return { buys, sells, holdCash, sleeve, rows, notes, skipped, readout };
 }

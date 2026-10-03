@@ -64,7 +64,13 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   **minimum-attractiveness bar** means it will deliberately **hold cash** rather
   than deploy into something unattractive. A persisted slider still tilts between
   value and diversification, plus controls for cash reserve, risk-adjust on/off,
-  and trim-winners tolerance.
+  and trim-winners tolerance. The tab also shows a **projected-portfolio readout**
+  (invested / cash% / weighted attractiveness / weighted vol), **sector / cycle /
+  style mix bars**, a **model-vs-actual** table where each name is clickable
+  (full detail) and **pinnable** to a manual target weight, a **"wanted but not
+  bought"** list explaining why a targeted name got no buy, and **tax-lot-aware
+  trims** (sell PEA lots first, then highest-cost Regular lots, to minimise the
+  capital-gains hit).
 - **Per-order broker fees (split-aware)** — Attijari-style courtage has a
   per-order minimum. When one order fills in several executions, each fill is a
   separate transaction sharing an **Order ID**; the fee engine charges the
@@ -154,7 +160,8 @@ src/
     value-history.js       recompute the value-over-time curve (ledger x price history)
     signal-math.js         signal-engine scoring primitives (soft/num/growth/fcfy)
     portfolio-model.js     target-weight rebalance engine (vol, attractiveness,
-                           capped weights, trade planner)
+                           capped weights + pins, trade planner, tax-lot trims,
+                           skipped-reasons, portfolio readout)
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
 scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
@@ -251,7 +258,9 @@ dividend-forecast.test.js    slots, level+trend, current-year gap-fill, split fl
 value-history.test.js        holdings/cost-basis-as-of-date, value curve, carry-forward,
                              lifetime-return line (== dashboard KPI), benchmark rebasing
 portfolio-model.test.js      rebalance engine: volatility (weekly-fund spacing),
-                             capped target weights, trade planning, DCA, cash-idle
+                             capped target weights, pinned overrides, trade
+                             planning, DCA, cash-idle, tax-lot trim order,
+                             skipped-reasons, projected-portfolio readout
 backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
 ```
 

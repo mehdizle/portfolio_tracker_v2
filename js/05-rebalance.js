@@ -255,15 +255,22 @@ function computeRebalance() {
     opcvmCap: capOpcvm,
     opcvmCats: ["OPCVM"],
   };
+  // Manual per-name pins (user override of the model), persisted locally.
+  const pinned = loadRbPins();
   const targets = PM
     ? PM.targetWeights(modelCands, caps, {
         valueTilt: vTilt,
         riskAdjust,
         reservePct,
+        pinned,
       })
-    : { weights: {}, attract: {}, volRef: 0.25 };
+    : { weights: {}, attract: {}, volRef: 0.25, pinned: {} };
 
   // ---- positions snapshot for the trade planner (merge PEA/Regular per ticker) ----
+  // Each held account-level position (ticker||PEA / ticker||REG) becomes a tax
+  // LOT { qty, cost(per-share avg), pea } so the planner can trim tax-efficiently
+  // (PEA first, then highest-cost Regular). cat/cyc/sty/vol ride along for the
+  // portfolio readout.
   const byTicker = {};
   held.forEach((p) => {
     const tk = p.ticker;
@@ -272,33 +279,45 @@ function computeRebalance() {
       byTicker[tk] = {
         ticker: tk,
         cat: m.cat || "Uncategorized",
+        cyc: m.cycle || "OPCVM / Funds",
+        sty: m.style || "OPCVM / Funds",
         held: 0,
         value: 0,
         costSum: 0,
         price: p.price,
         isFund: m.cat === "OPCVM",
         name: m.name || tk,
+        lots: [],
       };
     const b = byTicker[tk];
     b.held += p.held;
     b.value += p.value;
     b.costSum += (p.avg != null ? p.avg : p.price) * p.held;
+    if (p.held > 0)
+      b.lots.push({
+        qty: p.held,
+        cost: p.avg != null ? p.avg : p.price,
+        pea: !!p.isPea,
+      });
   });
   const mcByTk = {};
   modelCands.forEach((c) => (mcByTk[c.ticker] = c));
   const positions = Object.values(byTicker).map((b) => {
     const mc = mcByTk[b.ticker];
-    const sc = computeSignalsRows ? null : null; // signal lookup via mc._sig below
     const avg = b.held > 0 ? b.costSum / b.held : null;
     const fs = b.isFund ? null : factorScores(M[b.ticker] || {});
     const sig = mc ? mc._sig : null;
     return {
       ticker: b.ticker,
       cat: b.cat,
+      cyc: b.cyc,
+      sty: b.sty,
+      vol: volOf(b.ticker),
       held: b.held,
       price: b.price,
       value: b.value,
       avg,
+      lots: b.lots,
       isFund: b.isFund,
       fv: mc ? mc._fv : fairValue(M[b.ticker] || {}),
       sellRated: !!(sig && (sig.c === "b-sell" || sig.c === "b-trim")),
@@ -378,11 +397,24 @@ function computeRebalance() {
       disc: mc ? mc.disc : 0,
       fv: mc ? mc._fv : null,
       reason: s.reason,
-      account: "",
+      account: s.account || "",
+      lotPlan: s.lotPlan || [],
       opcvm: !!(p && p.isFund),
       targetWt: targets.weights[s.ticker] || 0,
       curWt: s.curWt,
       why: "Trim: " + s.reason,
+    };
+  });
+  // "Why not bought" rows: resolve ticker -> name/cat + its target weight.
+  const skipped = (planResult.skipped || []).map((s) => {
+    const mc = mcByTk[s.ticker];
+    return {
+      ticker: s.ticker,
+      name: mc ? mc._name : s.ticker,
+      cat: mc ? mc.cat : "",
+      targetWt: targets.weights[s.ticker] || 0,
+      attract: targets.attract[s.ticker] || 0,
+      reason: s.reason,
     };
   });
 
@@ -409,7 +441,10 @@ function computeRebalance() {
     holdCash: planResult.holdCash,
     rows: planResult.rows,
     notes: planResult.notes,
+    skipped,
+    readout: planResult.readout || null,
     targets,
+    pinned: targets.pinned || {},
     sleeve: planResult.sleeve,
     valueTilt: vTilt,
     riskAdjust,
@@ -418,6 +453,57 @@ function computeRebalance() {
     pendingCount: _rbPending ? (PENDING || []).length : 0,
   };
 }
+
+// ---- Manual target pins (user overrides of the model) ----
+// Persisted as casa_rb_pins_v1 = { TICKER: weightPct 0..100 }. Stored as a
+// percentage for a friendly UI; converted to a 0..1 fraction for the engine.
+const RB_PINS_LS = "casa_rb_pins_v1";
+function loadRbPinsRaw() {
+  try {
+    const raw = localStorage.getItem(RB_PINS_LS);
+    const v = raw ? JSON.parse(raw) : {};
+    return v && typeof v === "object" ? v : {};
+  } catch (e) {
+    return {};
+  }
+}
+// Engine form: { ticker: fraction 0..1 }.
+function loadRbPins() {
+  const raw = loadRbPinsRaw();
+  const out = {};
+  for (const tk in raw) {
+    const pct = +raw[tk];
+    if (isFinite(pct) && pct > 0) out[tk] = Math.min(1, pct / 100);
+  }
+  return out;
+}
+// Set/clear a pin from the UI (pct 0..100; <=0 or blank clears it), then re-run.
+window.rbSetPin = function (tk) {
+  if (!tk) return;
+  const cur = loadRbPinsRaw();
+  const existing = cur[tk] != null ? cur[tk] : "";
+  const ans = window.prompt(
+    "Pin " +
+      tk +
+      " to a target weight % of the portfolio (blank or 0 to remove the pin):",
+    String(existing),
+  );
+  if (ans == null) return; // cancelled
+  const pct = parseFloat(ans);
+  if (!isFinite(pct) || pct <= 0) delete cur[tk];
+  else cur[tk] = Math.min(100, pct);
+  try {
+    safeSetItem(RB_PINS_LS, JSON.stringify(cur));
+  } catch (e) {}
+  renderRebalance();
+};
+// Clear ALL pins and re-run.
+window.rbClearPins = function () {
+  try {
+    localStorage.removeItem(RB_PINS_LS);
+  } catch (e) {}
+  renderRebalance();
+};
 
 // Build the per-buy "why" string from the model result.
 function _rbBuyWhy(b, mc, p, targets, sleeve) {
@@ -526,6 +612,54 @@ function renderRebalance() {
   const pct0 = (x) => (x * 100).toFixed(0) + "%";
   const pct1 = (x) => (x * 100).toFixed(1) + "%";
   const sleeve = R.sleeve || R.totalNow + R.cash;
+  const pins = loadRbPinsRaw(); // { TICKER: pct } for the pin badges/buttons
+
+  // Sell row: compact account label (e.g. "PEA 8 / Reg 2") from the lot plan.
+  const _sellAccountCell = (x) => {
+    const lp = x.lotPlan || [];
+    if (!lp.length) return x.account ? escapeHtml(x.account) : "\u2014";
+    return lp
+      .map(
+        (s) =>
+          escapeHtml(s.account === "Regular" ? "Reg" : s.account || "?") +
+          " " +
+          money(s.qty, s.qty % 1 ? 4 : 0),
+      )
+      .join(" / ");
+  };
+  // Sell tooltip: per-lot breakdown with gain/share, flagging the tax-free PEA
+  // slice and realised-loss (negative-gain) lots.
+  const _lotPlanTip = (x) => {
+    const lp = x.lotPlan || [];
+    if (!lp.length) return "";
+    let s = tipRule ? tipRule() : "";
+    s += tipRow("<b>Tax lots sold</b>", "");
+    for (const l of lp) {
+      const g =
+        l.gainPS == null
+          ? ""
+          : " (" +
+            (l.gainPS >= 0 ? "+" : "") +
+            money(l.gainPS) +
+            "/sh " +
+            (l.account === "PEA"
+              ? "tax-free"
+              : l.gainPS < 0
+                ? "loss"
+                : "taxable") +
+            ")";
+      s += tipRow(
+        escapeHtml(l.account || "?") +
+          " \u00D7 " +
+          money(l.qty, l.qty % 1 ? 4 : 0),
+        g || "\u2014",
+      );
+    }
+    s += tipNote(
+      "Trimmed PEA first (gains tax-exempt), then Regular highest-cost first to minimise the capital-gains tax.",
+    );
+    return s;
+  };
 
   // ---- Trade list (buys + sells), the actionable output ----
   const buyRows = (R.plan || [])
@@ -597,7 +731,8 @@ function renderRebalance() {
         tipRow("Price", money(x.px)) +
         tipRow("Qty", money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)) +
         tipRow("Net proceeds", money(x.net, 0) + " MAD") +
-        (x.fv != null ? tipRow("Fair value", money(x.fv)) : "");
+        (x.fv != null ? tipRow("Fair value", money(x.fv)) : "") +
+        _lotPlanTip(x);
       return (
         '<tr class="nis-cell" style="cursor:help" data-tip="' +
         tipRef(tip) +
@@ -617,6 +752,8 @@ function renderRebalance() {
         money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0) +
         '</td><td style="text-align:right;font-family:var(--mono)">' +
         money(x.net, 0) +
+        '</td><td class="l mini" style="color:var(--text2)">' +
+        _sellAccountCell(x) +
         '</td><td style="text-align:right;font-family:var(--mono)">' +
         pct0(x.curWt || 0) +
         " \u2192 " +
@@ -638,12 +775,27 @@ function renderRebalance() {
           : act.indexOf("Trim") === 0 || act.indexOf("Exit") === 0
             ? "neg"
             : "";
+      const isPinned = pins[r.ticker] != null;
       return (
-        '<tr><td class="l"><b>' +
+        '<tr><td class="l">' +
+        tickerBadge(r.ticker) +
+        '<b style="cursor:pointer;color:var(--primary2)" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="' +
         escapeHtml(r.ticker) +
-        '</b></td><td style="text-align:right;font-family:var(--mono)">' +
-        pct1(r.curWt || 0) +
+        '" data-stop="true">' +
+        escapeHtml(r.ticker) +
+        "</b>" +
+        (isPinned
+          ? ' <span class="badge b-wait" style="font-size:9px" title="Manually pinned to ' +
+            pins[r.ticker] +
+            '%">\uD83D\uDCCC ' +
+            pins[r.ticker] +
+            "%</span>"
+          : "") +
         '</td><td style="text-align:right;font-family:var(--mono)">' +
+        pct1(r.curWt || 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)' +
+        (isPinned ? ";color:var(--primary2);font-weight:600" : "") +
+        '">' +
         pct1(r.tgtWt || 0) +
         '</td><td style="text-align:right;font-family:var(--mono)" class="' +
         driftCls +
@@ -656,7 +808,11 @@ function renderRebalance() {
         actCls +
         '">' +
         escapeHtml(act) +
-        "</td></tr>"
+        '</td><td style="text-align:center"><button class="btn sec2" style="font-size:10px;padding:2px 7px" data-act="rbSetPin" data-args="' +
+        escapeHtml(r.ticker) +
+        '" data-tip="Pin this name to a fixed target weight (override the model)">' +
+        (isPinned ? "\uD83D\uDCCC" : "pin") +
+        "</button></td></tr>"
       );
     })
     .join("");
@@ -670,7 +826,150 @@ function renderRebalance() {
     )
     .join("");
 
+  // ---- (A) Portfolio readout: the SHAPE of the portfolio after the plan ----
+  const ro = R.readout;
+  let readoutHtml = "";
+  if (ro) {
+    const kpi = (label, val, tip) =>
+      '<div class="card nis-cell" style="cursor:help" data-tip="' +
+      tipRef(tip) +
+      '"><div class="label">' +
+      label +
+      '</div><div class="value">' +
+      val +
+      "</div></div>";
+    readoutHtml =
+      '<div class="sec"><h3 style="margin:0 0 8px">\uD83E\uDDEE Projected portfolio (after this plan)</h3>' +
+      '<div class="grid kpis" style="margin-bottom:4px">' +
+      kpi(
+        "Invested",
+        money(ro.investedPost, 0) + " MAD",
+        "Total market value deployed in holdings after the plan executes.",
+      ) +
+      kpi(
+        "Cash",
+        pct0(ro.cashPct),
+        "Share of the portfolio left in cash after the plan \u2014 deliberately held when caps / the attractiveness bar / whole-share lots leave money undeployed.",
+      ) +
+      kpi(
+        "Weighted attractiveness",
+        ro.wAttract != null ? ro.wAttract.toFixed(2) : "\u2014",
+        "Value-weighted average attractiveness of your holdings after the plan (quality \u00D7 value \u00D7 conviction, risk-adjusted). Higher = a stronger overall book.",
+      ) +
+      kpi(
+        "Weighted volatility",
+        ro.wVol != null ? pct0(ro.wVol) : "\u2014",
+        "Value-weighted average annualised volatility of your holdings after the plan \u2014 a rough gauge of portfolio risk.",
+      ) +
+      "</div></div>";
+  }
+
+  // ---- (B) Projected mix bars: sector / cycle / style (target vs would-be) ----
+  const _mixBars = (title, arr, capLine, note) => {
+    if (!arr || !arr.length) return "";
+    const bars = arr
+      .map((s) => {
+        const over = capLine != null && s.weight > capLine + 1e-9;
+        return (
+          '<div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
+          "<span>" +
+          escapeHtml(s.name) +
+          (over ? ' <span class="neg">\u26A0</span>' : "") +
+          '</span><span class="mini" style="color:var(--text2);font-family:var(--mono)">' +
+          pct0(s.weight) +
+          "</span></div>" +
+          '<div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative">' +
+          '<div style="position:absolute;left:0;top:0;bottom:0;width:' +
+          Math.min(100, s.weight * 100) +
+          "%;background:" +
+          (over ? "var(--error)" : "var(--accent,#4c8bf5)") +
+          ';opacity:.85"></div>' +
+          (capLine != null
+            ? '<div style="position:absolute;top:0;bottom:0;left:' +
+              Math.min(100, capLine * 100) +
+              '%;width:2px;background:var(--warn)"></div>'
+            : "") +
+          "</div></div>"
+        );
+      })
+      .join("");
+    return (
+      '<div class="sec"><h3 style="margin:0 0 8px">' +
+      title +
+      '</h3><div style="display:flex;flex-direction:column;gap:6px">' +
+      bars +
+      "</div>" +
+      (note
+        ? '<div class="mini" style="color:var(--text2);margin-top:8px">' +
+          note +
+          "</div>"
+        : "") +
+      "</div>"
+    );
+  };
+  let mixHtml = "";
+  if (ro) {
+    mixHtml =
+      _mixBars(
+        "\uD83C\uDFE2 Sector mix (projected)",
+        ro.sectors,
+        R.capPct,
+        "Projected % of the whole portfolio by sector after the plan. Yellow line = your sector cap; red = over it.",
+      ) +
+      _mixBars(
+        "\u267B\uFE0F Economic-cycle mix (projected)",
+        ro.cycles,
+        null,
+        "Spread across Cyclical / Sensitive / Defensive so you\u2019re not over-exposed to one phase of the cycle.",
+      ) +
+      _mixBars(
+        "\uD83C\uDFF7\uFE0F Asset-style mix (projected)",
+        ro.styles,
+        null,
+        "Balance of Yield / Growth / Compounder / Value / Defensive styles.",
+      );
+  }
+
+  // ---- (D) "Why not bought": positive-target names that got no buy ----
+  let whyNotHtml = "";
+  if ((R.skipped || []).length) {
+    const rows = R.skipped
+      .map(
+        (s) =>
+          '<tr><td class="l"><b>' +
+          escapeHtml(s.ticker) +
+          '</b> <span class="mini" style="color:var(--text2)">' +
+          escapeHtml(s.name || "") +
+          '</span></td><td style="text-align:right;font-family:var(--mono)">' +
+          pct1(s.targetWt || 0) +
+          '</td><td style="text-align:right;font-family:var(--mono)">' +
+          (s.attract || 0).toFixed(2) +
+          '</td><td class="l mini" style="color:var(--text2)">' +
+          escapeHtml(s.reason || "") +
+          "</td></tr>",
+      )
+      .join("");
+    whyNotHtml =
+      '<div class="sec"><h3 style="margin:0 0 6px">\u2139\uFE0F Wanted but not bought <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 names with a model target that got no buy this run, and why</span></h3>' +
+      '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Target</th><th style="text-align:right">Attract.</th><th class="l">Reason</th></tr></thead><tbody>' +
+      rows +
+      "</tbody></table></div></div>";
+  }
+
+  // Pins banner (shown when any manual pin is active).
+  let pinsHtml = "";
+  if (Object.keys(pins).length) {
+    pinsHtml =
+      '<div class="mini" style="color:var(--text2);margin:2px 0 8px">\uD83D\uDCCC Manual pins active: ' +
+      Object.keys(pins)
+        .map((tk) => escapeHtml(tk) + " " + pins[tk] + "%")
+        .join(", ") +
+      ' \u00B7 <a href="#" data-act="rbClearPins" data-stop="true" style="color:var(--primary2)">clear all</a></div>';
+  }
+
   wrap.innerHTML =
+    pinsHtml +
+    readoutHtml +
     '<div class="sec">' +
     '<h3 style="margin:0 0 6px">\uD83D\uDCCB Trades to reach your model' +
     '<span class="mini" style="font-weight:400;color:var(--text2)"> \u2014 ' +
@@ -700,13 +999,13 @@ function renderRebalance() {
     "</div>" +
     '<div class="sec"><h3 style="margin:0 0 6px">\u2702\uFE0F Suggested sells / trims <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 Sell-rated, above fair value, or over target</span></h3>' +
     ((R.trims || []).length
-      ? '<div class="tbl-wrap"><table><thead><tr><th class="l">Sell</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Net</th><th style="text-align:right">Now \u2192 Target</th></tr></thead><tbody>' +
+      ? '<div class="tbl-wrap"><table><thead><tr><th class="l">Sell</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Net</th><th class="l" data-tip="Which tax lots to sell: PEA first (gains tax-free), then Regular highest-cost first, to minimise capital-gains tax.">From (tax lot)</th><th style="text-align:right">Now \u2192 Target</th></tr></thead><tbody>' +
         sellRows +
         "</tbody></table></div>"
       : '<div class="mini pos">Nothing to sell \u2014 no Sell-rated, overvalued, or over-target holdings. \uD83C\uDF89</div>') +
     "</div>" +
     '<div class="sec"><h3 style="margin:0 0 6px">\uD83C\uDFAF Model vs actual <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 target weight the engine wants vs where you are now</span></h3>' +
-    '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Now</th><th style="text-align:right">Target</th><th style="text-align:right">Drift</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th style="text-align:right">Action</th></tr></thead><tbody>' +
+    '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Now</th><th style="text-align:right">Target</th><th style="text-align:right">Drift</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th style="text-align:right">Action</th><th style="text-align:center" data-tip="Pin a name to a fixed target weight to override the model.">Pin</th></tr></thead><tbody>' +
     modelRows +
     "</tbody></table></div>" +
     '<div class="mini" style="color:var(--text2);margin-top:8px">Target weights come from each name\u2019s attractiveness (factor score \u00D7 valuation discount \u00D7 conviction, divided by volatility), capped at ' +
@@ -717,7 +1016,10 @@ function renderRebalance() {
     (R.reservePct > 0
       ? " You also set a " + pct0(R.reservePct) + " cash reserve."
       : "") +
-    "</div></div>";
+    " Use <b>Pin</b> to force a name to a weight you choose (the rest re-fit around it)." +
+    "</div></div>" +
+    mixHtml +
+    whyNotHtml;
 
   // stash for draft-all
   window.__rbPlan = R.plan;
@@ -747,6 +1049,11 @@ function tipNote(t) {
         t +
         "</div>"
     : "";
+}
+function tipRule() {
+  return typeof _tipRule === "function"
+    ? _tipRule()
+    : '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
 }
 
 function rbDraftOne(tk, px, qty) {

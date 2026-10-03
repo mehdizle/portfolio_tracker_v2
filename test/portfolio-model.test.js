@@ -8,6 +8,7 @@ import {
   attractiveness,
   targetWeights,
   planTrades,
+  allocSellLots,
 } from "../src/core/portfolio-model.js";
 
 // Deterministic fee-free helpers for exact trade assertions.
@@ -106,11 +107,46 @@ describe("attractiveness", () => {
 
 describe("targetWeights (capped water-filling)", () => {
   const cands = [
-    { ticker: "A", cat: "Banks", base: 0.9, disc: 0.3, conviction: "High", vol: 0.2 },
-    { ticker: "B", cat: "Banks", base: 0.8, disc: 0.2, conviction: "High", vol: 0.2 },
-    { ticker: "C", cat: "Telecom", base: 0.7, disc: 0.1, conviction: "Medium", vol: 0.25 },
-    { ticker: "D", cat: "Cement", base: 0.6, disc: 0.0, conviction: "Low", vol: 0.3 },
-    { ticker: "E", cat: "Cement", base: 0.5, disc: -0.1, conviction: "Medium", vol: 0.35 },
+    {
+      ticker: "A",
+      cat: "Banks",
+      base: 0.9,
+      disc: 0.3,
+      conviction: "High",
+      vol: 0.2,
+    },
+    {
+      ticker: "B",
+      cat: "Banks",
+      base: 0.8,
+      disc: 0.2,
+      conviction: "High",
+      vol: 0.2,
+    },
+    {
+      ticker: "C",
+      cat: "Telecom",
+      base: 0.7,
+      disc: 0.1,
+      conviction: "Medium",
+      vol: 0.25,
+    },
+    {
+      ticker: "D",
+      cat: "Cement",
+      base: 0.6,
+      disc: 0.0,
+      conviction: "Low",
+      vol: 0.3,
+    },
+    {
+      ticker: "E",
+      cat: "Cement",
+      base: 0.5,
+      disc: -0.1,
+      conviction: "Medium",
+      vol: 0.35,
+    },
   ];
 
   it("respects name and sector caps (never breaches to deploy more)", () => {
@@ -119,7 +155,8 @@ describe("targetWeights (capped water-filling)", () => {
       { nameCap: 0.2, sectorCap: 0.3, opcvmCap: 0.35 },
       { valueTilt: 0.5 },
     );
-    for (const tk in weights) expect(weights[tk]).toBeLessThanOrEqual(0.2 + 1e-9);
+    for (const tk in weights)
+      expect(weights[tk]).toBeLessThanOrEqual(0.2 + 1e-9);
     expect(weights.A + weights.B).toBeLessThanOrEqual(0.3 + 1e-9); // Banks
     expect(weights.D + weights.E).toBeLessThanOrEqual(0.3 + 1e-9); // Cement
   });
@@ -148,8 +185,23 @@ describe("targetWeights (capped water-filling)", () => {
 
   it("gives a Sell-rated name a 0 target", () => {
     const c = [
-      { ticker: "A", cat: "Banks", base: 0.9, disc: 0.3, conviction: "High", vol: 0.2 },
-      { ticker: "B", cat: "Banks", base: 0.8, disc: 0.2, conviction: "High", vol: 0.2, sellRated: true },
+      {
+        ticker: "A",
+        cat: "Banks",
+        base: 0.9,
+        disc: 0.3,
+        conviction: "High",
+        vol: 0.2,
+      },
+      {
+        ticker: "B",
+        cat: "Banks",
+        base: 0.8,
+        disc: 0.2,
+        conviction: "High",
+        vol: 0.2,
+        sellRated: true,
+      },
     ];
     const { weights } = targetWeights(
       c,
@@ -174,8 +226,23 @@ describe("planTrades", () => {
   it("fully exits a Sell-rated holding", () => {
     const t = { weights: { A: 0.5, B: 0.5 }, attract: { A: 2, B: 0 } };
     const pos = [
-      { ticker: "A", cat: "X", held: 10, price: 100, value: 1000, avg: 90, buyOrHold: true },
-      { ticker: "B", cat: "Y", held: 5, price: 50, value: 250, sellRated: true },
+      {
+        ticker: "A",
+        cat: "X",
+        held: 10,
+        price: 100,
+        value: 1000,
+        avg: 90,
+        buyOrHold: true,
+      },
+      {
+        ticker: "B",
+        cat: "Y",
+        held: 5,
+        price: 50,
+        value: 250,
+        sellRated: true,
+      },
     ];
     const r = planTrades(t, pos, 0, H, {});
     const b = r.sells.find((s) => s.ticker === "B");
@@ -186,7 +253,9 @@ describe("planTrades", () => {
 
   it("trims a name trading above fair value toward its target", () => {
     const t = { weights: { A: 0.2 }, attract: { A: 1 } };
-    const pos = [{ ticker: "A", cat: "X", held: 10, price: 200, value: 2000, fv: 150 }];
+    const pos = [
+      { ticker: "A", cat: "X", held: 10, price: 200, value: 2000, fv: 150 },
+    ];
     const r = planTrades(t, pos, 0, H, {});
     const s = r.sells.find((x) => x.ticker === "A");
     expect(s.reason).toBe("above fair value");
@@ -220,8 +289,26 @@ describe("planTrades", () => {
     const t = { weights: { A: 0.5, B: 0.5 }, attract: { A: 1.0, B: 1.0 } };
     const pos = [
       // A is 20% below avg cost, buy-or-hold, decent quality -> DCA boost
-      { ticker: "A", cat: "X", held: 10, price: 80, value: 800, avg: 100, buyOrHold: true, quality: 0.6 },
-      { ticker: "B", cat: "Y", held: 10, price: 100, value: 1000, avg: 90, buyOrHold: true, quality: 0.6 },
+      {
+        ticker: "A",
+        cat: "X",
+        held: 10,
+        price: 80,
+        value: 800,
+        avg: 100,
+        buyOrHold: true,
+        quality: 0.6,
+      },
+      {
+        ticker: "B",
+        cat: "Y",
+        held: 10,
+        price: 100,
+        value: 1000,
+        avg: 90,
+        buyOrHold: true,
+        quality: 0.6,
+      },
     ];
     const r = planTrades(t, pos, 500, H, { dcaBoost: 1.0, maxBuys: 5 });
     expect(r.buys[0].ticker).toBe("A"); // boosted ahead of B
@@ -232,7 +319,16 @@ describe("planTrades", () => {
     const t = { weights: { A: 1.0 }, attract: { A: 1.0 } };
     const pos = [
       // below cost but low quality -> no DCA boost (dca flag false)
-      { ticker: "A", cat: "X", held: 10, price: 80, value: 800, avg: 100, buyOrHold: true, quality: 0.2 },
+      {
+        ticker: "A",
+        cat: "X",
+        held: 10,
+        price: 80,
+        value: 800,
+        avg: 100,
+        buyOrHold: true,
+        quality: 0.2,
+      },
     ];
     const r = planTrades(t, pos, 500, H, { dcaBoost: 1.0, maxBuys: 5 });
     const a = r.buys.find((b) => b.ticker === "A");
@@ -253,5 +349,211 @@ describe("planTrades", () => {
     const r = planTrades(t, pos, 10000, H, { maxBuys: 2 });
     const newNames = new Set(r.buys.map((b) => b.ticker));
     expect(newNames.size).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("targetWeights: pinned overrides", () => {
+  const cands = [
+    {
+      ticker: "A",
+      cat: "Banks",
+      base: 0.9,
+      disc: 0.3,
+      conviction: "High",
+      vol: 0.2,
+    },
+    {
+      ticker: "B",
+      cat: "Telecom",
+      base: 0.8,
+      disc: 0.2,
+      conviction: "High",
+      vol: 0.2,
+    },
+    {
+      ticker: "C",
+      cat: "Cement",
+      base: 0.7,
+      disc: 0.1,
+      conviction: "Medium",
+      vol: 0.25,
+    },
+  ];
+
+  it("pins a name at the given weight and water-fills the rest", () => {
+    const { weights } = targetWeights(
+      cands,
+      { nameCap: 0.5, sectorCap: 0.6, opcvmCap: 0.6 },
+      { valueTilt: 0.5, pinned: { A: 0.3 } },
+    );
+    expect(weights.A).toBeCloseTo(0.3, 6);
+    expect(Object.values(weights).reduce((s, v) => s + v, 0)).toBeCloseTo(1, 4);
+    expect(weights.B + weights.C).toBeCloseTo(0.7, 4);
+  });
+
+  it("clamps a pin to the single-name cap", () => {
+    const { weights } = targetWeights(
+      cands,
+      { nameCap: 0.2, sectorCap: 0.6, opcvmCap: 0.6 },
+      { valueTilt: 0.5, pinned: { A: 0.9 } },
+    );
+    expect(weights.A).toBeCloseTo(0.2, 6);
+  });
+
+  it("a pin forces in a name the model would score 0 (Sell-rated)", () => {
+    const c = [
+      {
+        ticker: "A",
+        cat: "Banks",
+        base: 0.9,
+        disc: 0.3,
+        conviction: "High",
+        vol: 0.2,
+        sellRated: true,
+      },
+      {
+        ticker: "B",
+        cat: "Telecom",
+        base: 0.8,
+        disc: 0.2,
+        conviction: "High",
+        vol: 0.2,
+      },
+    ];
+    const { weights, pinned } = targetWeights(
+      c,
+      { nameCap: 0.5, sectorCap: 0.6, opcvmCap: 0.6 },
+      { valueTilt: 0.5, pinned: { A: 0.15 } },
+    );
+    expect(weights.A).toBeCloseTo(0.15, 6);
+    expect(pinned.A).toBeCloseTo(0.15, 6);
+  });
+});
+
+describe("allocSellLots (tax-lot-aware trim order)", () => {
+  it("sells PEA lots first, then Regular highest-cost first", () => {
+    const lots = [
+      { qty: 10, cost: 100, pea: false }, // Regular, cost 100
+      { qty: 5, cost: 150, pea: false }, // Regular, cost 150 (higher)
+      { qty: 8, cost: 90, pea: true }, // PEA
+    ];
+    const plan = allocSellLots(lots, 15, 200);
+    expect(plan[0].account).toBe("PEA");
+    expect(plan[0].qty).toBe(8);
+    expect(plan[1].account).toBe("Regular");
+    expect(plan[1].costPS).toBe(150); // higher cost before lower
+    expect(plan[1].qty).toBe(5);
+    expect(plan[2].costPS).toBe(100);
+    expect(plan[2].qty).toBe(2);
+  });
+
+  it("falls back to a single undifferentiated slice without lot detail", () => {
+    const plan = allocSellLots(null, 7, 100);
+    expect(plan).toHaveLength(1);
+    expect(plan[0].qty).toBe(7);
+  });
+
+  it("computes gain-per-share from price minus cost", () => {
+    const plan = allocSellLots([{ qty: 4, cost: 80, pea: false }], 4, 100);
+    expect(plan[0].gainPS).toBeCloseTo(20, 6);
+  });
+});
+
+describe("planTrades: skipped reasons + sell lot plan + readout", () => {
+  const H = {
+    buyCost: (tk, q, p) => q * p,
+    sellNet: (tk, q, p) => q * p,
+    lotRound: (tk, q) => Math.floor(q),
+  };
+
+  it("records WHY a positive-target name got no buy (max new-names)", () => {
+    const t = {
+      weights: { A: 0.25, B: 0.25, C: 0.25, D: 0.25 },
+      attract: { A: 1, B: 1, C: 0.9, D: 0.8 },
+    };
+    const pos = ["A", "B", "C", "D"].map((tk) => ({
+      ticker: tk,
+      cat: tk,
+      held: 0,
+      price: 100,
+      value: 0,
+    }));
+    const r = planTrades(t, pos, 100000, H, { maxBuys: 2 });
+    const skippedTks = r.skipped.map((s) => s.ticker);
+    // 2 names bought, the other 2 skipped with a max-new-names reason
+    expect(r.buys.length).toBe(2);
+    expect(skippedTks.length).toBeGreaterThanOrEqual(1);
+    expect(r.skipped.every((s) => /max new-names/.test(s.reason))).toBe(true);
+  });
+
+  it("records a below-attractiveness-bar skip", () => {
+    const t = { weights: { A: 1.0 }, attract: { A: 0.3 } };
+    const pos = [{ ticker: "A", cat: "X", held: 0, price: 100, value: 0 }];
+    const r = planTrades(t, pos, 1000, H, { minAttract: 0.5 });
+    expect(r.buys).toHaveLength(0);
+    expect(r.skipped.find((s) => s.ticker === "A").reason).toMatch(
+      /attractiveness bar/i,
+    );
+  });
+
+  it("attaches a tax-lot sell plan to trims", () => {
+    const t = { weights: { A: 0 }, attract: { A: 0 } }; // zero target -> exit
+    const pos = [
+      {
+        ticker: "A",
+        cat: "X",
+        held: 15,
+        price: 200,
+        value: 3000,
+        sellRated: true,
+        lots: [
+          { qty: 10, cost: 100, pea: false },
+          { qty: 5, cost: 150, pea: true },
+        ],
+      },
+    ];
+    const r = planTrades(t, pos, 0, H, {});
+    const sell = r.sells.find((s) => s.ticker === "A");
+    expect(sell).toBeTruthy();
+    expect(sell.lotPlan[0].account).toBe("PEA"); // PEA sold first
+    expect(sell.account).toBe("Regular"); // dominant (10 vs 5)
+  });
+
+  it("returns a portfolio readout (projected sector mix + cash %)", () => {
+    const t = { weights: { A: 0.5, B: 0.5 }, attract: { A: 2, B: 2 } };
+    const pos = [
+      {
+        ticker: "A",
+        cat: "Banks",
+        cyc: "Defensive",
+        sty: "Value",
+        vol: 0.2,
+        held: 0,
+        price: 100,
+        value: 0,
+      },
+      {
+        ticker: "B",
+        cat: "Telecom",
+        cyc: "Defensive",
+        sty: "Yield",
+        vol: 0.3,
+        held: 0,
+        price: 100,
+        value: 0,
+      },
+    ];
+    const r = planTrades(t, pos, 1000, H, { maxBuys: 5 });
+    expect(r.readout).toBeTruthy();
+    // both fully deployed -> cash ~0, two sectors ~50% each
+    expect(r.readout.cashPct).toBeCloseTo(0, 2);
+    const banks = r.readout.sectors.find((s) => s.name === "Banks");
+    expect(banks.weight).toBeCloseTo(0.5, 1);
+    // Defensive cycle should be ~100% (both names)
+    const defensive = r.readout.cycles.find((c) => c.name === "Defensive");
+    expect(defensive.weight).toBeCloseTo(1, 1);
+    // weighted vol between the two inputs
+    expect(r.readout.wVol).toBeGreaterThan(0.19);
+    expect(r.readout.wVol).toBeLessThan(0.31);
   });
 });
