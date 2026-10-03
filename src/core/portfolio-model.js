@@ -306,8 +306,10 @@ export function targetWeights(candidates, caps, opts) {
 //               quality, fv, isFund }]  (value = current MAD value)
 // cash: new cash to invest (MAD). sleeve = cash + sum(current value).
 // helpers: { buyCost(ticker,qty,price), sellNet(ticker,qty,price), lotRound(ticker,qty) }
-// opts: { minAttract, trimWinners, trimTolerance, overvaluedBand, dcaBoost,
-//         recycleTrims, maxBuys }
+// opts: { minAttract, suggestTrims, trimWinners, trimTolerance, overvaluedBand,
+//         dcaBoost, recycleTrims, maxBuys, prices:{ticker:price} }
+// `prices` supplies a price for NON-held buy candidates (new names have no
+// position to read one from); held names use their position price.
 // positions may also carry: cat, cyc, sty, vol (for the readout), and lots:[{qty,
 //   cost, pea}] (for tax-lot-aware trim ordering - prefer PEA then highest-cost).
 // Returns { buys, sells, holdCash, sleeve, rows, notes,
@@ -320,11 +322,17 @@ export function planTrades(targets, positions, cash, helpers, opts) {
   const sellNet = h.sellNet || ((tk, q, p) => q * p);
   const lotRound = h.lotRound || ((tk, q) => Math.floor(q));
   const minAttract = o.minAttract != null ? o.minAttract : 0;
+  // suggestTrims gates the ENTIRE sell pass. Default true (back-compat); when
+  // false the engine proposes buys only and never recommends selling anything.
+  const suggestTrims = o.suggestTrims !== false;
   const trimWinners = !!o.trimWinners;
   const trimTol = o.trimTolerance != null ? o.trimTolerance : 0.25; // +/- band
   const overBand = o.overvaluedBand != null ? o.overvaluedBand : 1.1; // price>fv*band
   const dcaBoost = o.dcaBoost != null ? o.dcaBoost : 0;
   const maxBuys = o.maxBuys != null ? o.maxBuys : 8;
+  // Price lookup for NON-held buy candidates (a new name has no position to read
+  // a price from). The UI supplies { ticker: price } for every model candidate.
+  const prices = o.prices || {};
 
   const w = targets.weights || {};
   const attract = targets.attract || {};
@@ -348,7 +356,9 @@ export function planTrades(targets, positions, cash, helpers, opts) {
   const notes = [];
 
   // ---- SELLS first (free up cash + reflect post-trim state) ----
-  for (const tk of names) {
+  // Entire sell pass is skipped when suggestTrims is off: the plan then only
+  // proposes buys and never recommends trimming/exiting any holding.
+  for (const tk of suggestTrims ? names : []) {
     const p = posByTk[tk];
     if (!p || !(p.held > EPS) || !_num(p.price)) continue;
     const targetVal = (w[tk] || 0) * sleeve;
@@ -456,9 +466,14 @@ export function planTrades(targets, positions, cash, helpers, opts) {
       skip[bc.tk] = "max new-names limit (" + maxBuys + ") reached";
       continue;
     }
-    const price = bc.p && _num(bc.p.price) ? bc.p.price : null;
-    // price must come from the position OR the candidate; UI supplies it.
-    const px = price != null ? price : bc.price;
+    // Price source: the held position, else the UI-supplied prices map (new
+    // names aren't in `positions`, so their price must come from `prices`).
+    const px =
+      bc.p && _num(bc.p.price)
+        ? bc.p.price
+        : _num(prices[bc.tk])
+          ? prices[bc.tk]
+          : null;
     if (!_num(px) || px <= 0) {
       skip[bc.tk] = "no price available";
       continue;

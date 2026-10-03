@@ -262,6 +262,11 @@ function computeRebalance() {
   held.forEach((p) => {
     const tk = p.ticker;
     const m = M[tk] || {};
+    // When OPCVMs are NOT included, funds are entirely hands-off: keep them out
+    // of the planner's position set so they're never trimmed (nor bought). The
+    // candidate list already excludes them; this makes the sell side match, so
+    // a held fund isn't flagged "not in model -> exit".
+    if (!includeOpcvm && m.cat === "OPCVM") return;
     if (!byTicker[tk])
       byTicker[tk] = {
         ticker: tk,
@@ -323,14 +328,22 @@ function computeRebalance() {
     sellNet: (tk, q, p) => estSellNet(p, q),
     lotRound: (tk, q) => lotRound(q, isOpcvmTk(tk)),
   };
+  // Price lookup for every model candidate (held OR not) so the planner can
+  // size buys for NEW names that have no position to read a price from.
+  const rbPrices = {};
+  modelCands.forEach((c) => {
+    if (c && c.ticker && c._price != null) rbPrices[c.ticker] = c._price;
+  });
   const planResult = PM
     ? PM.planTrades(targets, positions, cash, helpers, {
         minAttract,
+        suggestTrims: wantTrims,
         trimWinners: wantTrimWinners,
         trimTolerance: trimTol,
         dcaBoost: 0.5,
         recycleTrims,
         maxBuys,
+        prices: rbPrices,
       })
     : {
         buys: [],

@@ -279,6 +279,23 @@ describe("planTrades", () => {
     expect(r.holdCash).toBeCloseTo(0, 6);
   });
 
+  it("prices a NEW (non-held) buy candidate from the opts.prices map", () => {
+    // Target wants NEW, but there's no position for it -> price must come from
+    // the prices map, not a (missing) position. Previously this skipped with
+    // "no price available".
+    const t = { weights: { NEW: 1.0 }, attract: { NEW: 2 } };
+    const pos = []; // nothing held
+    const r = planTrades(t, pos, 1000, H, {
+      maxBuys: 5,
+      prices: { NEW: 100 },
+    });
+    const buy = r.buys.find((b) => b.ticker === "NEW");
+    expect(buy).toBeTruthy();
+    expect(buy.price).toBe(100);
+    expect(buy.qty).toBe(10); // 1000 / 100
+    expect(r.skipped.find((s) => s.ticker === "NEW")).toBeFalsy();
+  });
+
   it("holds cash when nothing clears the min-attractiveness bar", () => {
     const t = { weights: { A: 1.0 }, attract: { A: 0.3 } };
     const pos = [{ ticker: "A", cat: "X", held: 0, price: 100, value: 0 }];
@@ -520,6 +537,25 @@ describe("planTrades: skipped reasons + sell lot plan + readout", () => {
     expect(sell).toBeTruthy();
     expect(sell.lotPlan[0].account).toBe("PEA"); // PEA sold first
     expect(sell.account).toBe("Regular"); // dominant (10 vs 5)
+  });
+
+  it("suggestTrims:false suppresses ALL sells (even a Sell-rated holding)", () => {
+    const t = { weights: { A: 0.5 }, attract: { A: 1 } };
+    const pos = [
+      {
+        ticker: "A",
+        cat: "X",
+        held: 10,
+        price: 200,
+        value: 2000,
+        fv: 100,
+        sellRated: true,
+      },
+    ];
+    const off = planTrades(t, pos, 0, H, { suggestTrims: false });
+    expect(off.sells).toHaveLength(0);
+    const on = planTrades(t, pos, 0, H, { suggestTrims: true });
+    expect(on.sells.length).toBeGreaterThan(0); // same input, trims enabled
   });
 
   it("returns a portfolio readout (projected sector mix + cash %)", () => {
