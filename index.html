@@ -2346,6 +2346,7 @@
             style="align-items: flex-end; gap: 16px; flex-wrap: wrap"
           >
             <label
+              data-tip="How much new cash (in MAD) to deploy this run. The model spends this toward underweight names (plus any recycled trim proceeds, if Suggest trims is on), subject to the sector/name caps and the attractiveness bar. 0 = plan sells only."
               >Cash to invest (MAD)<input
                 type="number"
                 id="rbCash"
@@ -2514,7 +2515,13 @@
                 checked
                 style="width: 18px; height: 18px"
             /></label>
-            <button class="btn" id="rbRun">Compute plan</button>
+            <button
+              class="btn"
+              id="rbRun"
+              data-tip="Run the model with the settings above: scores every eligible name, water-fills target weights within the caps, diffs targets against your actual holdings, and lists the buys/sells (with fees and tax lots) that close the gap."
+            >
+              Compute plan
+            </button>
           </div>
           <div
             class="mini"

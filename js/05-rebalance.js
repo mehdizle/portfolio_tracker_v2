@@ -443,7 +443,7 @@ function computeRebalance() {
       opcvm: !!(p && p.isFund),
       targetWt: targets.weights[s.ticker] || 0,
       curWt: s.curWt,
-      why: "Trim: " + s.reason,
+      why: _rbSellWhy(s, mc),
     };
   });
   // "Why not bought" rows: resolve ticker -> name/cat + its target weight.
@@ -546,27 +546,99 @@ window.rbClearPins = function () {
   renderRebalance();
 };
 
-// Build the per-buy "why" string from the model result.
+// Build the per-buy "why" string from the model result. Explains, in plain
+// language, why the TARGET-WEIGHT model picked this name: the weight gap it's
+// closing, the inputs that drove its attractiveness score (valuation,
+// conviction, signal rating, volatility, DCA), and whether a manual pin is
+// overriding the model here. This is what shows under the ticker AND in the
+// row's tooltip, so it needs to stand on its own without the reader having
+// to know the engine's internals.
 function _rbBuyWhy(b, mc, p, targets, sleeve) {
   const parts = [];
   const tgtWt = targets.weights[b.ticker] || 0;
   const curWt = p && sleeve > 0 ? p.value / sleeve : 0;
-  if (tgtWt > 0)
+  const isPinned = targets.pinned && targets.pinned[b.ticker] != null;
+  if (isPinned) {
     parts.push(
-      "target " +
-        (tgtWt * 100).toFixed(0) +
-        "% vs " +
-        (curWt * 100).toFixed(0) +
-        "% now",
+      "manually pinned to " +
+        (targets.pinned[b.ticker] * 100).toFixed(0) +
+        "% (overrides the model)",
     );
+  } else if (tgtWt > 0) {
+    parts.push(
+      "model wants " +
+        (tgtWt * 100).toFixed(0) +
+        "% of the portfolio here, you're at " +
+        (curWt * 100).toFixed(0) +
+        "% \u2014 this buy closes part of that gap",
+    );
+  }
   if (mc && mc.disc > 0.02)
-    parts.push((mc.disc * 100).toFixed(0) + "% below fair value");
-  if (b.dca) parts.push("averaging down (below your cost, still sound)");
-  if (mc && mc.conviction === "High") parts.push("high conviction");
-  if (mc && mc._sig && mc._sig.c === "b-buy") parts.push("rated Buy");
+    parts.push(
+      (mc.disc * 100).toFixed(0) +
+        "% below fair value (raises its attractiveness score)",
+    );
+  if (b.dca)
+    parts.push(
+      "averaging down: price is below your average cost and the name is still sound, so the ranking gives it a boost",
+    );
+  if (mc && mc.conviction === "High")
+    parts.push(
+      "high-conviction name (ranked above similar lower-conviction picks)",
+    );
+  if (mc && mc._sig && mc._sig.c === "b-buy")
+    parts.push("rated Buy by the signal engine");
+  if (mc && mc.vol != null && mc.vol > 0.3)
+    parts.push(
+      "higher volatility (" +
+        (mc.vol * 100).toFixed(0) +
+        "% ann.) trims its target weight a bit when risk-adjust is on",
+    );
   return parts.length
     ? "Buy: " + parts.slice(0, 4).join(" \u00B7 ")
-    : "Buy: moves toward model target";
+    : "Buy: moves the portfolio toward its model target for this name";
+}
+// Build the per-sell/trim "why" string. The engine only hands back a short
+// category (`reason`): Sell-rated / not in model / above fair value / over
+// target. This expands that into the actual numbers that justified it, so the
+// reader doesn't have to guess what "over target" or "above fair value" mean
+// in their specific case.
+function _rbSellWhy(s, mc) {
+  const r = s.reason || "";
+  const curPct = ((s.curWt || 0) * 100).toFixed(0);
+  const tgtPct = ((s.tgtWt || 0) * 100).toFixed(0);
+  if (r === "Sell-rated")
+    return "Trim: the signal engine rates this a Sell \u2014 full exit recommended regardless of target weight.";
+  if (r === "not in model")
+    return "Trim: this name has no target weight in the current model (filtered out or zero attractiveness) \u2014 full exit recommended.";
+  if (r === "above fair value") {
+    const fv = mc ? mc._fv : null;
+    const px = s.price;
+    const overPct =
+      fv != null && fv > 0 && px != null
+        ? (((px - fv) / fv) * 100).toFixed(0)
+        : null;
+    return (
+      "Trim: price is" +
+      (overPct != null ? " " + overPct + "% above" : " above") +
+      " fair value \u2014 trimming back toward its " +
+      tgtPct +
+      "% target (currently " +
+      curPct +
+      "%)."
+    );
+  }
+  if (r === "over target")
+    return (
+      "Trim: this holding has drifted to " +
+      curPct +
+      "% of the portfolio, above its " +
+      tgtPct +
+      "% target by more than the trim band \u2014 trimming the excess back toward target."
+    );
+  return r
+    ? "Trim: " + r
+    : "Trim: moves the portfolio toward its model target for this name";
 }
 
 const RB_LS = "casa_rebalance_v1";
@@ -731,7 +803,7 @@ function renderRebalance() {
           ? '<span class="tag-in" style="font-size:9px">held</span>'
           : '<span class="badge b-buy" style="font-size:9px">new</span>') +
         (x.dca
-          ? ' <span class="badge b-buy" style="font-size:9px" title="Averaging down into a sound holding below your cost">DCA</span>'
+          ? ' <span class="badge b-buy" style="font-size:9px" data-tip="Averaging down: this name is below your average cost and still rated sound, so the buy ranking gave it a boost.">DCA</span>'
           : "") +
         ' <span class="mini" style="color:var(--text2)">' +
         escapeHtml(x.name) +
@@ -775,6 +847,7 @@ function renderRebalance() {
         tipRow("Qty", money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)) +
         tipRow("Net proceeds", money(x.net, 0) + " MAD") +
         (x.fv != null ? tipRow("Fair value", money(x.fv)) : "") +
+        tipNote(escapeHtml(x.why || "")) +
         _lotPlanTip(x);
       return (
         '<tr class="nis-cell" style="cursor:help" data-tip="' +
@@ -828,9 +901,9 @@ function renderRebalance() {
         escapeHtml(r.ticker) +
         "</b>" +
         (isPinned
-          ? ' <span class="badge b-wait" style="font-size:9px" title="Manually pinned to ' +
+          ? ' <span class="badge b-wait" style="font-size:9px" data-tip="Manually pinned to ' +
             pins[r.ticker] +
-            '%">\uD83D\uDCCC ' +
+            '% \u2014 this overrides the model\u2019s own target weight for this name.">\uD83D\uDCCC ' +
             pins[r.ticker] +
             "%</span>"
           : "") +
@@ -913,8 +986,19 @@ function renderRebalance() {
     const bars = arr
       .map((s) => {
         const over = capLine != null && s.weight > capLine + 1e-9;
+        const barTip =
+          tipHead(escapeHtml(s.name)) +
+          tipRow("Projected weight", pct1(s.weight)) +
+          (capLine != null ? tipRow("Cap", pct0(capLine)) : "") +
+          tipNote(
+            over
+              ? "This would land above your cap after the plan \u2014 reduce new buys here or add trims."
+              : "Share of the whole portfolio (holdings + cash) this group would hold after the plan executes.",
+          );
         return (
-          '<div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
+          '<div class="nis-cell" style="cursor:help" data-tip="' +
+          tipRef(barTip) +
+          '"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">' +
           "<span>" +
           escapeHtml(s.name) +
           (over ? ' <span class="neg">\u26A0</span>' : "") +
@@ -977,9 +1061,16 @@ function renderRebalance() {
   let whyNotHtml = "";
   if ((R.skipped || []).length) {
     const rows = R.skipped
-      .map(
-        (s) =>
-          '<tr><td class="l"><b>' +
+      .map((s) => {
+        const tip =
+          tipHead("Not bought \u00B7 " + escapeHtml(s.ticker)) +
+          tipRow("Target weight", pct1(s.targetWt || 0)) +
+          tipRow("Attractiveness", (s.attract || 0).toFixed(2)) +
+          tipNote(escapeHtml(s.reason || ""));
+        return (
+          '<tr class="nis-cell" style="cursor:help" data-tip="' +
+          tipRef(tip) +
+          '"><td class="l"><b>' +
           escapeHtml(s.ticker) +
           '</b> <span class="mini" style="color:var(--text2)">' +
           escapeHtml(s.name || "") +
@@ -989,12 +1080,13 @@ function renderRebalance() {
           (s.attract || 0).toFixed(2) +
           '</td><td class="l mini" style="color:var(--text2)">' +
           escapeHtml(s.reason || "") +
-          "</td></tr>",
-      )
+          "</td></tr>"
+        );
+      })
       .join("");
     whyNotHtml =
       '<div class="sec"><h3 style="margin:0 0 6px">\u2139\uFE0F Wanted but not bought <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 names with a model target that got no buy this run, and why</span></h3>' +
-      '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Target</th><th style="text-align:right">Attract.</th><th class="l">Reason</th></tr></thead><tbody>' +
+      '<div class="tbl-wrap"><table><thead><tr><th class="l" data-tip="A name the model has a positive target weight for, but that this run did not buy (see Reason).">Ticker</th><th style="text-align:right" data-tip="The weight the model wants for this name, which went unfilled this run.">Target</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th class="l" data-tip="Why this run skipped it: below the attractiveness bar, cash ran out, the max new-names limit was reached, or no price/lot was affordable.">Reason</th></tr></thead><tbody>' +
       rows +
       "</tbody></table></div></div>";
   }
@@ -1015,7 +1107,24 @@ function renderRebalance() {
     readoutHtml +
     '<div class="sec">' +
     '<h3 style="margin:0 0 6px">\uD83D\uDCCB Trades to reach your model' +
-    '<span class="mini" style="font-weight:400;color:var(--text2)"> \u2014 ' +
+    '<span class="mini nis-cell" style="font-weight:400;color:var(--text2);cursor:help" data-tip="' +
+    tipRef(
+      tipHead("How this run was spent") +
+        tipRow("Cash to invest", money(R.cash, 0) + " MAD") +
+        (R.wantTrims
+          ? tipRow(
+              "+ recycled trim proceeds",
+              money(R.trimProceeds, 0) + " MAD",
+            )
+          : "") +
+        tipRow("= buy budget", money(R.buyBudget, 0) + " MAD") +
+        tipRow("Spent on buys", money(R.spent, 0) + " MAD") +
+        tipRow("Left as cash", money(R.holdCash, 0) + " MAD") +
+        tipNote(
+          "Cash is left over when caps, the attractiveness bar, or whole-share lot sizes make the rest of the budget impossible to deploy \u2014 it is not lost, just held until the next run.",
+        ),
+    ) +
+    '"> \u2014 ' +
     (R.plan || []).length +
     " buy" +
     ((R.plan || []).length === 1 ? "" : "s") +
@@ -1029,26 +1138,26 @@ function renderRebalance() {
     money(R.holdCash, 0) +
     " MAD held as cash</span>" +
     (R.pendingAccounted
-      ? '<span class="badge b-wait" style="font-size:10px;margin-left:8px">\u23F3 +pending</span>'
+      ? '<span class="badge b-wait" style="font-size:10px;margin-left:8px" data-tip="Your pending BUY/SELL orders were folded into current holdings before this plan was computed, so weights and suggestions reflect where the portfolio will be once those orders execute.">\u23F3 +pending</span>'
       : "") +
     "</h3>" +
     notesHtml +
     ((R.plan || []).length
-      ? '<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th class="l">Buy</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Cost</th><th style="text-align:right">Now \u2192 Target</th><th></th></tr></thead><tbody>' +
+      ? '<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th class="l" data-tip="The name the model wants to buy. Hover any row for the full reasoning (target vs current weight, valuation, conviction, DCA).">Buy</th><th class="l" data-tip="The sector/category used for the sector-cap math.">Sector</th><th style="text-align:right" data-tip="Last known price per share/unit, used to size the order.">Price</th><th style="text-align:right" data-tip="Whole shares for stocks; up to 4 decimals for OPCVM funds (fractional units allowed).">Qty</th><th style="text-align:right" data-tip="Cost of this buy including estimated broker commission (and PEA/account fees where applicable).">Cost</th><th style="text-align:right" data-tip="Current weight of this name in your portfolio, and the model\u2019s target weight for it after the plan.">Now \u2192 Target</th><th data-tip="Add this exact buy to your Pending orders list.">Draft</th></tr></thead><tbody>' +
         buyRows +
         "</tbody></table></div>" +
-        '<div style="margin-top:10px;text-align:right"><button class="btn" data-act="rbDraftAll">\u2795 Draft all buys to Pending</button></div>'
+        '<div style="margin-top:10px;text-align:right"><button class="btn" data-act="rbDraftAll" data-tip="Add every suggested buy above to your Pending orders list in one go, at the planned price and quantity.">\u2795 Draft all buys to Pending</button></div>'
       : '<div class="mini" style="color:var(--text2);margin-top:6px">No buys \u2014 either nothing clears the attractiveness bar (cash held to wait) or the model is already matched. Adjust the slider, caps, or "Min attractiveness".</div>') +
     "</div>" +
     '<div class="sec"><h3 style="margin:0 0 6px">\u2702\uFE0F Suggested sells / trims <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 Sell-rated, above fair value, or over target</span></h3>' +
     ((R.trims || []).length
-      ? '<div class="tbl-wrap"><table><thead><tr><th class="l">Sell</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Net</th><th class="l" data-tip="Which tax lots to sell: PEA first (gains tax-free), then Regular highest-cost first, to minimise capital-gains tax.">From (tax lot)</th><th style="text-align:right">Now \u2192 Target</th></tr></thead><tbody>' +
+      ? '<div class="tbl-wrap"><table><thead><tr><th class="l" data-tip="The holding the model wants to trim or exit. Hover any row for why: Sell-rated, not in the model, above fair value, or over target.">Sell</th><th class="l" data-tip="The sector/category used for the sector-cap math.">Sector</th><th style="text-align:right" data-tip="Last known price per share/unit, used to size the order.">Price</th><th style="text-align:right" data-tip="Whole shares for stocks; up to 4 decimals for OPCVM funds (fractional units allowed).">Qty</th><th style="text-align:right" data-tip="Proceeds after estimated broker commission (and tax, where applicable). This is what actually lands as cash.">Net</th><th class="l" data-tip="Which tax lots to sell: PEA first (gains tax-free), then Regular highest-cost first, to minimise capital-gains tax.">From (tax lot)</th><th style="text-align:right" data-tip="Current weight of this holding in your portfolio, and the model\u2019s target weight for it after the plan.">Now \u2192 Target</th></tr></thead><tbody>' +
         sellRows +
         "</tbody></table></div>"
       : '<div class="mini pos">Nothing to sell \u2014 no Sell-rated, overvalued, or over-target holdings. \uD83C\uDF89</div>') +
     "</div>" +
     '<div class="sec"><h3 style="margin:0 0 6px">\uD83C\uDFAF Model vs actual <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 target weight the engine wants vs where you are now</span></h3>' +
-    '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Now</th><th style="text-align:right">Target</th><th style="text-align:right">Drift</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th style="text-align:right">Action</th><th style="text-align:center" data-tip="Pin a name to a fixed target weight to override the model.">Pin</th></tr></thead><tbody>' +
+    '<div class="tbl-wrap"><table><thead><tr><th class="l" data-tip="Every name that is either held now or has a target weight in the model (or both).">Ticker</th><th style="text-align:right" data-tip="This name\u2019s current weight: its market value divided by your total investable sleeve (holdings + cash).">Now</th><th style="text-align:right" data-tip="The model\u2019s target weight for this name: its attractiveness score water-filled against your cash, capped by the sector and single-name limits.">Target</th><th style="text-align:right" data-tip="Target minus Now. Positive (green) = underweight, the model wants more. Negative (red) = overweight, the model wants less.">Drift</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th style="text-align:right" data-tip="What this run suggests: Buy (close an underweight), Trim/Exit (close an overweight or a Sell-rated/above-fair-value holding), or - (no action needed).">Action</th><th style="text-align:center" data-tip="Pin a name to a fixed target weight to override the model.">Pin</th></tr></thead><tbody>' +
     modelRows +
     "</tbody></table></div>" +
     '<div class="mini" style="color:var(--text2);margin-top:8px">Target weights come from each name\u2019s attractiveness (factor score \u00D7 valuation discount \u00D7 conviction, divided by volatility), capped at ' +
