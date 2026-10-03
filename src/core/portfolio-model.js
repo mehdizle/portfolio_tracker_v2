@@ -252,10 +252,18 @@ export function targetWeights(candidates, caps, opts) {
   const sectorCapOf = (cat) => (opcvmSet.has(cat) ? opcvmCap : sectorCap);
   // Sector usage seeded with PINNED weights so pins count against their sector
   // cap (a pin can leave little/no room for the model's own picks in that sector).
+  // A pin on a name that is NOT in the candidate universe still consumes
+  // sleeve budget, so it must also consume its sector's headroom or the flex
+  // picks could fill that sector up to cap ON TOP of the pin (bounded over-
+  // concentration). The candidate list is the first source of a ticker's
+  // category; when the pinned name isn't a candidate we fall back to the
+  // caller-supplied `pinnedCats` map (ticker -> cat). Unknown-category pins
+  // (neither source resolves) still can't be charged to any sector.
+  const pinnedCats = o.pinnedCats || {};
   const pinnedSecUsed = {};
   for (const tk of Object.keys(pinned)) {
     const cand = list.find((x) => x.ticker === tk);
-    const cat = cand ? cand.cat : null;
+    const cat = cand ? cand.cat : pinnedCats[tk] || null;
     if (cat) pinnedSecUsed[cat] = (pinnedSecUsed[cat] || 0) + pinned[tk];
   }
   for (const x of flexList) x.w = 0;
@@ -574,9 +582,15 @@ export function planTrades(targets, positions, cash, helpers, opts) {
       .map((k) => ({ name: k, weight: totalPost > 0 ? g[k] / totalPost : 0 }))
       .sort((a, b) => b.weight - a.weight);
   };
+  // Value-weight attractiveness and volatility. Each metric uses its OWN base
+  // (sum of value over names that actually carry that metric) so a name missing
+  // an attractiveness score does not silently drag the average toward zero, and
+  // the two readouts stay comparable (both are true value-weighted means over
+  // the names they cover).
   let wA = 0,
+    wABase = 0,
     wV = 0,
-    wBase = 0;
+    wVBase = 0;
   for (const tk in postVal) {
     const v = postVal[tk];
     if (v <= EPS) continue;
@@ -584,18 +598,19 @@ export function planTrades(targets, positions, cash, helpers, opts) {
     const vol = metaOf(tk).vol;
     if (_num(A)) {
       wA += A * v;
+      wABase += v;
     }
     if (_num(vol)) {
       wV += vol * v;
-      wBase += v;
+      wVBase += v;
     }
   }
   const readout = {
     sectors: groupBy("cat", "Uncategorized"),
     cycles: groupBy("cyc", "Unclassified"),
     styles: groupBy("sty", "Unclassified"),
-    wAttract: investedPost > 0 ? wA / investedPost : null,
-    wVol: wBase > 0 ? wV / wBase : null,
+    wAttract: wABase > 0 ? wA / wABase : null,
+    wVol: wVBase > 0 ? wV / wVBase : null,
     cashPct: totalPost > 0 ? holdCash / totalPost : 0,
     investedPost,
     totalPost,

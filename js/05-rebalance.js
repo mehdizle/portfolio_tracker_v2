@@ -112,6 +112,11 @@ function computeRebalance() {
     1,
     Math.max(0, (isFinite(valueTiltRaw) ? valueTiltRaw : 0) / 100),
   );
+  // Dollar-cost-average into existing winners (ON by default). When on, the
+  // engine biases a slice of the buy budget toward names already held so you
+  // average down/up rather than only opening new positions. Off = 0 boost.
+  const _dcaEl = document.getElementById("rbDca");
+  const wantDca = _dcaEl ? !!_dcaEl.checked : true;
 
   const { pos } = runFIFO();
   const _rbPending = !!(document.getElementById("rbPending") || {}).checked;
@@ -137,6 +142,15 @@ function computeRebalance() {
       if (existKey) {
         const p = _projPos[existKey];
         if (o.action === "BUY") {
+          // Blend the average cost so the projected lot carries a realistic
+          // post-pending basis. Leaving p.avg at the pre-pending average made
+          // the trim gain/share and the DCA trigger (price < avg) fire off a
+          // stale cost. Weighted mean of old basis and the pending fill price.
+          const prevAvg = p.avg != null && p.avg > 0 ? p.avg : o.price;
+          const prevQty = p.held > 0 ? p.held : 0;
+          const newQty = prevQty + o.qty;
+          if (newQty > 0)
+            p.avg = (prevAvg * prevQty + o.price * o.qty) / newQty;
           p.held += o.qty;
           p.value = p.held * px;
         } else {
@@ -244,12 +258,22 @@ function computeRebalance() {
   };
   // Manual per-name pins (user override of the model), persisted locally.
   const pinned = loadRbPins();
+  // Category for each pinned ticker, so a pin on a name that is NOT a model
+  // candidate still charges against its sector cap in the engine (otherwise the
+  // flex picks could fill that sector up to cap on top of the pin). Resolved
+  // from the global metadata map M; unknown names simply stay uncharged.
+  const pinnedCats = {};
+  Object.keys(pinned).forEach((tk) => {
+    const meta = M[tk];
+    if (meta && meta.cat) pinnedCats[tk] = meta.cat;
+  });
   const targets = PM
     ? PM.targetWeights(modelCands, caps, {
         valueTilt: vTilt,
         riskAdjust,
         reservePct,
         pinned,
+        pinnedCats,
       })
     : { weights: {}, attract: {}, volRef: 0.25, pinned: {} };
 
@@ -285,6 +309,12 @@ function computeRebalance() {
     b.held += p.held;
     b.value += p.value;
     b.costSum += (p.avg != null ? p.avg : p.price) * p.held;
+    // Carry the broker from the largest account-level lot so trade cost/net is
+    // estimated at the RIGHT fee schedule (not the default). runFIFO exposes it.
+    if (p.broker && (b._brokerQty == null || p.held > b._brokerQty)) {
+      b.broker = p.broker;
+      b._brokerQty = p.held;
+    }
     if (p.held > 0)
       b.lots.push({
         qty: p.held,
@@ -309,6 +339,7 @@ function computeRebalance() {
       price: b.price,
       value: b.value,
       avg,
+      broker: b.broker || null,
       lots: b.lots,
       isFund: b.isFund,
       fv: mc ? mc._fv : fairValue(M[b.ticker] || {}),
@@ -322,10 +353,22 @@ function computeRebalance() {
     };
   });
 
+  // Position lookup (by ticker) - used by the fee helpers below AND when
+  // shaping buys/trims further down.
+  const posByTk2 = {};
+  positions.forEach((p) => (posByTk2[p.ticker] = p));
+
   // ---- plan the trades ----
+  // Fee helpers price each trade at the HOLDING's broker when known (sells and
+  // top-ups of held names), else the default broker (new buys). planTrades
+  // passes (ticker, qty, price); we resolve the broker from the position map.
+  const _brokerOf = (tk) => {
+    const pp = posByTk2[tk];
+    return pp && pp.broker ? pp.broker : undefined;
+  };
   const helpers = {
-    buyCost: (tk, q, p) => estBuyCost(p, q),
-    sellNet: (tk, q, p) => estSellNet(p, q),
+    buyCost: (tk, q, px) => estBuyCost(px, q, _brokerOf(tk)),
+    sellNet: (tk, q, px) => estSellNet(px, q, _brokerOf(tk)),
     lotRound: (tk, q) => lotRound(q, isOpcvmTk(tk)),
   };
   // Price lookup for every model candidate (held OR not) so the planner can
@@ -340,7 +383,7 @@ function computeRebalance() {
         suggestTrims: wantTrims,
         trimWinners: wantTrimWinners,
         trimTolerance: trimTol,
-        dcaBoost: 0.5,
+        dcaBoost: wantDca ? 0.5 : 0,
         recycleTrims,
         maxBuys,
         prices: rbPrices,
@@ -355,8 +398,6 @@ function computeRebalance() {
       };
 
   // ---- shape buys/trims for the renderer (and the rbDraft* actions) ----
-  const posByTk2 = {};
-  positions.forEach((p) => (posByTk2[p.ticker] = p));
   const plan = planResult.buys.map((b) => {
     const mc = mcByTk[b.ticker];
     const p = posByTk2[b.ticker];
@@ -432,6 +473,9 @@ function computeRebalance() {
     plan,
     trims,
     trimProceeds,
+    // Spendable budget = new cash + recycled trim net (the planner spends out of
+    // this same pool). Do NOT add trimProceeds on top of a separately-counted
+    // budget - that double-counts. spent/holdCash come straight from the planner.
     buyBudget: cash + (recycleTrims ? trimProceeds : 0),
     spent,
     remaining: planResult.holdCash,
@@ -544,6 +588,7 @@ function saveRbSettings() {
       minAttract: (g("rbMinAttract") || {}).value,
       trimWinners: !!(g("rbTrimWinners") || {}).checked,
       trimTol: (g("rbTrimTol") || {}).value,
+      dca: g("rbDca") ? !!g("rbDca").checked : true,
     };
     safeSetItem(RB_LS, JSON.stringify(s));
   } catch (e) {}
@@ -578,6 +623,7 @@ function loadRbSettings() {
     if (s.trimWinners != null && g("rbTrimWinners"))
       g("rbTrimWinners").checked = !!s.trimWinners;
     if (s.trimTol != null && g("rbTrimTol")) g("rbTrimTol").value = s.trimTol;
+    if (s.dca != null && g("rbDca")) g("rbDca").checked = !!s.dca;
   } catch (e) {}
 }
 // Human label for the value-vs-diversification slider position. Shows the exact

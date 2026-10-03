@@ -448,6 +448,40 @@ describe("targetWeights: pinned overrides", () => {
     expect(weights.A).toBeCloseTo(0.15, 6);
     expect(pinned.A).toBeCloseTo(0.15, 6);
   });
+
+  it("charges a pinned NON-candidate against its sector cap via pinnedCats", () => {
+    // Pin ticker Z (not in `cands`) into the Banks sector at 0.15. Candidate A
+    // is also a Bank. With a 0.2 Banks sector cap, the flex pass must only be
+    // able to add 0.05 of Banks on top of the pin -> A caps at ~0.05, and the
+    // total Banks exposure (pin + A) must not exceed the 0.2 sector cap.
+    const { weights } = targetWeights(
+      cands,
+      { nameCap: 0.5, sectorCap: 0.2, opcvmCap: 0.6 },
+      {
+        valueTilt: 0.5,
+        pinned: { Z: 0.15 },
+        pinnedCats: { Z: "Banks" },
+      },
+    );
+    expect(weights.Z).toBeCloseTo(0.15, 6);
+    // A (Banks candidate) can take at most the remaining 0.05 of the sector cap.
+    expect(weights.A).toBeLessThanOrEqual(0.05 + 1e-6);
+    const banksTotal = weights.Z + weights.A;
+    expect(banksTotal).toBeLessThanOrEqual(0.2 + 1e-6);
+  });
+
+  it("without pinnedCats a pinned non-candidate does NOT constrain its sector", () => {
+    // Same setup but omit pinnedCats: the pin's category is unknown, so the
+    // Banks candidate A is free to fill the full 0.2 sector cap on top of the
+    // pin (documents the pre-fix behaviour, now opt-in).
+    const { weights } = targetWeights(
+      cands,
+      { nameCap: 0.5, sectorCap: 0.2, opcvmCap: 0.6 },
+      { valueTilt: 0.5, pinned: { Z: 0.15 } },
+    );
+    expect(weights.Z).toBeCloseTo(0.15, 6);
+    expect(weights.A).toBeCloseTo(0.2, 4);
+  });
 });
 
 describe("allocSellLots (tax-lot-aware trim order)", () => {
