@@ -59,8 +59,6 @@ function computeRebalance() {
         parseFloat((document.getElementById("rbCapOpcvm") || {}).value) || 35,
       ),
     ) / 100;
-  // Per-sector cap: OPCVM funds (a single combined "OPCVM" bucket) get their own higher cap.
-  const capFor = (cat) => (cat === "OPCVM" ? capOpcvm : capPct);
   const maxBuys = Math.min(
     12,
     Math.max(
@@ -164,17 +162,6 @@ function computeRebalance() {
   }
   const held = Object.values(_projPos).filter((p) => p.held > 0 && p.value > 0);
   const totalNow = held.reduce((a, p) => a + p.value, 0);
-
-  // current sector weights
-  const secVal = {};
-  held.forEach((p) => {
-    const c = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
-    secVal[c] = (secVal[c] || 0) + p.value;
-  });
-  const heldQtyByTk = {};
-  held.forEach((p) => {
-    heldQtyByTk[p.ticker] = (heldQtyByTk[p.ticker] || 0) + p.held;
-  });
 
   // ============================================================
   // TARGET-WEIGHT MODEL (src/core/portfolio-model.js via __core).
@@ -429,9 +416,6 @@ function computeRebalance() {
     wantTrims,
     includeOpcvm,
     totalNow,
-    secVal,
-    cycVal,
-    styVal,
     plan,
     trims,
     trimProceeds,
