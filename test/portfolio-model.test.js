@@ -49,10 +49,13 @@ describe("annualizedVol", () => {
     const weekly = annualizedVol(series("2025-01-01", 7, closes));
     expect(daily).toBeGreaterThan(0);
     expect(weekly).toBeGreaterThan(0);
-    // Within a reasonable band of each other (both reflect the SAME per-return
-    // vol); a naive annualisation would differ by ~sqrt(7)=2.6x.
-    expect(weekly / daily).toBeGreaterThan(0.5);
-    expect(weekly / daily).toBeLessThan(2.0);
+    // Spacing-aware annualisation: with the SAME per-observation stdev, daily
+    // scales by sqrt(252) and weekly by sqrt(252/5) (median 7-cal-day gap ~=
+    // 5 trading days), so weekly/daily = sqrt(1/5) ~= 0.447 - the weekly series
+    // is NOT blown up as if its returns were daily. The whole point is the
+    // weekly vol stays SMALLER (the key failure mode was it reading too HIGH):
+    expect(weekly).toBeLessThan(daily);
+    expect(weekly / daily).toBeCloseTo(Math.sqrt(1 / 5), 2); // ~0.447
   });
 
   it("a flat series has ~zero vol", () => {
