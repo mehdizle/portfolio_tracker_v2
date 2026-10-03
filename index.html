@@ -2326,16 +2326,20 @@
           <h2>
             &#x2696;&#xFE0F; Rebalance Helper
             <span class="mini" style="font-weight: 400"
-              >&#x2014; value-led &amp; sector-diversified, fees-aware,
-              whole-share lots</span
+              >&#x2014; target-weight model: quality &times; value &times;
+              conviction, risk-adjusted, fees-aware, whole-share lots</span
             >
           </h2>
           <div class="mini" style="margin-bottom: 12px; color: var(--text2)">
-            Enter how much new cash you want to invest. This suggests
-            <b>buys</b> that move your portfolio toward a more balanced sector
-            mix &#x2014; favouring under-represented sectors and undervalued
-            names &#x2014; and flags any <b>overweight</b> positions worth
-            trimming. All figures net of estimated commission &amp; fixed fees.
+            Builds a <b>model portfolio</b> &#x2014; a target weight for every
+            eligible name from its attractiveness (factor score &times;
+            discount-to-fair-value &times; conviction, divided by volatility),
+            capped by sector and single-name limits. It then compares those
+            targets to your <b>actual</b> holdings and lists the
+            <b>buys and sells</b> that close the gap. Sector/name caps are hard:
+            if they make full investment impossible, or nothing clears the
+            attractiveness bar, the remainder is <b>left as cash on purpose</b>.
+            All figures net of estimated commission &amp; tax.
           </div>
           <div
             class="form-row"
@@ -2450,6 +2454,56 @@
                 type="checkbox"
                 id="rbPending"
                 style="width: 18px; height: 18px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Risk-adjust each name's target weight by its volatility (from the daily price history): a more volatile name gets a smaller target for the same attractiveness. On by default. Turn off to size on attractiveness alone."
+              >Risk-adjust<input
+                type="checkbox"
+                id="rbRiskAdj"
+                checked
+                style="width: 18px; height: 18px"
+            /></label>
+            <label
+              data-tip="Hold back this % of the investable total as cash on purpose (waiting for opportunities). 0 = invest the whole sleeve subject to caps and the attractiveness bar."
+              >Cash reserve %<input
+                type="number"
+                id="rbReserve"
+                value="0"
+                min="0"
+                max="95"
+                step="5"
+                style="width: 90px"
+            /></label>
+            <label
+              data-tip="A name must reach this attractiveness score (quality x value x conviction, risk-adjusted) before cash is deployed into it. Below the bar, cash is left idle to wait for a better entry. 0 = deploy freely toward the model."
+              >Min attractiveness<input
+                type="number"
+                id="rbMinAttract"
+                value="0"
+                min="0"
+                max="3"
+                step="0.1"
+                style="width: 90px"
+            /></label>
+            <label
+              style="display: flex; align-items: center; gap: 6px"
+              data-tip="Also trim holdings that have grown ABOVE their model target (not just Sell-rated / overvalued ones). Off by default = let winners run. Sell-rated and above-fair-value names are always flagged regardless."
+              >Trim winners<input
+                type="checkbox"
+                id="rbTrimWinners"
+                style="width: 18px; height: 18px"
+            /></label>
+            <label
+              data-tip="How far a holding may drift above its target before 'Trim winners' acts, as a % of the target weight (e.g. 25 = only trim once it's 25% over target). Avoids churning on small drifts. Only used when 'Trim winners' is on."
+              >Trim band %<input
+                type="number"
+                id="rbTrimTol"
+                value="25"
+                min="0"
+                max="100"
+                step="5"
+                style="width: 90px"
             /></label>
             <button class="btn" id="rbRun">Compute plan</button>
           </div>

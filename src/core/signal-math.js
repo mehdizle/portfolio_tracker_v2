@@ -1,14 +1,14 @@
 // ============================================================
-// signal-math.js - pure, testable scoring primitives for the signal engine
-// and the rebalance greedy picker.
+// signal-math.js - pure, testable scoring primitives for the signal engine.
 //
-// WHY THIS MODULE EXISTS: the signal engine (js/03-signals.js) and rebalance
-// helper (js/05-rebalance.js) live in the shared-scope UI bundle as plain
-// top-level functions, which Vitest cannot import. Previously these scoring
-// primitives were duplicated verbatim inside a test file, so a regression in
-// the real engine would NOT fail CI (the test tested its own copy). Moving the
-// canonical math here - a real ES module imported by the bridge (__core) AND by
-// the test - means the test exercises the SAME code the app runs.
+// WHY THIS MODULE EXISTS: the signal engine (js/03-signals.js) lives in the
+// shared-scope UI bundle as plain top-level functions, which Vitest cannot
+// import. Previously these scoring primitives were duplicated verbatim inside a
+// test file, so a regression in the real engine would NOT fail CI (the test
+// tested its own copy). Moving the canonical math here - a real ES module
+// imported by the bridge (__core) AND by the test - means the test exercises
+// the SAME code the app runs. (The rebalance picker's math has since moved to
+// its own module, src/core/portfolio-model.js.)
 //
 // Pure: no DOM, no globals, no state. Every function tolerates missing/NaN
 // inputs by returning null (so the factor normaliser can drop that factor and
@@ -69,31 +69,7 @@ export function fcfyScore(m, best, worst) {
   return y == null ? null : soft(y, best, worst);
 }
 
-/**
- * rbScore(ctx, vTilt): the rebalance greedy picker's per-candidate score at a
- * given value-vs-diversification tilt (vTilt in 0..1). Blends sector need, value
- * tilt (discount-to-fair, only rewarded above fair when vTilt lifts it),
- * cycle/style diversification need, a Buy-signal bump, and the factor score -
- * with weights that shift from diversification-led (vTilt=0) to value-led
- * (vTilt=1). An overweight sector is penalised. Pure arithmetic.
- *
- * ctx = { secW, cap, disc, cycleNeed, styleNeed, isBuy, fscore }
- */
-export function rbScore(ctx, vTilt) {
-  const { secW, cap, disc, cycleNeed, styleNeed, isBuy, fscore } = ctx;
-  const sectorNeed = 1 - secW / cap;
-  const valueTilt = disc >= 0 ? disc : disc * vTilt;
-  const overPen = Math.max(0, (secW - cap) / cap);
-  const wSector = 1.0 - 0.5 * vTilt; // 1.0 -> 0.5
-  const wValue = 0.6 + 0.6 * vTilt; // 0.6 -> 1.2
-  const wFactor = 0.5 * vTilt; // 0   -> 0.5
-  return (
-    sectorNeed * wSector +
-    valueTilt * wValue +
-    cycleNeed * 0.35 +
-    styleNeed * 0.35 +
-    (isBuy ? 0.15 : 0) +
-    (fscore || 0) * wFactor -
-    overPen * 1.2 * vTilt
-  );
-}
+// NOTE: rbScore (the old greedy-rebalance per-candidate score) was REMOVED when
+// the Rebalance tab moved to the target-weight model in src/core/portfolio-model.js.
+// The signal engine (js/03-signals.js) still uses num/soft/growthScore/fcfyScore
+// above; the rebalance picking is now targetWeights()/planTrades() in that module.

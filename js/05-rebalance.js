@@ -71,6 +71,36 @@ function computeRebalance() {
   const buyOnly = !!(document.getElementById("rbBuyOnly") || {}).checked;
   const wantTrims = !!(document.getElementById("rbTrims") || {}).checked;
   const includeOpcvm = !!(document.getElementById("rbOpcvm") || {}).checked; // when true, funds are buyable too
+  // ---- target-model options (new controls; safe defaults when absent) ----
+  // Risk-adjust targets by volatility (ON by default).
+  const _riskEl = document.getElementById("rbRiskAdj");
+  const riskAdjust = _riskEl ? !!_riskEl.checked : true;
+  // Deliberate cash reserve: hold back this % of the sleeve as cash (0..95).
+  const reservePct =
+    Math.min(
+      95,
+      Math.max(
+        0,
+        parseFloat((document.getElementById("rbReserve") || {}).value) || 0,
+      ),
+    ) / 100;
+  // Minimum attractiveness a name must reach before cash is deployed into it;
+  // below this the engine leaves cash idle (waiting is valid). 0 = deploy freely.
+  const minAttract = Math.max(
+    0,
+    parseFloat((document.getElementById("rbMinAttract") || {}).value) || 0,
+  );
+  // Trim winners that drift above target (OFF by default = let winners run).
+  const _twEl = document.getElementById("rbTrimWinners");
+  const wantTrimWinners = _twEl ? !!_twEl.checked : false;
+  // Tolerance band before an over-target winner is trimmed (default 25%).
+  const trimTol =
+    Math.max(
+      0,
+      parseFloat((document.getElementById("rbTrimTol") || {}).value) || 25,
+    ) / 100;
+  // Recycle trim proceeds into the buy budget (follows the Suggest-trims toggle).
+  const recycleTrims = wantTrims;
   // Value-vs-Diversification tilt (0..1). 0 = pure diversification-led (the
   // original behaviour: sector caps are HARD and diversification dominates the
   // buy score). 1 = value-led (undervalued names can be bought slightly past a
@@ -146,7 +176,18 @@ function computeRebalance() {
     heldQtyByTk[p.ticker] = (heldQtyByTk[p.ticker] || 0) + p.held;
   });
 
-  // candidate universe: all non-OPCVM stocks with a price & fair value
+  // ============================================================
+  // TARGET-WEIGHT MODEL (src/core/portfolio-model.js via __core).
+  // Everything from here builds the model inputs, calls the engine, and shapes
+  // the result for renderRebalance(). The old greedy loop is retired.
+  // ============================================================
+  const PM =
+    typeof __core !== "undefined" && __core.portfolioModel
+      ? __core.portfolioModel
+      : null;
+
+  // candidate universe: priced names; stocks need a fair value, funds included
+  // only when the OPCVMs toggle is on. Buy-signal-only filter optional.
   let cands = computeSignalsRows().filter(
     (r) =>
       r.m &&
@@ -156,404 +197,197 @@ function computeRebalance() {
       (r.m.cat === "OPCVM" ? true : fairValue(r.m) != null),
   );
   if (buyOnly) cands = cands.filter((r) => r.sig && r.sig.c === "b-buy");
-  // annotate discount-to-fair (value tilt) and buy price
-  cands.forEach((r) => {
-    const fv = fairValue(r.m);
-    r._fv = fv;
-    // fv is null for OPCVM funds (no intrinsic value) \u2014 treat as neutral
-    // (disc 0, no value tilt) instead of letting (null-price)/null = NaN
-    // corrupt the greedy score. Funds are then picked only by under-weight.
-    r._disc = fv != null && fv > 0 ? (fv - r.price) / fv : 0;
-    r._px = r.price;
-    r._tbuyRef = r.tbuy != null && isFinite(r.tbuy) ? r.tbuy : null;
-    r._cat = r.m.cat || "Uncategorized";
-    r._cyc = r.m.cycle || "OPCVM / Funds";
-    r._sty = r.m.style || "OPCVM / Funds";
-    // Composite factor score (0..1) from the SAME signal engine, precomputed once
-    // so the value-led ranking can lean on quality/valuation without recomputing
-    // in the greedy loop. Null/OPCVM -> 0 (neutral, no lean).
-    const _fs = r._cat === "OPCVM" ? null : factorScores(r.m);
-    r._fscore = _fs && typeof _fs.score === "number" ? _fs.score : 0;
-  });
-
-  // ---- #5 DYNAMIC denominator: invested base grows as cash is deployed and shrinks as
-  // we trim. projTotal() reflects the CURRENT projected invested total so sector-weight
-  // caps bind against the right base at every greedy step (not a static totalNow+cash).
-  let investedBase = totalNow; // running invested MAD (updated on each buy/trim)
-  const projTotal = () => investedBase;
-  // running projected sector values as we allocate
-  const runSec = Object.assign({}, secVal);
-  // \u2500\u2500 SINGLE-NAME CONCENTRATION CAP \u2500\u2500
-  // Sector caps alone don't stop the greedy loop piling many lots into ONE cheap,
-  // underweight-sector name. Cap any single position at nameCap of the projected total
-  // (mirrors the 20% single-position concentration warning used on the Dashboard). This
-  // is the data-appropriate diversification control we CAN enforce without price history.
-  const nameCap = Math.min(0.25, Math.max(0.1, capPct)); // \u2264 sector cap, floored 10%, ceiled 25%
-  const runTk = {};
-  held.forEach((p) => {
-    runTk[p.ticker] = (runTk[p.ticker] || 0) + p.value;
-  });
-  // Economic-cycle & asset-style diversification: track running MAD by cycle/style so the
-  // greedy allocator spreads across cycles (Cyclical/Sensitives/Defensive) and styles
-  // (Yield King/Growth/Compounder/...). These are SOFT nudges (no hard cap) steering variety.
-  const cycVal = {},
-    styVal = {};
-  held.forEach((p) => {
-    const m = M[p.ticker] || {};
-    const cy = m.cycle || "OPCVM / Funds",
-      st = m.style || "OPCVM / Funds";
-    cycVal[cy] = (cycVal[cy] || 0) + p.value;
-    styVal[st] = (styVal[st] || 0) + p.value;
-  });
-  const runCyc = Object.assign({}, cycVal),
-    runSty = Object.assign({}, styVal);
-  const cycTarget = 1 / Math.max(1, new Set(cands.map((r) => r._cyc)).size);
-  const styTarget = 1 / Math.max(1, new Set(cands.map((r) => r._sty)).size);
-  const needBelow = (runMap, key, target) => {
-    const w = projTotal() > 0 ? (runMap[key] || 0) / projTotal() : 0;
-    return Math.max(0, (target - w) / target);
+  // ---- per-ticker annualised volatility from the daily repo history ----
+  // Spacing-aware (weekly funds aren't overstated). Missing/thin history -> null
+  // -> the model treats it as neutral risk. Reused across candidates+positions.
+  const _ph = typeof getPriceHistory === "function" ? getPriceHistory() : null;
+  const _volCache = {};
+  const volOf = (tk) => {
+    if (tk in _volCache) return _volCache[tk];
+    let v = null;
+    if (_ph && _ph.rows && PM) {
+      const ser = [];
+      for (const row of _ph.rows) {
+        const c = row.closes && row.closes[tk];
+        if (row.date && c != null && isFinite(+c) && +c > 0)
+          ser.push({ date: row.date, close: +c });
+      }
+      v = PM.annualizedVol(ser);
+    }
+    _volCache[tk] = v;
+    return v;
   };
-  const plan = [];
-  let remaining = cash;
 
-  // ---- #8 TRUE REBALANCE: compute trims FIRST, recycle their net proceeds into the buy budget.
-  // Trimming an overweight sector frees cash that is redeployed into under-cap sectors in the
-  // SAME plan, and the trimmed value is removed from the running sector map + invested base so
-  // caps are measured against the post-trim portfolio.
-  const trims = [];
-  if (wantTrims) {
-    Object.keys(secVal).forEach((c) => {
-      // OPCVM funds are hands-off unless "Include OPCVM" is ticked. They have no
-      // fair-value data (price + fees only), so trimming them on a valuation
-      // ranking is meaningless \u2014 and the checkbox is meant to keep funds untouched.
-      if (c === "OPCVM" && !includeOpcvm) return;
-      const w = totalNow > 0 ? secVal[c] / totalNow : 0;
-      const _cap = capFor(c);
-      if (w > _cap) {
-        // holdings in this sector, ranked by MOST overvalued (lowest discount / negative)
-        const inSec = held
-          .filter(
-            (p) => ((M[p.ticker] && M[p.ticker].cat) || "Uncategorized") === c,
-          )
-          .map((p) => {
-            const fv = fairValue(M[p.ticker]);
-            const disc = fv != null ? (fv - p.price) / fv : 0;
-            return { p, disc, fv };
-          })
-          .sort((a, b) => a.disc - b.disc);
-        const excessVal = (w - _cap) * totalNow;
-        let toTrim = excessVal;
-        for (const { p, disc, fv } of inSec) {
-          if (toTrim <= 0) break;
-          const _fund = isOpcvmTk(p.ticker);
-          const rawQty = toTrim / p.price;
-          let qty = _fund
-            ? Math.min(p.held, +rawQty.toFixed(4))
-            : Math.min(p.held, Math.ceil(rawQty));
-          qty = lotRound(qty, _fund);
-          if (qty <= 0) continue;
-          // After-tax net proceeds: fees + TPCVM cap-gains tax on the gain (0 for PEA),
-          // using the SAME engine as everywhere else so the recycled budget is accurate.
-          const net = computeRow(
-            {
-              action: "SELL",
-              ticker: p.ticker,
-              qty: qty,
-              price: p.price,
-              pea: p.isPea,
-            },
-            p.avg,
-          ).net;
-          // Skip dust trims whose net proceeds don't clear fees/tax.
-          if (net <= 0) {
-            toTrim -= qty * p.price;
-            continue;
-          }
-          const gross = qty * p.price;
-          const _why = (function () {
-            const parts = [
-              "sector " +
-                (w * 100).toFixed(0) +
-                "% > " +
-                (_cap * 100).toFixed(0) +
-                "% cap",
-            ];
-            if (disc != null && disc < 0)
-              parts.push(
-                (Math.abs(disc) * 100).toFixed(0) + "% above fair value",
-              );
-            else if (disc != null && disc < 0.05) parts.push("near fair value");
-            return "Trimmed: " + parts.join(" \u00B7 ");
-          })();
-          trims.push({
-            ticker: p.ticker,
-            name: p.name,
-            cat: c,
-            px: p.price,
-            qty,
-            net,
-            gross,
-            disc,
-            fv: fv != null ? fv : null,
-            account: p.account,
-            opcvm: _fund,
-            why: _why,
-          });
-          // recycle: proceeds boost the buy budget; portfolio shrinks by the trimmed value
-          remaining += net;
-          investedBase = Math.max(0, investedBase - gross);
-          runSec[c] = Math.max(0, (runSec[c] || 0) - gross);
-          const _cy = (M[p.ticker] && M[p.ticker].cycle) || "OPCVM / Funds",
-            _st = (M[p.ticker] && M[p.ticker].style) || "OPCVM / Funds";
-          if (!_fund) {
-            runCyc[_cy] = Math.max(0, (runCyc[_cy] || 0) - gross);
-            runSty[_st] = Math.max(0, (runSty[_st] || 0) - gross);
-          }
-          toTrim -= gross;
-        }
-      }
-    });
-  }
+  // ---- build model candidates ----
+  // base = factor score (0..1); disc = discount to fair value; conviction from
+  // the signal engine; vol from history; sellRated flags a full-exit target.
+  const modelCands = cands.map((r) => {
+    const fv = fairValue(r.m);
+    const cat = r.m.cat || "Uncategorized";
+    const isFund = cat === "OPCVM";
+    const _fs = isFund ? null : factorScores(r.m);
+    const base =
+      _fs && typeof _fs.score === "number" ? _fs.score : isFund ? 0.5 : 0; // funds have no factor score; give a neutral base so they can be sized by under-weight when included
+    const disc = fv != null && fv > 0 ? (fv - r.price) / fv : 0;
+    return {
+      ticker: r.ticker,
+      cat,
+      base,
+      disc,
+      conviction: r.conviction || (_fs && _fs.conviction) || "Medium",
+      vol: volOf(r.ticker),
+      sellRated: !!(r.sig && (r.sig.c === "b-sell" || r.sig.c === "b-trim")),
+      // carried through for display / trade shaping
+      _fv: fv,
+      _price: r.price,
+      _name: r.m.name || r.ticker,
+      _isFund: isFund,
+      _sig: r.sig,
+      _cyc: r.m.cycle || "OPCVM / Funds",
+      _sty: r.m.style || "OPCVM / Funds",
+    };
+  });
 
-  // (Candidate selection is done inline in the greedy while-loop below, which also
-  //  enforces the single-name concentration cap. No separate pickNext() needed.)
+  // ---- target weights (capped water-filling) ----
+  const caps = {
+    nameCap: Math.min(0.25, Math.max(0.1, capPct)),
+    sectorCap: capPct,
+    opcvmCap: capOpcvm,
+    opcvmCats: ["OPCVM"],
+  };
+  const targets = PM
+    ? PM.targetWeights(modelCands, caps, {
+        valueTilt: vTilt,
+        riskAdjust,
+        reservePct,
+      })
+    : { weights: {}, attract: {}, volRef: 0.25 };
 
-  // \u2500\u2500 CONVICTION \u00D7 RANGE-WIDTH POSITION SIZING \u2500\u2500
-  // NOTE: This is a heuristic, NOT true Kelly (which needs win/loss probabilities and edge)
-  // and NOT return volatility (which needs a price time-series we don't store).
-  // Risk proxy per candidate = (52w high - low) / price \u2014 the trading-range WIDTH.
-  // Wider range = treated as riskier, so it gets down-sized. Narrower = steadier.
-  // Conviction base: High\u21923 shares/step, Medium\u21922, Low\u21921.
-  const _volArr = cands
-    .filter((r) => num(r.m.low) && num(r.m.high) && r._px > 0)
-    .map((r) => (r.m.high - r.m.low) / r._px);
-  const _medVol =
-    _volArr.length > 2
-      ? _volArr.sort((a, b) => a - b)[Math.floor(_volArr.length / 2)]
-      : 0.3;
-  function _lotSize(r) {
-    // Conviction base (see note above \u2014 heuristic, not literal Kelly)
-    const sc = r.sig ? factorScores(r.m) : null;
-    const conv = sc ? sc.convScore : 0.5;
-    const kellyBase = conv >= 0.8 ? 3 : conv >= 0.55 ? 2 : 1;
-    // Range-width scale: dampen wide-range (riskier) stocks
-    const vol =
-      num(r.m.low) && num(r.m.high) && r._px > 0
-        ? (r.m.high - r.m.low) / r._px
-        : _medVol;
-    const volRatio = _medVol > 0 ? vol / _medVol : 1;
-    const volScale = 1 / Math.max(1, volRatio); // <=1 for above-median vol; 1 for below
-    const lot = Math.max(1, Math.round(kellyBase * volScale));
-    // For OPCVM funds, keep lot=1 (fractional units handled differently)
-    return r._cat === "OPCVM" ? 1 : lot;
-  }
-
-  let guard = 0;
-  while (remaining > 0 && plan.length <= maxBuys * 3 && guard++ < 500) {
-    // stop opening NEW names once we hit maxBuys distinct tickers (still allow topping up existing picks)
-    const distinct = new Set(plan.map((x) => x.ticker));
-    let cand = null,
-      candScore = -1e9;
-    for (const r of cands) {
-      if (r._dust) continue; // fee overhead too large \u2014 permanently skip
-      const px = r._px,
-        costOne = estBuyCost(px, 1);
-      if (costOne > remaining) continue;
-      const curSec = runSec[r._cat] || 0,
-        secW = projTotal() > 0 ? curSec / projTotal() : 0;
-      const _cap = capFor(r._cat);
-      // SOFT sector cap: the hard ceiling expands from _cap (at vTilt=0, i.e.
-      // today's hard skip) up to _cap*1.5 (at vTilt=1), so a strongly
-      // undervalued name can still be bought slightly past a full sector.
-      // Beyond the ceiling we still skip - diversification remains a real limit.
-      const _ceil = _cap * (1 + 0.5 * vTilt);
-      if (secW >= _ceil) continue;
-      // Single-name concentration guard (skip funds \u2014 the OPCVM sector cap governs them)
-      if (r._cat !== "OPCVM") {
-        const tkW = projTotal() > 0 ? (runTk[r.ticker] || 0) / projTotal() : 0;
-        if (tkW >= nameCap) continue;
-      }
-      if (!distinct.has(r.ticker) && distinct.size >= maxBuys) continue; // no new names beyond cap
-      const sectorNeed = 1 - secW / _cap,
-        // Two-sided value: reward discount-to-fair; penalise buying above fair
-        // value. The overvalued penalty only bites as vTilt rises, so at vTilt=0
-        // this equals the original max(0, disc).
-        valueTilt = r._disc >= 0 ? r._disc : r._disc * vTilt;
-      // Overweight penalty: only > 0 once secW exceeds _cap, which is only
-      // reachable when vTilt>0 (the ceiling was _cap at vTilt=0). So this term
-      // is dormant in diversification mode.
-      const overPen = Math.max(0, (secW - _cap) / _cap);
-      const cycleNeed = needBelow(runCyc, r._cyc, cycTarget),
-        styleNeed = needBelow(runSty, r._sty, styTarget);
-      // Weights interpolate with the slider: at vTilt=0 they are exactly the
-      // original (sectorNeed 1.0, value 0.6, no factor-lean, no overweight
-      // penalty). At vTilt=1 valuation/quality lead and diversification eases.
-      // Greedy pick score: canonical impl in src/core/signal-math.js (tested),
-      // reached via __core. Inline fallback mirrors it for eval-order safety.
-      const _rbCtx = {
-        secW,
-        cap: _cap,
-        disc: r._disc,
-        cycleNeed,
-        styleNeed,
-        isBuy: !!(r.sig && r.sig.c === "b-buy"),
-        fscore: r._fscore,
+  // ---- positions snapshot for the trade planner (merge PEA/Regular per ticker) ----
+  const byTicker = {};
+  held.forEach((p) => {
+    const tk = p.ticker;
+    const m = M[tk] || {};
+    if (!byTicker[tk])
+      byTicker[tk] = {
+        ticker: tk,
+        cat: m.cat || "Uncategorized",
+        held: 0,
+        value: 0,
+        costSum: 0,
+        price: p.price,
+        isFund: m.cat === "OPCVM",
+        name: m.name || tk,
       };
-      const score =
-        typeof __core !== "undefined" && __core.signalMath
-          ? __core.signalMath.rbScore(_rbCtx, vTilt)
-          : (function () {
-              const wSector = 1.0 - 0.5 * vTilt;
-              const wValue = 0.6 + 0.6 * vTilt;
-              const wFactor = 0.5 * vTilt;
-              return (
-                sectorNeed * wSector +
-                valueTilt * wValue +
-                cycleNeed * 0.35 +
-                styleNeed * 0.35 +
-                (_rbCtx.isBuy ? 0.15 : 0) +
-                (r._fscore || 0) * wFactor -
-                overPen * 1.2 * vTilt
-              );
-            })();
-      if (score > candScore) {
-        candScore = score;
-        cand = r;
-      }
-    }
-    if (!cand) break;
-    // Build the "why" explanation for the CHOSEN candidate from its live score components.
-    (function () {
-      const r = cand,
-        curSec = runSec[r._cat] || 0,
-        secW = projTotal() > 0 ? curSec / projTotal() : 0,
-        _cap = capFor(r._cat);
-      const sectorNeed = Math.max(0, 1 - secW / _cap),
-        valueTilt = Math.max(0, r._disc || 0);
-      const cycleNeed = needBelow(runCyc, r._cyc, cycTarget),
-        styleNeed = needBelow(runSty, r._sty, styTarget);
-      const parts = [];
-      if (sectorNeed > 0.05)
-        parts.push(
-          r._cat +
-            " underweight (" +
-            (secW * 100).toFixed(0) +
-            "% vs " +
-            (_cap * 100).toFixed(0) +
-            "% cap)",
-        );
-      if (valueTilt > 0.02)
-        parts.push((valueTilt * 100).toFixed(0) + "% below fair value");
-      // Value-led: flag when the pick sits PAST its sector cap (only reachable
-      // because the slider expanded the ceiling) - i.e. value overrode the cap.
-      if (secW > _cap + 1e-9 && vTilt > 0)
-        parts.push(
-          "value-led over cap (" +
-            (secW * 100).toFixed(0) +
-            "% vs " +
-            (_cap * 100).toFixed(0) +
-            "%)",
-        );
-      if (cycleNeed > 0.05) parts.push("adds " + r._cyc + " exposure");
-      if (styleNeed > 0.05 && r._sty !== r._cyc) parts.push(r._sty + " style");
-      if (r.sig && r.sig.c === "b-buy") parts.push("rated Buy");
-      // Factor-score lean (only contributes when the slider is toward Value).
-      if (vTilt > 0 && (r._fscore || 0) >= 0.65)
-        parts.push(
-          "strong factor score " + ((r._fscore || 0) * 100).toFixed(0) + "%",
-        );
-      cand._why = parts.length
-        ? "Picked: " + parts.slice(0, 4).join(" \u00B7 ")
-        : "Picked: fills remaining budget within caps";
-    })();
-    // Dynamic lot per greedy step: conviction \u00D7 range-width-scaled.
-    const _candFund = cand._cat === "OPCVM";
-    const _lot = _lotSize(cand);
-    const px = cand._px,
-      cost = estBuyCost(px, _lot);
-    if (cost > remaining) {
-      // Can't afford the full lot \u2014 try 1 share as fallback
-      const cost1 = estBuyCost(px, 1);
-      if (cost1 > remaining) break;
-      // Fall back to single share
-      const _feeOverhead1 = cost1 - px;
-      if (px > 0 && _feeOverhead1 / px > 0.05) {
-        cand._dust = true;
-        continue;
-      }
-      remaining -= cost1;
-      investedBase += px;
-      runSec[cand._cat] = (runSec[cand._cat] || 0) + px;
-      runTk[cand.ticker] = (runTk[cand.ticker] || 0) + px;
-      runCyc[cand._cyc] = (runCyc[cand._cyc] || 0) + px;
-      runSty[cand._sty] = (runSty[cand._sty] || 0) + px;
-      const ex = plan.find((x) => x.ticker === cand.ticker);
-      if (ex) {
-        ex.qty += 1;
-        ex.gross += px;
-        ex.cost += cost1;
-      } else
-        plan.push({
-          ticker: cand.ticker,
-          name: cand.m.name || cand.ticker,
-          cat: cand._cat,
-          cyc: cand._cyc,
-          sty: cand._sty,
-          px,
-          qty: 1,
-          gross: px,
-          cost: cost1,
-          disc: cand._disc,
-          fv: cand._fv,
-          tbuy: cand._tbuyRef,
-          sig: cand.sig,
-          held: (heldQtyByTk[cand.ticker] || 0) > 0,
-          opcvm: _candFund,
-          why: cand._why,
-        });
-    } else {
-      // Full lot affordable
-      const lotGross = px * _lot;
-      const _feeOverhead = cost - lotGross;
-      if (lotGross > 0 && _feeOverhead / lotGross > 0.05) {
-        cand._dust = true;
-        continue;
-      }
-      remaining -= cost;
-      investedBase += lotGross;
-      runSec[cand._cat] = (runSec[cand._cat] || 0) + lotGross;
-      runTk[cand.ticker] = (runTk[cand.ticker] || 0) + lotGross;
-      runCyc[cand._cyc] = (runCyc[cand._cyc] || 0) + lotGross;
-      runSty[cand._sty] = (runSty[cand._sty] || 0) + lotGross;
-      const ex = plan.find((x) => x.ticker === cand.ticker);
-      if (ex) {
-        ex.qty += _lot;
-        ex.gross += lotGross;
-        ex.cost += cost;
-      } else
-        plan.push({
-          ticker: cand.ticker,
-          name: cand.m.name || cand.ticker,
-          cat: cand._cat,
-          cyc: cand._cyc,
-          sty: cand._sty,
-          px,
-          qty: _lot,
-          gross: lotGross,
-          cost,
-          disc: cand._disc,
-          fv: cand._fv,
-          tbuy: cand._tbuyRef,
-          sig: cand.sig,
-          held: (heldQtyByTk[cand.ticker] || 0) > 0,
-          opcvm: _candFund,
-          why: cand._why,
-        });
-    }
-  }
+    const b = byTicker[tk];
+    b.held += p.held;
+    b.value += p.value;
+    b.costSum += (p.avg != null ? p.avg : p.price) * p.held;
+  });
+  const mcByTk = {};
+  modelCands.forEach((c) => (mcByTk[c.ticker] = c));
+  const positions = Object.values(byTicker).map((b) => {
+    const mc = mcByTk[b.ticker];
+    const sc = computeSignalsRows ? null : null; // signal lookup via mc._sig below
+    const avg = b.held > 0 ? b.costSum / b.held : null;
+    const fs = b.isFund ? null : factorScores(M[b.ticker] || {});
+    const sig = mc ? mc._sig : null;
+    return {
+      ticker: b.ticker,
+      cat: b.cat,
+      held: b.held,
+      price: b.price,
+      value: b.value,
+      avg,
+      isFund: b.isFund,
+      fv: mc ? mc._fv : fairValue(M[b.ticker] || {}),
+      sellRated: !!(sig && (sig.c === "b-sell" || sig.c === "b-trim")),
+      buyOrHold: !!(
+        sig &&
+        (sig.c === "b-buy" || sig.c === "b-hold" || sig.c === "b-wait")
+      ),
+      quality: fs && typeof fs.quality === "number" ? fs.quality : null,
+      name: b.name,
+    };
+  });
 
+  // ---- plan the trades ----
+  const helpers = {
+    buyCost: (tk, q, p) => estBuyCost(p, q),
+    sellNet: (tk, q, p) => estSellNet(p, q),
+    lotRound: (tk, q) => lotRound(q, isOpcvmTk(tk)),
+  };
+  const planResult = PM
+    ? PM.planTrades(targets, positions, cash, helpers, {
+        minAttract,
+        trimWinners: wantTrimWinners,
+        trimTolerance: trimTol,
+        dcaBoost: 0.5,
+        recycleTrims,
+        maxBuys,
+      })
+    : {
+        buys: [],
+        sells: [],
+        holdCash: cash,
+        sleeve: totalNow + cash,
+        rows: [],
+        notes: [],
+      };
+
+  // ---- shape buys/trims for the renderer (and the rbDraft* actions) ----
+  const posByTk2 = {};
+  positions.forEach((p) => (posByTk2[p.ticker] = p));
+  const plan = planResult.buys.map((b) => {
+    const mc = mcByTk[b.ticker];
+    const p = posByTk2[b.ticker];
+    return {
+      ticker: b.ticker,
+      name: mc ? mc._name : b.ticker,
+      cat: mc ? mc.cat : "Uncategorized",
+      cyc: mc ? mc._cyc : "OPCVM / Funds",
+      sty: mc ? mc._sty : "OPCVM / Funds",
+      px: b.price,
+      qty: b.qty,
+      gross: b.qty * b.price,
+      cost: b.cost,
+      disc: mc ? mc.disc : 0,
+      fv: mc ? mc._fv : null,
+      attract: b.attract,
+      vol: mc ? mc.vol : null,
+      targetWt: targets.weights[b.ticker] || 0,
+      curWt: p && planResult.sleeve > 0 ? p.value / planResult.sleeve : 0,
+      sig: mc ? mc._sig : null,
+      held: !!(p && p.held > 0),
+      opcvm: mc ? mc._isFund : false,
+      dca: !!b.dca,
+      why: _rbBuyWhy(b, mc, p, targets, planResult.sleeve),
+    };
+  });
+  const trims = planResult.sells.map((s) => {
+    const mc = mcByTk[s.ticker];
+    const p = posByTk2[s.ticker];
+    return {
+      ticker: s.ticker,
+      name: (p && p.name) || (mc && mc._name) || s.ticker,
+      cat: (p && p.cat) || (mc && mc.cat) || "Uncategorized",
+      px: s.price,
+      qty: s.qty,
+      net: s.net,
+      gross: s.qty * s.price,
+      disc: mc ? mc.disc : 0,
+      fv: mc ? mc._fv : null,
+      reason: s.reason,
+      account: "",
+      opcvm: !!(p && p.isFund),
+      targetWt: targets.weights[s.ticker] || 0,
+      curWt: s.curWt,
+      why: "Trim: " + s.reason,
+    };
+  });
+
+  const spent = plan.reduce((a, x) => a + x.cost, 0);
   const trimProceeds = trims.reduce((a, t) => a + (t.net || 0), 0);
-  const buyBudget = cash + trimProceeds; // total cash available to deploy (new cash + recycled trims)
   return {
     cash,
     capPct,
@@ -569,10 +403,43 @@ function computeRebalance() {
     plan,
     trims,
     trimProceeds,
-    buyBudget,
-    spent: buyBudget - remaining,
-    remaining,
+    buyBudget: cash + (recycleTrims ? trimProceeds : 0),
+    spent,
+    remaining: planResult.holdCash,
+    holdCash: planResult.holdCash,
+    rows: planResult.rows,
+    notes: planResult.notes,
+    targets,
+    sleeve: planResult.sleeve,
+    valueTilt: vTilt,
+    riskAdjust,
+    reservePct,
+    pendingAccounted: _rbPending,
+    pendingCount: _rbPending ? (PENDING || []).length : 0,
   };
+}
+
+// Build the per-buy "why" string from the model result.
+function _rbBuyWhy(b, mc, p, targets, sleeve) {
+  const parts = [];
+  const tgtWt = targets.weights[b.ticker] || 0;
+  const curWt = p && sleeve > 0 ? p.value / sleeve : 0;
+  if (tgtWt > 0)
+    parts.push(
+      "target " +
+        (tgtWt * 100).toFixed(0) +
+        "% vs " +
+        (curWt * 100).toFixed(0) +
+        "% now",
+    );
+  if (mc && mc.disc > 0.02)
+    parts.push((mc.disc * 100).toFixed(0) + "% below fair value");
+  if (b.dca) parts.push("averaging down (below your cost, still sound)");
+  if (mc && mc.conviction === "High") parts.push("high conviction");
+  if (mc && mc._sig && mc._sig.c === "b-buy") parts.push("rated Buy");
+  return parts.length
+    ? "Buy: " + parts.slice(0, 4).join(" \u00B7 ")
+    : "Buy: moves toward model target";
 }
 
 const RB_LS = "casa_rebalance_v1";
@@ -589,6 +456,11 @@ function saveRbSettings() {
       opcvm: !!(g("rbOpcvm") || {}).checked,
       pending: !!(g("rbPending") || {}).checked,
       valueTilt: (g("rbValueTilt") || {}).value,
+      riskAdj: g("rbRiskAdj") ? !!g("rbRiskAdj").checked : true,
+      reserve: (g("rbReserve") || {}).value,
+      minAttract: (g("rbMinAttract") || {}).value,
+      trimWinners: !!(g("rbTrimWinners") || {}).checked,
+      trimTol: (g("rbTrimTol") || {}).value,
     };
     safeSetItem(RB_LS, JSON.stringify(s));
   } catch (e) {}
@@ -615,6 +487,14 @@ function loadRbSettings() {
       const _lbl = g("rbValueTiltVal");
       if (_lbl) _lbl.textContent = _rbTiltLabel(s.valueTilt);
     }
+    if (s.riskAdj != null && g("rbRiskAdj"))
+      g("rbRiskAdj").checked = !!s.riskAdj;
+    if (s.reserve != null && g("rbReserve")) g("rbReserve").value = s.reserve;
+    if (s.minAttract != null && g("rbMinAttract"))
+      g("rbMinAttract").value = s.minAttract;
+    if (s.trimWinners != null && g("rbTrimWinners"))
+      g("rbTrimWinners").checked = !!s.trimWinners;
+    if (s.trimTol != null && g("rbTrimTol")) g("rbTrimTol").value = s.trimTol;
   } catch (e) {}
 }
 // Human label for the value-vs-diversification slider position. Shows the exact
@@ -641,218 +521,232 @@ function renderRebalance() {
     if (hint) hint.textContent = "Add some holdings or cash to compute a plan.";
     return;
   }
-
-  // projected sector weights after plan (trims reduce, buys add)
-  const proj = Object.assign({}, R.secVal);
-  R.trims.forEach((t) => {
-    proj[t.cat] = Math.max(
-      0,
-      (proj[t.cat] || 0) - (t.gross || t.qty * t.px || 0),
-    );
-  });
-  R.plan.forEach((x) => {
-    proj[x.cat] = (proj[x.cat] || 0) + x.gross;
-  });
-  const trimGross = R.trims.reduce(
-    (a, t) => a + (t.gross || t.qty * t.px || 0),
-    0,
-  );
-  const buyGross = R.plan.reduce((a, x) => a + x.gross, 0);
-  const projTot = Math.max(0, R.totalNow - trimGross) + buyGross;
-  const secRows = Object.keys(proj)
-    .map((c) => ({
-      c,
-      before: R.totalNow > 0 ? (R.secVal[c] || 0) / R.totalNow : 0,
-      after: projTot > 0 ? proj[c] / projTot : 0,
-    }))
-    .sort((a, b) => b.after - a.after);
-
-  const _secBefore = {},
-    _secAfter = {};
-  Object.keys(proj).forEach((c) => {
-    _secBefore[c] = R.totalNow > 0 ? (R.secVal[c] || 0) / R.totalNow : 0;
-    _secAfter[c] = projTot > 0 ? proj[c] / projTot : 0;
-  });
-  const _ctx = (c) => ({
-    capPct: R.capPct,
-    secWBefore: _secBefore[c],
-    secWAfter: _secAfter[c],
-  });
-  const buyRows = R.plan
-    .sort((a, b) => b.cost - a.cost)
-    .map(
-      (
-        x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbBuyTipHTML(x, _ctx(x.cat)))}">
-    <td class="l"><div><b>${x.ticker}</b> ${x.held ? '<span class="tag-in" style="font-size:9px">held</span>' : '<span class="badge b-buy" style="font-size:9px">new</span>'}${aboveTgtBadge(x.px, x.tbuy)} <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
-    <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)}${x.opcvm ? '<span class="mini" style="color:var(--text2)"> u</span>' : ""}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.cost, 0)}</td>
-    <td style="text-align:right;font-family:var(--mono)" class="${x.disc > 0 ? "pos" : "neg"}">${(x.disc * 100).toFixed(0)}%</td>
-    ${(function () {
-      const _m = M[x.ticker];
-      const _dy = _m && _m.divy != null ? _m.divy : null;
-      return (
-        '<td style="text-align:right;font-family:var(--mono)" class="' +
-        (_dy > 0 ? "pos" : "") +
-        '">' +
-        (_dy != null
-          ? pct(_dy)
-          : "<span style='color:var(--muted)'>\u2014</span>") +
-        "</td>"
-      );
-    })()}
-    <td style="text-align:right"><button class="btn sec2" style="font-size:10px;padding:3px 8px" data-act="rbDraftOne" data-args="${x.ticker},${x.px},${x.qty}">Draft</button></td>
-  </tr>`,
-    )
-    .join("");
-
-  const trimRows = R.trims
-    .map(
-      (
-        x,
-      ) => `<tr class="nis-cell" style="cursor:help" data-tip="${tipRef(rbTrimTipHTML(x, { capPct: R.capPct, secWBefore: R.totalNow > 0 ? (R.secVal[x.cat] || 0) / R.totalNow : 0 }))}">
-    <td class="l"><div><b>${x.ticker}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(x.name)}</span></div>${x.why ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' + escapeHtml(x.why) + "</div>" : ""}</td>
-    <td class="l mini" style="color:var(--text2)">${escapeHtml(x.cat)} \u00B7 ${x.account}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.px)}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)}${x.opcvm ? '<span class="mini" style="color:var(--text2)"> u</span>' : ""}</td>
-    <td style="text-align:right;font-family:var(--mono)">${money(x.net, 0)}</td>
-    <td style="text-align:right;font-family:var(--mono)" class="${x.disc < 0 ? "neg" : "pos"}">${(x.disc * 100).toFixed(0)}%</td>
-    ${(function () {
-      const _m = M[x.ticker];
-      const _dy = _m && _m.divy != null ? _m.divy : null;
-      return (
-        '<td style="text-align:right;font-family:var(--mono)" class="' +
-        (_dy > 0 ? "pos" : "") +
-        '">' +
-        (_dy != null
-          ? pct(_dy)
-          : "<span style='color:var(--muted)'>\u2014</span>") +
-        "</td>"
-      );
-    })()}
-  </tr>`,
-    )
-    .join("");
-
   if (hint) hint.textContent = "";
-  wrap.innerHTML = `
-  <div class="sec">
-    <h3 style="margin:0 0 6px" data-tip="Casablanca stocks are bought in whole shares only, so each suggested buy is a whole number of shares. OPCVM funds (not suggested here) allow fractions.">\uD83D\uDCCB Suggested buys <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 ${R.plan.length} name${R.plan.length === 1 ? "" : "s"} \u00B7 ${money(R.spent, 0)} MAD deployed \u00B7 ${money(R.remaining, 0)} MAD left (fees incl.)${R.trimProceeds > 0 ? ' \u00B7 <span class="pos">' + money(R.trimProceeds, 0) + " MAD recycled from trims</span>" : ""}</span>${R.pendingAccounted ? '<span class="badge b-wait" style="font-size:10px;margin-left:8px" title="Sector weights and suggestions include your ' + R.pendingCount + ' pending order(s)">\u23F3 +pending</span>' : ""}</h3>
-    ${
-      R.plan.length
-        ? `<div class="tbl-wrap"><table><thead><tr>
-      <th scope="col" class="l">Name</th><th scope="col" class="l">Sector</th><th scope="col" style="text-align:right">Price</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Cost (net fees)</th><th scope="col" style="text-align:right" data-tip="Discount to Fair Value. Positive = trading below intrinsic (cheap). Negative = trading above (premium).">Disc. to FV</th><th scope="col" style="text-align:right" data-tip="Dividend yield (same as Signals tab)">Div Y</th><th scope="col"></th>
-    </tr></thead><tbody>${buyRows}</tbody></table></div>
-    <div style="margin-top:10px;text-align:right"><button class="btn" data-act="rbDraftAll">\u2795 Draft all these buys to Pending</button></div>`
-        : '<div class="mini" style="color:var(--text2)">No buys fit the constraints \u2014 try raising the sector cap, disabling "Buy-signal only", or adding more cash.</div>'
-    }
-  </div>
-  ${
-    R.wantTrims
-      ? `<div class="sec">
-    <h3 style="margin:0 0 6px">\u2702\uFE0F Suggested trims <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 overweight sectors (> ${(R.capPct * 100).toFixed(0)}%), most overvalued first \u00B7 net of fees</span></h3>
-    ${
-      R.trims.length
-        ? `<div class="tbl-wrap"><table><thead><tr>
-      <th scope="col" class="l">Name</th><th scope="col" class="l">Sector \u00B7 account</th><th scope="col" style="text-align:right">Price</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Net proceeds</th><th scope="col" style="text-align:right">Disc. to FV</th><th scope="col" style="text-align:right" data-tip="Dividend yield (same as Signals tab)">Div Y</th>
-    </tr></thead><tbody>${trimRows}</tbody></table></div>`
-        : '<div class="mini pos">No sector exceeds the cap \u2014 nothing to trim. \uD83C\uDF89</div>'
-    }
-  </div>`
-      : ""
-  }
-  <div class="sec">
-    <h3 style="margin:0 0 8px">\uD83C\uDFAF Sector weights \u2014 before \u2192 after</h3>
-    <div style="display:flex;flex-direction:column;gap:6px">
-      ${secRows
-        .map((s) => {
-          const rowCap = s.c === "OPCVM" ? R.capOpcvm || R.capPct : R.capPct;
-          const overAfter = s.after > rowCap;
-          return `<div>
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px">
-            <span>${s.c}${overAfter ? ' <span class="neg">\u26A0</span>' : ""}</span>
-            <span class="mini" style="color:var(--text2);font-family:var(--mono)">${(s.before * 100).toFixed(0)}% \u2192 <b style="color:var(--text)">${(s.after * 100).toFixed(0)}%</b></span>
-          </div>
-          <div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative">
-            <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, s.before * 100)}%;background:var(--muted);opacity:.4"></div>
-            <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, s.after * 100)}%;background:${overAfter ? "var(--error)" : "var(--accent,#4c8bf5)"};opacity:.85"></div>
-            <div style="position:absolute;top:0;bottom:0;left:${Math.min(100, rowCap * 100)}%;width:2px;background:var(--warn)"></div>
-          </div>
-        </div>`;
-        })
-        .join("")}
-    </div>
-    <div class="mini" style="color:var(--text2);margin-top:8px">Faded bar = current weight \u00B7 solid bar = after plan \u00B7 yellow line = your sector cap (${(R.capPct * 100).toFixed(0)}% stocks \u00B7 ${((R.capOpcvm || R.capPct) * 100).toFixed(0)}% OPCVM). Red = still over that sector\u2019s cap after buys (consider trims or a lower target elsewhere). No single stock is taken above ${(Math.min(0.25, Math.max(0.1, R.capPct)) * 100).toFixed(0)}% of the projected portfolio (single-name concentration cap).</div>
-  </div>`;
-  // ---- Economic-cycle & asset-style diversification (soft nudge shown for transparency) ----
-  (function () {
-    const projTot = R.totalNow + R.spent;
-    const mk = (baseVal, planKey, title, note) => {
-      const after = Object.assign({}, baseVal);
-      R.plan.forEach((x) => {
-        const k = x[planKey] || "OPCVM / Funds";
-        after[k] = (after[k] || 0) + x.gross;
-      });
-      const keys = Object.keys(after).sort(
-        (a, b) => (after[b] || 0) - (after[a] || 0),
-      );
-      if (!keys.length) return "";
-      const rows = keys
-        .map((k) => {
-          const b = R.totalNow > 0 ? (baseVal[k] || 0) / R.totalNow : 0;
-          const a = projTot > 0 ? (after[k] || 0) / projTot : 0;
-          return (
-            '<div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>' +
-            k +
-            "</span>" +
-            '<span class="mini" style="color:var(--text2);font-family:var(--mono)">' +
-            (b * 100).toFixed(0) +
-            '% \u2192 <b style="color:var(--text)">' +
-            (a * 100).toFixed(0) +
-            "%</b></span></div>" +
-            '<div style="height:8px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative">' +
-            '<div style="position:absolute;left:0;top:0;bottom:0;width:' +
-            Math.min(100, b * 100) +
-            '%;background:var(--muted);opacity:.4"></div>' +
-            '<div style="position:absolute;left:0;top:0;bottom:0;width:' +
-            Math.min(100, a * 100) +
-            '%;background:var(--accent,#4c8bf5);opacity:.85"></div></div></div>'
-          );
-        })
-        .join("");
+
+  const pct0 = (x) => (x * 100).toFixed(0) + "%";
+  const pct1 = (x) => (x * 100).toFixed(1) + "%";
+  const sleeve = R.sleeve || R.totalNow + R.cash;
+
+  // ---- Trade list (buys + sells), the actionable output ----
+  const buyRows = (R.plan || [])
+    .slice()
+    .sort((a, b) => b.cost - a.cost)
+    .map((x) => {
+      const tip =
+        tipHead("Buy \u00B7 " + escapeHtml(x.ticker)) +
+        tipRow("Target weight", pct1(x.targetWt)) +
+        tipRow("Current weight", pct1(x.curWt || 0)) +
+        tipRow("Price", money(x.px)) +
+        tipRow("Qty (whole lots)", money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)) +
+        tipRow("Cost (net fees)", money(x.cost, 0) + " MAD") +
+        (x.fv != null ? tipRow("Fair value", money(x.fv)) : "") +
+        (x.disc != null ? tipRow("Disc. to FV", pct0(x.disc)) : "") +
+        (x.vol != null ? tipRow("Volatility (ann.)", pct0(x.vol)) : "") +
+        tipRow("Attractiveness", (x.attract || 0).toFixed(2)) +
+        tipNote(escapeHtml(x.why || ""));
       return (
-        '<div class="sec"><h3 style="margin:0 0 8px">' +
-        title +
-        '</h3><div style="display:flex;flex-direction:column;gap:6px">' +
-        rows +
-        "</div>" +
-        '<div class="mini" style="color:var(--text2);margin-top:8px">' +
-        note +
-        "</div></div>"
+        '<tr class="nis-cell" style="cursor:help" data-tip="' +
+        tipRef(tip) +
+        '"><td class="l"><b>' +
+        escapeHtml(x.ticker) +
+        "</b> " +
+        (x.held
+          ? '<span class="tag-in" style="font-size:9px">held</span>'
+          : '<span class="badge b-buy" style="font-size:9px">new</span>') +
+        (x.dca
+          ? ' <span class="badge b-buy" style="font-size:9px" title="Averaging down into a sound holding below your cost">DCA</span>'
+          : "") +
+        ' <span class="mini" style="color:var(--text2)">' +
+        escapeHtml(x.name) +
+        "</span>" +
+        (x.why
+          ? '<div class="mini" style="color:var(--muted);margin-top:2px;white-space:normal;max-width:340px">' +
+            escapeHtml(x.why) +
+            "</div>"
+          : "") +
+        '</td><td class="l mini" style="color:var(--text2)">' +
+        escapeHtml(x.cat) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.px) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.cost, 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        pct0(x.curWt || 0) +
+        " \u2192 " +
+        pct0(x.targetWt || 0) +
+        '</td><td style="text-align:right"><button class="btn sec2" style="font-size:10px;padding:3px 8px" data-act="rbDraftOne" data-args="' +
+        x.ticker +
+        "," +
+        x.px +
+        "," +
+        x.qty +
+        '">Draft</button></td></tr>'
       );
-    };
-    wrap.innerHTML += mk(
-      R.cycVal,
-      "cyc",
-      "\u267b\ufe0f Economic-cycle mix \u2014 before \u2192 after",
-      "Spreads new buys across Cyclical / Sensitives / Defensive so the portfolio isn\u2019t over-exposed to one phase of the cycle.",
-    );
-    wrap.innerHTML += mk(
-      R.styVal,
-      "sty",
-      "\ud83c\udff7\ufe0f Asset-style mix \u2014 before \u2192 after",
-      "Balances Yield King / Growth / Compounder / Recovery / Value / Defensive for a mix of income, growth and quality.",
-    );
-  })();
+    })
+    .join("");
+
+  const sellRows = (R.trims || [])
+    .map((x) => {
+      const tip =
+        tipHead("Sell / trim \u00B7 " + escapeHtml(x.ticker)) +
+        tipRow("Reason", escapeHtml(x.reason || "")) +
+        tipRow("Current weight", pct1(x.curWt || 0)) +
+        tipRow("Target weight", pct1(x.targetWt || 0)) +
+        tipRow("Price", money(x.px)) +
+        tipRow("Qty", money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0)) +
+        tipRow("Net proceeds", money(x.net, 0) + " MAD") +
+        (x.fv != null ? tipRow("Fair value", money(x.fv)) : "");
+      return (
+        '<tr class="nis-cell" style="cursor:help" data-tip="' +
+        tipRef(tip) +
+        '"><td class="l"><b>' +
+        escapeHtml(x.ticker) +
+        '</b> <span class="mini" style="color:var(--text2)">' +
+        escapeHtml(x.name) +
+        "</span>" +
+        '<div class="mini" style="color:var(--muted);margin-top:2px">' +
+        escapeHtml(x.why || "") +
+        "</div>" +
+        '</td><td class="l mini" style="color:var(--text2)">' +
+        escapeHtml(x.cat) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.px) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.qty, x.opcvm && x.qty % 1 ? 4 : 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        money(x.net, 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        pct0(x.curWt || 0) +
+        " \u2192 " +
+        pct0(x.targetWt || 0) +
+        "</td></tr>"
+      );
+    })
+    .join("");
+
+  // ---- Model vs Actual table (every name with a target or a holding) ----
+  const modelRows = (R.rows || [])
+    .map((r) => {
+      const drift = (r.tgtWt || 0) - (r.curWt || 0);
+      const driftCls = drift > 0.005 ? "pos" : drift < -0.005 ? "neg" : "";
+      const act = r.action || "-";
+      const actCls =
+        act.indexOf("Buy") === 0
+          ? "pos"
+          : act.indexOf("Trim") === 0 || act.indexOf("Exit") === 0
+            ? "neg"
+            : "";
+      return (
+        '<tr><td class="l"><b>' +
+        escapeHtml(r.ticker) +
+        '</b></td><td style="text-align:right;font-family:var(--mono)">' +
+        pct1(r.curWt || 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        pct1(r.tgtWt || 0) +
+        '</td><td style="text-align:right;font-family:var(--mono)" class="' +
+        driftCls +
+        '">' +
+        (drift >= 0 ? "+" : "") +
+        pct1(drift) +
+        '</td><td style="text-align:right;font-family:var(--mono)">' +
+        (r.attract || 0).toFixed(2) +
+        '</td><td style="text-align:right" class="' +
+        actCls +
+        '">' +
+        escapeHtml(act) +
+        "</td></tr>"
+      );
+    })
+    .join("");
+
+  const notesHtml = (R.notes || [])
+    .map(
+      (n) =>
+        '<div class="mini" style="color:var(--text2);margin-top:4px">\u2139\uFE0F ' +
+        escapeHtml(n) +
+        "</div>",
+    )
+    .join("");
+
+  wrap.innerHTML =
+    '<div class="sec">' +
+    '<h3 style="margin:0 0 6px">\uD83D\uDCCB Trades to reach your model' +
+    '<span class="mini" style="font-weight:400;color:var(--text2)"> \u2014 ' +
+    (R.plan || []).length +
+    " buy" +
+    ((R.plan || []).length === 1 ? "" : "s") +
+    " \u00B7 " +
+    (R.trims || []).length +
+    " sell" +
+    ((R.trims || []).length === 1 ? "" : "s") +
+    " \u00B7 " +
+    money(R.spent, 0) +
+    " MAD deployed \u00B7 " +
+    money(R.holdCash, 0) +
+    " MAD held as cash</span>" +
+    (R.pendingAccounted
+      ? '<span class="badge b-wait" style="font-size:10px;margin-left:8px">\u23F3 +pending</span>'
+      : "") +
+    "</h3>" +
+    notesHtml +
+    ((R.plan || []).length
+      ? '<div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th class="l">Buy</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Cost</th><th style="text-align:right">Now \u2192 Target</th><th></th></tr></thead><tbody>' +
+        buyRows +
+        "</tbody></table></div>" +
+        '<div style="margin-top:10px;text-align:right"><button class="btn" data-act="rbDraftAll">\u2795 Draft all buys to Pending</button></div>'
+      : '<div class="mini" style="color:var(--text2);margin-top:6px">No buys \u2014 either nothing clears the attractiveness bar (cash held to wait) or the model is already matched. Adjust the slider, caps, or "Min attractiveness".</div>') +
+    "</div>" +
+    '<div class="sec"><h3 style="margin:0 0 6px">\u2702\uFE0F Suggested sells / trims <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 Sell-rated, above fair value, or over target</span></h3>' +
+    ((R.trims || []).length
+      ? '<div class="tbl-wrap"><table><thead><tr><th class="l">Sell</th><th class="l">Sector</th><th style="text-align:right">Price</th><th style="text-align:right">Qty</th><th style="text-align:right">Net</th><th style="text-align:right">Now \u2192 Target</th></tr></thead><tbody>' +
+        sellRows +
+        "</tbody></table></div>"
+      : '<div class="mini pos">Nothing to sell \u2014 no Sell-rated, overvalued, or over-target holdings. \uD83C\uDF89</div>') +
+    "</div>" +
+    '<div class="sec"><h3 style="margin:0 0 6px">\uD83C\uDFAF Model vs actual <span class="mini" style="font-weight:400;color:var(--text2)">\u2014 target weight the engine wants vs where you are now</span></h3>' +
+    '<div class="tbl-wrap"><table><thead><tr><th class="l">Ticker</th><th style="text-align:right">Now</th><th style="text-align:right">Target</th><th style="text-align:right">Drift</th><th style="text-align:right" data-tip="Quality x value x conviction, risk-adjusted by volatility">Attract.</th><th style="text-align:right">Action</th></tr></thead><tbody>' +
+    modelRows +
+    "</tbody></table></div>" +
+    '<div class="mini" style="color:var(--text2);margin-top:8px">Target weights come from each name\u2019s attractiveness (factor score \u00D7 valuation discount \u00D7 conviction, divided by volatility), capped at ' +
+    pct0(R.capPct) +
+    " per sector / " +
+    pct0(Math.min(0.25, Math.max(0.1, R.capPct))) +
+    " per name, then compared to your actual weights. Caps are hard \u2014 if they make full investment impossible, the remainder stays as cash." +
+    (R.reservePct > 0
+      ? " You also set a " + pct0(R.reservePct) + " cash reserve."
+      : "") +
+    "</div></div>";
+
   // stash for draft-all
   window.__rbPlan = R.plan;
-  // keep the Signals-tab sector-headroom bars in sync with the cap set here
   try {
     if (typeof renderTopSector === "function") renderTopSector();
     if (typeof renderTopHeadroom === "function") renderTopHeadroom();
   } catch (e) {}
+}
+// Small tooltip builders (fall back to shared _tip* if present).
+function tipHead(t) {
+  return typeof _tipHead === "function"
+    ? _tipHead(t)
+    : '<div style="font-weight:700;margin-bottom:6px">' + t + "</div>";
+}
+function tipRow(l, v) {
+  return typeof _tipRow === "function"
+    ? _tipRow(l, v)
+    : '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
+        l +
+        '</span><span style="font-family:var(--mono)">' +
+        v +
+        "</span></div>";
+}
+function tipNote(t) {
+  return t
+    ? '<div class="mini" style="color:var(--text2);margin-top:6px;max-width:300px;white-space:normal">' +
+        t +
+        "</div>"
+    : "";
 }
 
 function rbDraftOne(tk, px, qty) {

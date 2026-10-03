@@ -18,6 +18,7 @@ import * as divcalMerge from "./core/divcal-merge.js";
 import * as dividendForecast from "./core/dividend-forecast.js";
 import * as valueHistory from "./core/value-history.js";
 import * as signalMath from "./core/signal-math.js";
+import * as portfolioModel from "./core/portfolio-model.js";
 import {
   FP_DEFAULT,
   FP_PEA_DEFAULT,
@@ -41,5 +42,6 @@ globalThis.__core = {
   dividendForecast,
   valueHistory,
   signalMath,
+  portfolioModel,
   defaults: { FP_DEFAULT, FP_PEA_DEFAULT, BROKER_DEFAULTS, DIVTAX_DEFAULT },
 };

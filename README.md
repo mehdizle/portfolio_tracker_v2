@@ -51,9 +51,20 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   curve is dense and gap-free regardless of when you last opened the app, and it
   needs no stored snapshots. Transactions stay local; only public prices live in
   the repo.
-- **Value-vs-Diversification rebalance** — a persisted slider tilts the buy plan
-  between sector-diversification and undervaluation; trims + greedy allocation
-  are fee-aware and share the same cost engine as execution.
+- **Target-weight rebalance engine** — a model-portfolio approach
+  (`src/core/portfolio-model.js`, tested): each eligible name gets a target
+  weight from its **attractiveness** (factor score × discount-to-fair-value ×
+  conviction, **risk-adjusted by volatility** computed from the daily price
+  history), clamped by hard sector + single-name caps via capped water-filling.
+  It then compares those targets to your actual holdings and emits the concrete
+  **buys and sells** that close the gap — whole-share, fee/tax-aware, sharing the
+  execution cost engine. Sells are triggered by Sell-rating, trading above fair
+  value, or (optionally) drifting past target; buys close positive drift and can
+  **average down** into a sound holding below your cost. Caps are hard and a
+  **minimum-attractiveness bar** means it will deliberately **hold cash** rather
+  than deploy into something unattractive. A persisted slider still tilts between
+  value and diversification, plus controls for cash reserve, risk-adjust on/off,
+  and trim-winners tolerance.
 - **Per-order broker fees (split-aware)** — Attijari-style courtage has a
   per-order minimum. When one order fills in several executions, each fill is a
   separate transaction sharing an **Order ID**; the fee engine charges the
@@ -141,6 +152,9 @@ src/
     divcal-merge.js        dividend-calendar smart-merge (upsert) logic
     dividend-forecast.js   multi-year, slot-based dividend forecast
     value-history.js       recompute the value-over-time curve (ledger x price history)
+    signal-math.js         signal-engine scoring primitives (soft/num/growth/fcfy)
+    portfolio-model.js     target-weight rebalance engine (vol, attractiveness,
+                           capped weights, trade planner)
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
 scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
@@ -151,7 +165,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   02-compute.js            computeRow/runFIFO bridge to the core
   03-signals.js            valuation & signal engine (scores, fair value, targets)
   04-render.js             dashboard KPIs, positions (group-by-sector, badges), charts, sector pie
-  05-rebalance.js          rebalance engine + stock detail panel
+  05-rebalance.js          rebalance UI (gathers candidates+vol, calls portfolio-model) + stock detail panel
   06-features.js           signals render, dividends + forecast table, transactions
   06b-import.js            TradingView/OPCVM/CSV import, calendar smart-merge, fee panel
   06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, value-over-time chart
@@ -227,7 +241,7 @@ consistency.test.js          cross-path number locks (rebalance == execution, pr
 txn-roundtrip.test.js        transaction CSV export -> import preserves every field
 pending-roundtrip.test.js    pending -> transaction carries every field
 master-import.test.js        TradingView/OPCVM import field coverage
-engine-improvements.test.js  FCF factor, growth blend, value-tilt, signal outcomes
+engine-improvements.test.js  FCF factor, growth blend, signal-outcome aggregation
 plan-apply.test.js           savings-pots recurring-cost recompute (live core)
 connections.test.js          connection-manifest checker + no-hardcoded-CSV-column guard
 sector-icon.test.js          every sector maps to a distinct, non-default icon
@@ -236,6 +250,9 @@ divcal-merge.test.js         calendar upsert: add / update / keep old years / Or
 dividend-forecast.test.js    slots, level+trend, current-year gap-fill, split flag, tax-net income
 value-history.test.js        holdings/cost-basis-as-of-date, value curve, carry-forward,
                              lifetime-return line (== dashboard KPI), benchmark rebasing
+portfolio-model.test.js      rebalance engine: volatility (weekly-fund spacing),
+                             capped target weights, trade planning, DCA, cash-idle
+backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
 ```
 
 ---

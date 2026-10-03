@@ -3,31 +3,21 @@
 // IMPORTANT SCOPE NOTE: the signals + rebalance engines live in the shared-scope
 // bundle (js/03-signals.js, js/05-rebalance.js) as plain top-level functions, NOT
 // importable ES modules, so Vitest cannot import them directly. These tests
-// UPDATE: the core scoring primitives (soft, num, growthScore, fcfyScore,
-// rbScore) are now EXTRACTED into src/core/signal-math.js and imported below, so
-// those specs test the REAL engine code (js/03-signals.js & js/05-rebalance.js
-// both delegate to that module via __core). The remaining stand-ins in this
-// file - the simplified fairValue model and the signal-outcome aggregation /
-// recordDay helpers - are NOT yet extracted; they assert design invariants, not
-// the shipped functions, and are labelled as such. (TODO: extract fairValue and
-// the outcome engine next.)
+// UPDATE: the core scoring primitives (soft, num, growthScore, fcfyScore) are
+// EXTRACTED into src/core/signal-math.js and imported below, so those specs test
+// the REAL engine code (js/03-signals.js delegates to that module via __core).
+// The old rebalance-slider specs (rbScore/rbCeiling) were REMOVED when the
+// Rebalance tab moved to the target-weight model - that engine is now covered by
+// test/portfolio-model.test.js. The remaining stand-ins here - the simplified
+// fairValue model and the signal-outcome aggregation / recordDay helpers - are
+// NOT yet extracted; they assert design invariants, labelled as such.
 import { describe, it, expect } from "vitest";
 // These are now imported from the REAL tested module (src/core/signal-math.js),
 // which both the Signals engine (js/03-signals.js) and the Rebalance helper
 // (js/05-rebalance.js) delegate to via __core. So these tests exercise the SAME
 // code the app runs - a regression in the engine math now fails CI (previously
 // they tested verbatim copies that could silently drift from the engine).
-import {
-  num,
-  soft,
-  growthScore,
-  fcfyScore,
-  rbScore,
-} from "../src/core/signal-math.js";
-
-// The soft ceiling that replaced the hard `if (secW >= cap) continue` lives in
-// js/05-rebalance.js as a one-off (not part of the scoring module); kept local.
-const rbCeiling = (cap, vTilt) => cap * (1 + 0.5 * vTilt);
+import { num, soft, growthScore, fcfyScore } from "../src/core/signal-math.js";
 
 describe("Spec A: FCF-yield factor", () => {
   it("higher FCF yield scores higher (default sector bounds 0.07/0.0)", () => {
@@ -72,117 +62,8 @@ describe("Spec A: continuous epsGrowth growth factor", () => {
   });
 });
 
-describe("Spec B: rebalance slider - vTilt=0 reproduces today", () => {
-  const ctx = {
-    secW: 0.1,
-    cap: 0.2,
-    disc: 0.15,
-    cycleNeed: 0.3,
-    styleNeed: 0.2,
-    isBuy: true,
-    fscore: 0.7,
-  };
-  it("at vTilt=0 the score equals the ORIGINAL formula", () => {
-    const sectorNeed = 1 - ctx.secW / ctx.cap;
-    const original =
-      sectorNeed * 1.0 +
-      Math.max(0, ctx.disc) * 0.6 +
-      ctx.cycleNeed * 0.35 +
-      ctx.styleNeed * 0.35 +
-      (ctx.isBuy ? 0.15 : 0);
-    expect(rbScore(ctx, 0)).toBeCloseTo(original, 10);
-  });
-
-  it("at vTilt=0 the ceiling equals the hard cap (today's hard skip)", () => {
-    expect(rbCeiling(0.2, 0)).toBeCloseTo(0.2, 10);
-  });
-});
-
-describe("Spec B: value-led mode lets an undervalued name in a full sector through", () => {
-  it("a full sector (secW=cap) is skipped at vTilt=0 but allowed under the ceiling at vTilt=1", () => {
-    const cap = 0.2;
-    const secW = 0.2; // exactly at cap
-    // vTilt=0: ceiling == cap == secW -> skipped (secW >= ceil)
-    expect(secW >= rbCeiling(cap, 0)).toBe(true);
-    // vTilt=1: ceiling == cap*1.5 = 0.30 -> NOT skipped
-    expect(secW >= rbCeiling(cap, 1)).toBe(false);
-  });
-
-  it("hard ceiling is respected: beyond cap*1.5 is always skipped", () => {
-    const cap = 0.2;
-    const secW = 0.31; // past the 1.5x ceiling
-    expect(secW >= rbCeiling(cap, 1)).toBe(true); // skipped even fully value-led
-  });
-
-  it("value-led mode boosts a deeply-undervalued full-sector name (the core fix)", () => {
-    // Deep value, sector slightly over cap (only reachable because the ceiling
-    // expanded at vTilt=1; at vTilt=0 it would have been hard-skipped entirely).
-    const deepValueFull = {
-      secW: 0.22,
-      cap: 0.2,
-      disc: 0.4,
-      cycleNeed: 0,
-      styleNeed: 0,
-      isBuy: true,
-      fscore: 0.85,
-    };
-    // The essential guarantee: value-led mode scores this undervalued name
-    // strictly HIGHER than diversification mode would - so a great buy is no
-    // longer invisible just because its sector is full.
-    expect(rbScore(deepValueFull, 1)).toBeGreaterThan(
-      rbScore(deepValueFull, 0),
-    );
-  });
-
-  it("value-led mode flips the ranking vs a marginally-cheaper diversifier", () => {
-    // Two comparable candidates: one deep value in a nearly-full sector, one
-    // slightly cheap filling one diversification gap. Value-led should rerank
-    // toward the deep-value name relative to diversification-led.
-    const deepValue = {
-      secW: 0.16,
-      cap: 0.2,
-      disc: 0.4,
-      cycleNeed: 0,
-      styleNeed: 0,
-      isBuy: true,
-      fscore: 0.85,
-    };
-    const mildDiversifier = {
-      secW: 0.02,
-      cap: 0.2,
-      disc: 0.05,
-      cycleNeed: 0.2,
-      styleNeed: 0,
-      isBuy: false,
-      fscore: 0.45,
-    };
-    const gap0 = rbScore(mildDiversifier, 0) - rbScore(deepValue, 0);
-    const gap1 = rbScore(mildDiversifier, 1) - rbScore(deepValue, 1);
-    // The diversifier's advantage shrinks (or reverses) as we move to value-led.
-    expect(gap1).toBeLessThan(gap0);
-  });
-
-  it("two-sided value: an OVERVALUED name is penalised only as vTilt rises", () => {
-    const over = {
-      secW: 0.1,
-      cap: 0.2,
-      disc: -0.3,
-      cycleNeed: 0,
-      styleNeed: 0,
-      isBuy: false,
-      fscore: 0.5,
-    };
-    // At vTilt=0 the overvalued disc is clamped to 0 (no penalty, == today).
-    const sectorNeed = 1 - over.secW / over.cap;
-    const today = sectorNeed * 1.0 + 0 * 0.6;
-    expect(rbScore(over, 0)).toBeCloseTo(today, 10);
-    // At vTilt=1 the negative disc drags the score below the vTilt=0 value.
-    expect(rbScore(over, 1)).toBeLessThan(rbScore(over, 0));
-  });
-});
-
 // ---- SIMPLIFIED fairValue model (NOT the shipped engine) ----
-// NOTE: unlike soft/growthScore/fcfyScore/rbScore above (now imported from the
+// NOTE: unlike soft/growthScore/fcfyScore above (now imported from the
 // real src/core/signal-math.js), this is a deliberately simplified stand-in for
 // js/03-signals.js fairValue(). The shipped fairValue adds a cyclical peak-
 // earnings haircut, anchorWeights(), ddmValue() and a median-trim that are not

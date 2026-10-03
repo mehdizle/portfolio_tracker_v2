@@ -251,12 +251,19 @@ function renderSignalOutcomes() {
     }
     return h.price != null ? h.price : null;
   };
+  // OPCVM funds are excluded from the scorecard: the signal engine doesn't
+  // produce a fair-value / Buy-Sell call for funds (they're NAV-priced baskets),
+  // so grading them as "signal calls" is meaningless. Skip any ticker currently
+  // categorised OPCVM. (Historic fund snapshots in the trail are simply ignored.)
+  const _isFundTk = (tk) =>
+    typeof M !== "undefined" && M[tk] && M[tk].cat === "OPCVM";
   // Keep, per ticker, the OLDEST snapshot that is at least `horizonDays` old,
   // so each name is judged on its earliest qualifying call (longest track).
   const byTk = {};
   for (const h of hist) {
     const ageD = (today - new Date(h.date)) / 86400000;
     if (ageD < horizonDays) continue;
+    if (_isFundTk(h.ticker)) continue; // no funds on the scorecard
     if (!byTk[h.ticker] || h.date < byTk[h.ticker].date) byTk[h.ticker] = h;
   }
   // \u2500\u2500 PER-DATE BENCHMARK \u2500\u2500
@@ -268,6 +275,7 @@ function renderSignalOutcomes() {
   // a 30-day one. Only names with a current price contribute.
   const benchByDate = {}; // date -> { sum, n }
   for (const s of hist) {
+    if (_isFundTk(s.ticker)) continue; // funds excluded from the benchmark too
     const now0 = curPrice(s.ticker);
     const then0 = priceThen(s);
     if (now0 == null || !then0) continue;
@@ -313,8 +321,11 @@ function renderSignalOutcomes() {
     // age and the date the first outcome will appear - far more useful than a
     // generic "come back later". If there are no recorded signals at all, say so.
     let msg;
-    if (hist.length) {
-      const oldest = hist.reduce(
+    // Count only STOCK snapshots (funds are excluded from the scorecard), so
+    // the "X recorded / oldest N days" line matches what this panel can show.
+    const stockHist = hist.filter((h) => !_isFundTk(h.ticker));
+    if (stockHist.length) {
+      const oldest = stockHist.reduce(
         (m, h) => (m == null || h.date < m ? h.date : m),
         null,
       );
@@ -326,8 +337,8 @@ function renderSignalOutcomes() {
         .slice(0, 10);
       msg =
         "Signal-outcome tracking is on \u2014 <b>" +
-        hist.length +
-        "</b> signal snapshot(s) recorded, oldest <b>" +
+        stockHist.length +
+        "</b> stock signal snapshot(s) recorded, oldest <b>" +
         ageOldest +
         " day(s)</b> old. Calls are judged once they reach <b>" +
         horizonDays +
@@ -600,15 +611,32 @@ function renderSignalOutcomes() {
       "Average price change since Sell/Trim, and the excess vs benchmark. NEGATIVE 'vs bench' is the engine being right (these underperformed the typical stock).",
     ) +
     "</div>";
+  // Search box: filter the per-name table by ticker (client-side row hide/show
+  // via the delegated dispatcher, so typing keeps focus and needs no re-render).
   h +=
-    '<div class="scroll"><table style="width:100%;font-size:12px"><thead><tr>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px">' +
+    '<input id="scSearch" type="text" placeholder="\uD83D\uDD0D Search ticker\u2026" ' +
+    'autocomplete="off" data-act="scFilterRows" data-on="input" ' +
+    'style="flex:0 0 220px;max-width:60%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:12px" />' +
+    '<span id="scSearchCount" class="mini" style="color:var(--text2)"></span>' +
+    "</div>";
+  h +=
+    '<div class="scroll"><table id="scTable" style="width:100%;font-size:12px"><thead><tr>' +
     '<th class="l">Ticker</th><th class="l">Call</th><th>On</th><th>Price then</th><th>Price now</th><th>Change</th><th data-tip="Excess return over the average name from the same start date - the signal\'s value-add.">vs bench</th></tr></thead><tbody>';
   for (const x of rows) {
     h +=
-      '<tr><td class="l"><b>' +
+      // Ticker: logo badge + clickable name -> full company detail (same as Signals)
+      '<tr class="sc-row" data-sc-tk="' +
       escapeHtml(x.tk) +
+      '"><td class="l" style="cursor:pointer" data-tip="Click for full company details" data-act="showCompanyDetail" data-args="' +
+      escapeHtml(x.tk) +
+      '" data-stop="true">' +
+      tickerBadge(x.tk) +
+      '<b style="color:var(--primary2)">' +
+      escapeHtml(x.tk) +
+      "</b>" +
       // Call badge (hover: what was rated, when, how old)
-      '</b></td><td class="l nis-cell" style="cursor:help" data-tip="' +
+      '</td><td class="l nis-cell" style="cursor:help" data-tip="' +
       tipRef(tipCall(x)) +
       '"><span class="badge ' +
       (x.h.sig || "") +
@@ -652,6 +680,26 @@ function renderSignalOutcomes() {
     '<div class="mini" style="margin-top:6px;color:var(--muted)">Price-only change (excludes dividends &amp; fees). "vs bench" compares each call to the average name from the same start date, isolating the signal\'s value-add. A rough scorecard for the signal engine, not a P&amp;L.</div>';
   host.innerHTML = h;
 }
+// Scorecard search: hide/show table rows whose ticker doesn't match the query.
+// Called by the delegated dispatcher (data-act="scFilterRows", data-on="input").
+// Pure DOM filtering - no re-render, so the input keeps focus while typing.
+window.scFilterRows = function () {
+  const inp = document.getElementById("scSearch");
+  const tbl = document.getElementById("scTable");
+  if (!tbl) return;
+  const q = ((inp && inp.value) || "").trim().toUpperCase();
+  const rowsEls = tbl.querySelectorAll("tbody tr.sc-row");
+  let shown = 0;
+  rowsEls.forEach((tr) => {
+    const tk = (tr.getAttribute("data-sc-tk") || "").toUpperCase();
+    const match = !q || tk.indexOf(q) >= 0;
+    tr.style.display = match ? "" : "none";
+    if (match) shown++;
+  });
+  const cnt = document.getElementById("scSearchCount");
+  if (cnt)
+    cnt.textContent = q ? shown + " match" + (shown === 1 ? "" : "es") : "";
+};
 function heldSharesOf(pos, tk) {
   let q = 0;
   for (const k in pos) {
