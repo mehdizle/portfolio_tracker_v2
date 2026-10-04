@@ -32,6 +32,7 @@ const files = [
   "07-expenses.js",
   "08-salary.js",
   "09b-market-session.js",
+  "09c-debug.js",
   "09-boot.js",
 ];
 

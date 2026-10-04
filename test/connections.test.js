@@ -243,6 +243,7 @@ describe("no schema drift: UI source contains no hardcoded transaction CSV heade
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
+    "js/09c-debug.js",
     "js/09-boot.js",
   ];
   // Column names that identify the transaction shape.
@@ -313,6 +314,7 @@ describe("no unescaped user-data in HTML template literals", () => {
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
+    "js/09c-debug.js",
     "js/09-boot.js",
   ];
   // Free-text, user-editable fields that carry arbitrary strings.
@@ -370,6 +372,7 @@ describe("renderKPIs is always called with both arguments", () => {
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
+    "js/09c-debug.js",
     "js/09-boot.js",
   ];
 

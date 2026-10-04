@@ -206,6 +206,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   07-expenses.js           monthly expenses + savings pots (car/other planners)
   08-salary.js             salary calc, stock categories (import/export), cash ledger
   09b-market-session.js    Casablanca Stock Exchange live session-phase widget
+  09c-debug.js             diagnostics export (#debugExport): read-only state snapshot + self-audit health checks
   09-boot.js               a11y tab-list nav + the data-act delegated dispatcher
 test/                      Vitest suite (see "Tests" below)
   fixtures/synthetic.json  synthetic transactions/master/config for tests
@@ -227,8 +228,8 @@ rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
 by `scripts/concat.mjs`, in the fixed order declared by its `files` array
-(currently 18 files: the numbered `01`–`09` modules plus their lettered splits -
-`01b`/`01c`, `02b`, `03b`, `06b`–`06e`, `09b` - each one a single, cohesive
+(currently 19 files: the numbered `01`–`09` modules plus their lettered splits -
+`01b`/`01c`, `02b`, `03b`, `06b`–`06e`, `09b`/`09c` - each one a single, cohesive
 concern). **Edit the numbered source files, never the generated bundle**, and
 if you add/rename/remove a `js/*.js` file, update `concat.mjs`'s `files` array
 and `test/connections.test.js`'s file lists to match.
