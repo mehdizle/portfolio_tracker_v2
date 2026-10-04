@@ -168,18 +168,45 @@ scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-
 scripts/fetch-logos.mjs    CI logo fetcher (monthly): TradingView CDN -> public/logos/CSEMA/*.svg
 js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO/forecast math to src/core via __core.
-  01-core.js               globals, persistence, ticker badges, fee/tax wrappers
-  02-compute.js            computeRow/runFIFO bridge to the core
+                           Each file owns one concern; shared cross-cutting
+                           pieces (tooltips, modals/ticker-badge, fee config,
+                           signals presentation) have their own module instead
+                           of living inside whichever feature needed them first.
+  01-core.js               globals, persistence, escapeHtml, SEED/master data,
+                           money/pct/cls/pctOf formatters, isOpcvm/isOpcvmTxn,
+                           saved-indicator, date utils
+  01b-tooltip.js           the whole tooltip system: trusted-content registry
+                           (tipRef/__TIP), the hover engine (#__qtip, sanitizer),
+                           and the shared tipHead/tipRow/tipNote/tipRule builders
+  01c-ui-kit.js            shared widgets: in-app modal dialogs (appConfirm/
+                           appPrompt/appFillDialog) and the ticker-badge widget
+                           (monogram + logo fallback, LOGO_DIRS/LOGO_EXTS)
+  02b-fees.js              fee/broker/dividend-tax CONFIG (FP/FP_PEA/BROKERS/
+                           DIVTAX), defaults sourced from __core.defaults so
+                           there is one copy of each default, not two
+  02-compute.js            computeRow/runFIFO bridge to the core (cached),
+                           heldSharesOf, sumValueByField (shared aggregation)
   03-signals.js            valuation & signal engine (scores, fair value, targets)
-  04-render.js             dashboard KPIs, positions (group-by-sector, badges), charts, sector pie
-  05-rebalance.js          rebalance UI (gathers candidates+vol, calls portfolio-model) + stock detail panel
-  06-features.js           signals render, dividends + forecast table, transactions
+  03b-signals-ui.js        Signals-tab presentation: factor tooltips, Top Buys /
+                           Top Sector / Top Headroom widgets, renderSignals(),
+                           and the signal-outcome scorecard (snapshot + grade)
+  04-render.js             dashboard KPIs/hero, positions (group-by-sector,
+                           badges), charts, sector pie, tax/concentration summary
+  05-rebalance.js          rebalance engine UI (gathers candidates+vol, calls
+                           portfolio-model, "why" tooltips, pins) + stock detail
+  06-transactions.js       the transactions ledger table + its fee/tax tooltips,
+                           and the shared Add-Transaction/Add-Pending form logic
+                           (live total calc, OPCVM kind-badge detection)
   06b-import.js            TradingView/OPCVM/CSV import, calendar smart-merge, fee panel
   06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, value-over-time chart
-  06d-pending.js           pending orders (Order IDs), indicators, range bar
+  06d-pending.js           pending orders (Order IDs), indicators, range bar,
+                           draft-selected-buys flow
+  06e-dividends.js         dividend feature: estimate math, income dashboard,
+                           calendar grid, multi-year forecast table
   07-expenses.js           monthly expenses + savings pots (car/other planners)
-  08-salary.js             salary calc, stock categories (import/export), cash ledger, tooltip engine
-  09-boot.js               data-act delegator, ticker-logo fallback walk, market session, boot
+  08-salary.js             salary calc, stock categories (import/export), cash ledger
+  09b-market-session.js    Casablanca Stock Exchange live session-phase widget
+  09-boot.js               a11y tab-list nav + the data-act delegated dispatcher
 test/                      Vitest suite (see "Tests" below)
   fixtures/synthetic.json  synthetic transactions/master/config for tests
 .github/
@@ -199,9 +226,12 @@ before the UI bundle runs). This gives a tested, single-source engine without
 rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
-by `scripts/concat.mjs`, in the fixed order `01 → 09` (12 files including the
-`06b/06c/06d` splits). **Edit the numbered source files, never the generated
-bundle.**
+by `scripts/concat.mjs`, in the fixed order declared by its `files` array
+(currently 18 files: the numbered `01`–`09` modules plus their lettered splits -
+`01b`/`01c`, `02b`, `03b`, `06b`–`06e`, `09b` - each one a single, cohesive
+concern). **Edit the numbered source files, never the generated bundle**, and
+if you add/rename/remove a `js/*.js` file, update `concat.mjs`'s `files` array
+and `test/connections.test.js`'s file lists to match.
 
 ---
 
@@ -371,7 +401,7 @@ your own in. See `public/logos/README.md` for the full details.
 - Vite copies `public/` to the site root; served at
   `/portfolio_tracker_v2/logos/...`. There are **no external logo requests from
   the browser**.
-- To add another market, add its folder name to `LOGO_DIRS` in `js/01-core.js`.
+- To add another market, add its folder name to `LOGO_DIRS` in `js/01c-ui-kit.js`.
 
 The fallback is delegated and CodeQL-safe: the `<img>` src is rebuilt from a
 sanitized key + constant dir/extension tables (never from raw DOM text), and an
