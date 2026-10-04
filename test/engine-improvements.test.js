@@ -157,7 +157,7 @@ describe("Spec #1: FCF feeds into fair value", () => {
   });
 });
 
-// ---- stand-in for signal-outcome aggregation (NOT extracted from js/06-features.js) ----
+// ---- stand-in for signal-outcome aggregation (NOT extracted from js/03b-signals-ui.js) ----
 // Asserts the aggregation DESIGN (bucketing, horizon gating, oldest-call-per-name);
 // the shipped logic lives in renderSignalOutcomes and is not yet in a module.
 function sigBucket(c) {
@@ -216,7 +216,7 @@ describe("Spec #3: signal-outcome aggregation", () => {
   });
 });
 
-// ---- stand-in for the benchmark-relative outcome logic (NOT extracted from js/06-features.js) ----
+// ---- stand-in for the benchmark-relative outcome logic (NOT extracted from js/03b-signals-ui.js) ----
 function outcomesWithBench(hist, cur, todayISO, horizonDays) {
   const today = new Date(todayISO);
   const byTk = {};
@@ -298,7 +298,7 @@ describe("Spec #3b: benchmark-relative signal outcomes", () => {
   });
 });
 
-// ---- stand-in for recordSignalSnapshot's LATEST-of-day dedup (NOT extracted from js/06-features.js) ----
+// ---- stand-in for recordSignalSnapshot's LATEST-of-day dedup (NOT extracted from js/03b-signals-ui.js) ----
 // A re-snapshot on the same day (e.g. after re-importing prices) overwrites that
 // ticker's entry in place; prior days are untouched; today never duplicates.
 function recordDay(hist, rows, today) {

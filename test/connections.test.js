@@ -227,16 +227,22 @@ describe("no schema drift: CSV-emitting code binds to the schema", () => {
 describe("no schema drift: UI source contains no hardcoded transaction CSV header", () => {
   const UI_FILES = [
     "js/01-core.js",
+    "js/01b-tooltip.js",
+    "js/01c-ui-kit.js",
+    "js/02b-fees.js",
     "js/02-compute.js",
     "js/03-signals.js",
+    "js/03b-signals-ui.js",
     "js/04-render.js",
     "js/05-rebalance.js",
-    "js/06-features.js",
+    "js/06-transactions.js",
     "js/06b-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
+    "js/06e-dividends.js",
     "js/07-expenses.js",
     "js/08-salary.js",
+    "js/09b-market-session.js",
     "js/09-boot.js",
   ];
   // Column names that identify the transaction shape.
@@ -291,14 +297,22 @@ describe("no schema drift: UI source contains no hardcoded transaction CSV heade
 describe("no unescaped user-data in HTML template literals", () => {
   const UI_FILES = [
     "js/01-core.js",
+    "js/01b-tooltip.js",
+    "js/01c-ui-kit.js",
+    "js/02b-fees.js",
+    "js/02-compute.js",
+    "js/03-signals.js",
+    "js/03b-signals-ui.js",
     "js/04-render.js",
     "js/05-rebalance.js",
-    "js/06-features.js",
+    "js/06-transactions.js",
     "js/06b-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
+    "js/06e-dividends.js",
     "js/07-expenses.js",
     "js/08-salary.js",
+    "js/09b-market-session.js",
     "js/09-boot.js",
   ];
   // Free-text, user-editable fields that carry arbitrary strings.
@@ -340,16 +354,22 @@ describe("no unescaped user-data in HTML template literals", () => {
 describe("renderKPIs is always called with both arguments", () => {
   const JS_FILES = [
     "js/01-core.js",
+    "js/01b-tooltip.js",
+    "js/01c-ui-kit.js",
+    "js/02b-fees.js",
     "js/02-compute.js",
     "js/03-signals.js",
+    "js/03b-signals-ui.js",
     "js/04-render.js",
     "js/05-rebalance.js",
-    "js/06-features.js",
+    "js/06-transactions.js",
     "js/06b-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
+    "js/06e-dividends.js",
     "js/07-expenses.js",
     "js/08-salary.js",
+    "js/09b-market-session.js",
     "js/09-boot.js",
   ];
 
