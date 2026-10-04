@@ -425,21 +425,32 @@ function parseCategoryCSV(text) {
 // Apply a category map onto M. Only tickers present in the map are touched; others keep
 // their existing (TradingView / seed) category. Returns {updated, unknown[]}.
 function applyCategories(map) {
+  // Single source of truth: an uploaded category/cycle/style ALWAYS lands on M,
+  // whether or not the ticker already has a master entry. Previously a ticker
+  // missing from M was dropped (pushed to `unknown`) and its category silently
+  // lost until a later boot re-applied it \u2014 which failed if the key appeared
+  // after boot (e.g. you imported categories first, then bought the name). Now
+  // we create a lightweight stub so the metadata attaches immediately. The stub
+  // carries no price, so it never becomes a trade candidate or a phantom table
+  // row (computeSignalsRows() skips price-less, unheld, category-only stubs);
+  // once real pricing/financials arrive they Object.assign onto the same key.
   let updated = 0;
-  const unknown = [];
+  const created = [];
   Object.keys(map).forEach((tk) => {
     const rec = map[tk];
     if (!M[tk]) {
-      unknown.push(tk);
-      return;
-    } // not in master \u2014 cannot attach metrics; skip (TV fallback stays)
+      M[tk] = { _catOnly: true }; // stub \u2014 metadata holder until priced
+      created.push(tk);
+    }
     if (rec.cat) M[tk].cat = rec.cat;
     if (rec.cycle) M[tk].cycle = rec.cycle;
     if (rec.style) M[tk].style = rec.style;
     if (rec.name && !M[tk].name) M[tk].name = rec.name;
     updated++;
   });
-  return { updated, unknown };
+  // `unknown` kept in the return shape for callers/tests, now always empty:
+  // nothing is skipped anymore. `created` surfaces the stub count for the UI.
+  return { updated, unknown: [], created };
 }
 function saveCategories(map) {
   safeSetItem(CAT_LS, JSON.stringify(map));
@@ -492,15 +503,23 @@ function refreshCatStamp() {
         res.textContent = "\u274c No ticker rows found.";
         return;
       }
-      const { updated, unknown } = applyCategories(map);
+      const { updated, created } = applyCategories(map);
       saveCategories(map);
+      // Persist the metadata onto the master itself so it's part of the single
+      // source of truth immediately \u2014 not merely replayed from casa_categories_v1
+      // on the next boot. Without this, a category attached to a key that only
+      // existed in memory (e.g. a stub, or a name added after boot) could be
+      // lost the next time casa_master_v1 was rewritten by another action.
+      try {
+        safeSetItem("casa_master_v1", JSON.stringify(M));
+      } catch (_) {}
       res.style.color = "var(--success)";
       res.textContent =
         "\u2705 Applied " +
         updated +
         " categories" +
-        (unknown.length
-          ? " \u00b7 " + unknown.length + " unknown ticker(s) skipped"
+        (created && created.length
+          ? " \u00b7 " + created.length + " new ticker(s) added"
           : "") +
         ".";
       if (rev) {
@@ -508,9 +527,9 @@ function refreshCatStamp() {
           '<div class="mini" style="color:var(--text2)">Updated <b>' +
           updated +
           "</b> tickers" +
-          (unknown.length
-            ? " \u00b7 skipped (not in master, kept TradingView category): <b>" +
-              unknown.join(", ") +
+          (created && created.length
+            ? " \u00b7 added (not yet priced \u2014 metadata kept): <b>" +
+              created.join(", ") +
               "</b>"
             : "") +
           ".</div>";
@@ -518,6 +537,19 @@ function refreshCatStamp() {
       refreshCatStamp();
       try {
         render();
+      } catch (_) {}
+      // render() repaints every tab EXCEPT Rebalance (that tab only recomputes
+      // on its "Compute plan" button or when you switch into it). Imported
+      // categories feed the Rebalance sector/cycle/style readout, so refresh it
+      // here too \u2014 otherwise the tab keeps showing the pre-import grouping
+      // ("Uncategorized" / "Unclassified") until the next manual recompute.
+      try {
+        if (
+          typeof renderRebalance === "function" &&
+          document.getElementById("rbResult")
+        ) {
+          renderRebalance();
+        }
       } catch (_) {}
       inp.value = "";
     };

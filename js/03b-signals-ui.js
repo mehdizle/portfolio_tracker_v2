@@ -20,29 +20,43 @@
 
 function computeSignalsRows() {
   const { pos } = runFIFO();
-  return Object.keys(M).map((tk) => {
-    const m = M[tk];
-    const sc = factorScores(m); // {score, pir, coverage, parts} or null
-    const sig = signal(m, sc, heldSharesOf(pos, tk) > 0);
-    return {
-      ticker: tk,
-      name: m.name,
-      m,
-      sc,
-      sig,
-      price: m.price,
-      tbuy: targetBuy(m, sc),
-      tsell: targetSell(m, sc),
-      score: sc ? sc.score : null,
-      pir: sc ? sc.pir : null,
-      pe: m.pe,
-      divy: m.divy,
-      fv: fairValue(m),
-      conviction: sc ? sc.conviction : null,
-      profile: sc ? sc.profile : null,
-      held: heldSharesOf(pos, tk) > 0,
-    };
-  });
+  return Object.keys(M)
+    .filter((tk) => {
+      // Hide category-only stubs: a key created purely to hold an uploaded
+      // category/cycle/style (applyCategories) that has no price and isn't
+      // held. Without this they'd show as blank "\u2014 MAD" phantom rows in the
+      // Signals table and feed empty names into every widget that reads this
+      // list. Once the name is priced (TradingView paste / OPCVM file) or
+      // bought, it stops being a stub and appears normally.
+      const m = M[tk];
+      if (!m) return false;
+      const priced = m.price != null && m.price > 0;
+      const held = heldSharesOf(pos, tk) > 0;
+      return priced || held || !m._catOnly;
+    })
+    .map((tk) => {
+      const m = M[tk];
+      const sc = factorScores(m); // {score, pir, coverage, parts} or null
+      const sig = signal(m, sc, heldSharesOf(pos, tk) > 0);
+      return {
+        ticker: tk,
+        name: m.name,
+        m,
+        sc,
+        sig,
+        price: m.price,
+        tbuy: targetBuy(m, sc),
+        tsell: targetSell(m, sc),
+        score: sc ? sc.score : null,
+        pir: sc ? sc.pir : null,
+        pe: m.pe,
+        divy: m.divy,
+        fv: fairValue(m),
+        conviction: sc ? sc.conviction : null,
+        profile: sc ? sc.profile : null,
+        held: heldSharesOf(pos, tk) > 0,
+      };
+    });
 }
 
 // ---------- signal calculation breakdown ----------
