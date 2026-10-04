@@ -629,4 +629,37 @@ describe("planTrades: skipped reasons + sell lot plan + readout", () => {
     expect(r.readout.wVol).toBeGreaterThan(0.19);
     expect(r.readout.wVol).toBeLessThan(0.31);
   });
+
+  it("groups NEW buy candidates (not in positions) by opts.meta, not Uncategorized", () => {
+    // Reproduces the real app: a name the model wants to BUY but that the user
+    // does NOT currently hold is absent from `positions`. Its category lives in
+    // opts.meta (sourced from M / the candidate list). Before the fix the
+    // readout grouped it as "Uncategorized"/"Unclassified".
+    const t = { weights: { BCP: 1 }, attract: { BCP: 2 } };
+    const pos = []; // nothing held
+    const r = planTrades(t, pos, 1000, H, {
+      maxBuys: 5,
+      prices: { BCP: 100 },
+      meta: {
+        BCP: {
+          cat: "Banking",
+          cyc: "Cyclical",
+          sty: "Compounder",
+          name: "Banque Centrale Populaire",
+        },
+      },
+    });
+    expect(r.readout).toBeTruthy();
+    // BCP got bought, so it carries value in the post-plan readout.
+    const bank = r.readout.sectors.find((s) => s.name === "Banking");
+    expect(bank).toBeTruthy();
+    expect(bank.weight).toBeGreaterThan(0);
+    // And it must NOT have fallen into the Uncategorized bucket.
+    expect(
+      r.readout.sectors.find((s) => s.name === "Uncategorized"),
+    ).toBeFalsy();
+    expect(r.readout.cycles.find((c) => c.name === "Cyclical")).toBeTruthy();
+    expect(r.readout.cycles.find((c) => c.name === "Unclassified")).toBeFalsy();
+    expect(r.readout.styles.find((s) => s.name === "Compounder")).toBeTruthy();
+  });
 });

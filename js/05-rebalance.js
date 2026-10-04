@@ -385,6 +385,32 @@ function computeRebalance() {
   modelCands.forEach((c) => {
     if (c && c.ticker && c._price != null) rbPrices[c.ticker] = c._price;
   });
+  // Category/cycle/style metadata for EVERY model candidate (held OR not). The
+  // post-plan readout groups post-trade value by cat/cyc/sty, and that value
+  // set includes NEW buys that aren't in `positions`. Without this map the
+  // engine's metaOf() finds nothing for a freshly-bought name and dumps it into
+  // "Uncategorized"/"Unclassified" even though M has its category. Pass the
+  // candidate metadata (falling back to M) so buys group correctly too.
+  const rbMeta = {};
+  modelCands.forEach((c) => {
+    if (!c || !c.ticker) return;
+    rbMeta[c.ticker] = {
+      cat: c.cat,
+      cyc: c._cyc,
+      sty: c._sty,
+      name: c._name,
+    };
+  });
+  // Backstop straight from M for anything the candidate list didn't cover.
+  Object.keys(targets.weights || {}).forEach((tk) => {
+    if (rbMeta[tk] || !M[tk]) return;
+    rbMeta[tk] = {
+      cat: M[tk].cat,
+      cyc: M[tk].cycle,
+      sty: M[tk].style,
+      name: M[tk].name,
+    };
+  });
   const planResult = PM
     ? PM.planTrades(targets, positions, cash, helpers, {
         minAttract,
@@ -395,6 +421,7 @@ function computeRebalance() {
         recycleTrims,
         maxBuys,
         prices: rbPrices,
+        meta: rbMeta,
       })
     : {
         buys: [],

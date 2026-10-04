@@ -341,6 +341,10 @@ export function planTrades(targets, positions, cash, helpers, opts) {
   // Price lookup for NON-held buy candidates (a new name has no position to read
   // a price from). The UI supplies { ticker: price } for every model candidate.
   const prices = o.prices || {};
+  // Category metadata for candidates not currently held, so the post-plan
+  // readout can group a newly-bought name by its real sector/cycle/style
+  // instead of "Uncategorized". Shape: { ticker: { cat, cyc, sty, name } }.
+  const candMeta = o.meta || {};
 
   const w = targets.weights || {};
   const attract = targets.attract || {};
@@ -569,7 +573,10 @@ export function planTrades(targets, positions, cash, helpers, opts) {
     postVal[s.ticker] = Math.max(0, (postVal[s.ticker] || 0) - s.qty * s.price);
   const investedPost = Object.values(postVal).reduce((s, v) => s + v, 0);
   const totalPost = investedPost + holdCash;
-  const metaOf = (tk) => posByTk[tk] || {};
+  // Prefer the held position's metadata; fall back to the candidate metadata
+  // for names bought this run that weren't previously held (so they group by
+  // their real cat/cyc/sty rather than defaulting to "Uncategorized").
+  const metaOf = (tk) => posByTk[tk] || candMeta[tk] || {};
   const groupBy = (key, fallback) => {
     const g = {};
     const members = {}; // group name -> [{ ticker, name, weight }]
