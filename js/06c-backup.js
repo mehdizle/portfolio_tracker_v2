@@ -1012,3 +1012,168 @@ document.addEventListener("click", function (e) {
   const ch = h.querySelector(".collap-ch");
   if (ch) ch.textContent = open ? "\u25B8 Show" : "\u25BE Hide";
 });
+
+// ============================================================
+// TEMPORARY DEBUG EXPORT (categorization diagnostics)
+// Wired to the #debugExport button next to the theme toggle. Dumps the live
+// master map, the category store, the raw persisted master, the FIFO-held
+// tickers, and a per-held-ticker diagnostic comparing M[tk] against the
+// category store (incl. key-shape checks for whitespace/case mismatches).
+// Safe to delete this block + the #debugExport button when done.
+// ============================================================
+(function () {
+  const btn = document.getElementById("debugExport");
+  if (!btn) return;
+
+  const safeParse = (raw) => {
+    if (raw == null) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return {
+        __parseError: String(e && e.message),
+        __raw: String(raw).slice(0, 2000),
+      };
+    }
+  };
+
+  btn.onclick = () => {
+    const out = {
+      _generatedAt: new Date().toISOString(),
+      _note: "temporary categorization debug export",
+    };
+
+    // ---- raw localStorage snapshots of the two stores that matter ----
+    const rawCats = (() => {
+      try {
+        return localStorage.getItem("casa_categories_v1");
+      } catch (e) {
+        return null;
+      }
+    })();
+    const rawMaster = (() => {
+      try {
+        return localStorage.getItem("casa_master_v1");
+      } catch (e) {
+        return null;
+      }
+    })();
+    const catStore = safeParse(rawCats);
+    const masterStore = safeParse(rawMaster);
+    out.categoryStore = {
+      present: rawCats != null,
+      count:
+        catStore && typeof catStore === "object"
+          ? Object.keys(catStore).length
+          : 0,
+      keys:
+        catStore && typeof catStore === "object" ? Object.keys(catStore) : [],
+      value: catStore,
+    };
+    out.masterStore = {
+      present: rawMaster != null,
+      count:
+        masterStore && typeof masterStore === "object"
+          ? Object.keys(masterStore).length
+          : 0,
+      keys:
+        masterStore && typeof masterStore === "object"
+          ? Object.keys(masterStore)
+          : [],
+    };
+
+    // ---- live M (just the metadata fields relevant to categorization) ----
+    out.liveM = {};
+    try {
+      Object.keys(M)
+        .sort()
+        .forEach((tk) => {
+          const m = M[tk] || {};
+          out.liveM[tk] = {
+            name: m.name,
+            cat: m.cat,
+            cycle: m.cycle,
+            style: m.style,
+            price: m.price,
+            _catOnly: m._catOnly,
+          };
+        });
+      out.liveMCount = Object.keys(M).length;
+    } catch (e) {
+      out.liveM = { __error: String(e && e.message) };
+    }
+
+    // ---- which tickers are actually HELD (per FIFO) ----
+    let heldTickers = [];
+    try {
+      const { pos } = runFIFO();
+      const seen = {};
+      Object.values(pos).forEach((p) => {
+        if (p && p.held > 0 && p.ticker) seen[p.ticker] = true;
+      });
+      heldTickers = Object.keys(seen).sort();
+    } catch (e) {
+      heldTickers = ["__error:" + String(e && e.message)];
+    }
+    out.heldTickers = heldTickers;
+
+    // ---- per-held-ticker diagnostic: compare M vs category store ----
+    // Surfaces the exact break: missing from M, missing from cat store, empty
+    // cat in store, or a key-shape mismatch (whitespace/case).
+    out.diagnostics = {};
+    const catKeys =
+      catStore && typeof catStore === "object" ? Object.keys(catStore) : [];
+    const norm = (s) =>
+      String(s || "")
+        .toUpperCase()
+        .trim();
+    const probe = Array.from(
+      new Set([...heldTickers, "BCP", "S2M", "BOA"]),
+    ).sort();
+    probe.forEach((tk) => {
+      const inM = M[tk]
+        ? {
+            cat: M[tk].cat,
+            cycle: M[tk].cycle,
+            style: M[tk].style,
+            name: M[tk].name,
+          }
+        : null;
+      const inCatExact =
+        catStore && typeof catStore === "object" ? catStore[tk] || null : null;
+      // fuzzy: a cat-store key that normalizes to the same ticker but isn't ===
+      const fuzzyKey = catKeys.find((k) => k !== tk && norm(k) === norm(tk));
+      out.diagnostics[tk] = {
+        inM_present: !!M[tk],
+        inM: inM,
+        inCatStore_exactKey: inCatExact,
+        catStore_fuzzyKeyMatch: fuzzyKey
+          ? { key: fuzzyKey, value: catStore[fuzzyKey] }
+          : null,
+        verdict: !M[tk]
+          ? "NOT in live M"
+          : inM && inM.cat
+            ? "OK: has cat in M"
+            : inCatExact && inCatExact.cat
+              ? "cat exists in store but NOT applied to M (apply/boot issue)"
+              : fuzzyKey
+                ? "KEY MISMATCH: store key differs by case/whitespace"
+                : "no cat in store for this ticker (import did not capture it)",
+      };
+    });
+
+    const text = JSON.stringify(out, null, 2);
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "categorization_debug.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    try {
+      if (typeof toast === "function") toast("Debug export downloaded.", "ok");
+    } catch (e) {}
+  };
+})();
