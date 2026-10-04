@@ -306,14 +306,18 @@
               margin-top: 8px;
             "
           >
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Your gross annual base salary in MAD, before allowances and deductions. This is the foundation of the whole calculation."
               >Base salary (annual, MAD)<input
                 id="s_baseAnnual"
                 type="number"
                 step="0.01"
                 value="0"
             /></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Years of seniority. Drives the seniority premium (prime d'anciennet\u00E9), a legally-scaled % of base salary that rises with years served; the computed % is shown beside the field."
               >Seniority / Anciennet&#xE9; (years)<input
                 id="s_ancYears"
                 type="number"
@@ -325,35 +329,45 @@
                 style="font-weight: 500"
               ></span
             ></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Monthly transport allowance. Exempt from tax within legal limits, so it is added to take-home but excluded from the taxable base."
               >Transport allowance (monthly)<input
                 id="s_transport"
                 type="number"
                 step="1"
                 value="500"
             /></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Monthly meal allowance (panier). Exempt from tax within legal limits, so it is excluded from the taxable base."
               >Panier / Meal (monthly)<input
                 id="s_panier"
                 type="number"
                 step="1"
                 value="780"
             /></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Any other monthly TAXABLE income (e.g. vested RSUs, bonuses). Added to the taxable base."
               >RSU / Other taxable (monthly)<input
                 id="s_rsu"
                 type="number"
                 step="1"
                 value="0"
             /></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Your CIMR (complementary retirement) contribution rate, as a % of taxable gross. Deducted before income tax is computed."
               >CIMR rate (%)<input
                 id="s_cimr"
                 type="number"
                 step="0.5"
                 value="6"
             /></label>
-            <label class="salf"
+            <label
+              class="salf"
+              data-tip="Number of dependents (max 6). Each gives 50 MAD/month (600/yr) of relief deducted from your income tax."
               >Dependents (max 6)<input
                 id="s_dep"
                 type="number"
@@ -867,6 +881,7 @@
                 id="histRange"
                 class="mini"
                 style="display: inline-flex; gap: 2px"
+                data-tip="Time window for the chart. 1M/3M/6M/1Y = trailing periods, YTD = since Jan 1, All = your full history. Sub-ranges rebase the line to 0% at the window start; All shows absolute lifetime return."
               >
                 <button class="chip histRangeBtn" data-range="1M">1M</button>
                 <button class="chip histRangeBtn" data-range="3M">3M</button>
@@ -880,6 +895,7 @@
               <label
                 class="mini"
                 style="display: inline-flex; gap: 4px; align-items: center"
+                data-tip="Overlay a market index to compare your portfolio against: MASI (all-share Casablanca index), MASI 20 (the 20 most liquid names), or None to hide it."
                 >Benchmark<select id="histBenchmark" style="font-size: 12px">
                   <option value="masi">MASI</option>
                   <option value="msi20">MASI 20</option>
@@ -902,11 +918,13 @@
               id="histHeadlineLabel"
               class="mini"
               style="color: var(--muted)"
+              data-tip="For the All range this is your absolute lifetime return (matches the hero number). For a shorter range it is the return measured from the start of that window, rebased to 0% there."
               >Lifetime return</span
             >
             <span
               id="histHeadlineVal"
               style="font-size: 22px; font-weight: 800"
+              data-tip="The portfolio return over the selected time window above. Green = up, red = down over that window."
             ></span>
           </div>
           <div id="historyChart" style="height: 280px"></div>
@@ -940,7 +958,10 @@
           <div class="sec">
             <h2 style="justify-content: space-between">
               <span>&#x1F680; Top Contributors</span>
-              <label class="dash-toggle">
+              <label
+                class="dash-toggle"
+                data-tip="Include OPCVM funds in the contributors ranking. Off by default so the list focuses on individual stocks."
+              >
                 <input type="checkbox" id="contribOpcvm" />include OPCVM
               </label>
             </h2>
@@ -949,7 +970,10 @@
           <div class="sec">
             <h2 style="justify-content: space-between">
               <span>&#x1F4C9; Top Detractors</span>
-              <label class="dash-toggle">
+              <label
+                class="dash-toggle"
+                data-tip="Include OPCVM funds in the detractors ranking. Off by default so the list focuses on individual stocks."
+              >
                 <input type="checkbox" id="detractOpcvm" />include OPCVM
               </label>
             </h2>
@@ -964,12 +988,43 @@
             <table id="taxTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l">Year</th>
-                  <th scope="col">Realized Gains (net)</th>
-                  <th scope="col">Est. Cap-Gains Tax (TPCVM)</th>
-                  <th scope="col">Dividends (net)</th>
-                  <th scope="col">Div. Tax Withheld</th>
-                  <th scope="col">Total Tax</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Calendar year the realized gains and dividends were booked in."
+                  >
+                    Year
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Profit/loss locked in from shares sold that year (FIFO, net of broker fees). Does not include paper gains on holdings you still own."
+                  >
+                    Realized Gains (net)
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Estimated capital-gains tax (TPCVM) on that year's realized gains. Applies to non-PEA (Regular) sells only; PEA gains are tax-exempt."
+                  >
+                    Est. Cap-Gains Tax (TPCVM)
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Dividends received that year, net of the dividend withholding tax."
+                  >
+                    Dividends (net)
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Dividend withholding tax deducted at source that year (0 on PEA-held shares)."
+                  >
+                    Div. Tax Withheld
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Total tax for the year = estimated capital-gains tax + dividend tax withheld."
+                  >
+                    Total Tax
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -988,7 +1043,13 @@
             <table id="dashDivTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l">Ex-Date</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Ex-dividend date: you must own the shares before this date to receive the dividend."
+                  >
+                    Ex-Date
+                  </th>
                   <th
                     scope="col"
                     class="center"
@@ -996,23 +1057,52 @@
                   >
                     To Ex
                   </th>
-                  <th scope="col" class="l">Pay Date</th>
-                  <th scope="col" class="l">Ticker</th>
-                  <th scope="col" class="l">Issuer</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Date the dividend cash is actually paid into your account."
+                  >
+                    Pay Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The holding this dividend is for."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The company (issuer) declaring the dividend."
+                  >
+                    Issuer
+                  </th>
                   <th
                     scope="col"
                     data-tip="Dividend amount per share (MAD) declared by the company for this payment."
                   >
                     Amount/Sh
                   </th>
-                  <th scope="col">Shares</th>
+                  <th
+                    scope="col"
+                    data-tip="Number of eligible shares you hold for this dividend (PEA + Regular)."
+                  >
+                    Shares
+                  </th>
                   <th
                     scope="col"
                     data-tip="Estimated net dividend after withholding tax and any commission (0 tax on PEA-held shares). Blends your PEA and Regular holdings."
                   >
                     Est. Net (MAD)
                   </th>
-                  <th scope="col" class="center">Days</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Days until the pay date (when the cash arrives)."
+                  >
+                    Days
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -1040,7 +1130,12 @@
           >
             &#x1F5C2;&#xFE0F; Group by sector
           </button>
-          <button class="btn sec2" id="toggleClosed" style="font-size: 12px">
+          <button
+            class="btn sec2"
+            id="toggleClosed"
+            style="font-size: 12px"
+            data-tip="Show or hide fully-exited (closed) positions in the tables below. Off by default so only current holdings are listed."
+          >
             Show closed
           </button>
         </div>
@@ -1057,9 +1152,29 @@
             <table id="stocksTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l" data-k="ticker">Ticker</th>
-                  <th scope="col" class="l" data-k="name">Name</th>
-                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="ticker"
+                    data-tip="Casablanca exchange ticker symbol. Click a column header to sort by it."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="name"
+                    data-tip="Company / fund name."
+                  >
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="held"
+                    data-tip="Number of shares/units you currently hold across all accounts (PEA + Regular)."
+                  >
+                    Shares
+                  </th>
                   <th
                     scope="col"
                     data-k="avg"
@@ -1074,7 +1189,13 @@
                   >
                     Invested
                   </th>
-                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="price"
+                    data-tip="Latest known market price per share, from the most recent price fetch or a manual edit. Click a held row's price cell to override it."
+                  >
+                    Live Px
+                  </th>
                   <th
                     scope="col"
                     data-k="value"
@@ -1156,9 +1277,29 @@
             <table id="fundsTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l" data-k="ticker">Ticker</th>
-                  <th scope="col" class="l" data-k="name">Name</th>
-                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="ticker"
+                    data-tip="Casablanca exchange ticker symbol. Click a column header to sort by it."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="name"
+                    data-tip="Company / fund name."
+                  >
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="held"
+                    data-tip="Number of shares/units you currently hold across all accounts (PEA + Regular)."
+                  >
+                    Shares
+                  </th>
                   <th
                     scope="col"
                     data-k="avg"
@@ -1173,7 +1314,13 @@
                   >
                     Invested
                   </th>
-                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="price"
+                    data-tip="Latest known market price per share, from the most recent price fetch or a manual edit. Click a held row's price cell to override it."
+                  >
+                    Live Px
+                  </th>
                   <th
                     scope="col"
                     data-k="value"
@@ -1243,9 +1390,29 @@
             <table id="totalTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l" data-k="ticker">Ticker</th>
-                  <th scope="col" class="l" data-k="name">Name</th>
-                  <th scope="col" data-k="held">Shares</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="ticker"
+                    data-tip="Casablanca exchange ticker symbol. Click a column header to sort by it."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="name"
+                    data-tip="Company / fund name."
+                  >
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="held"
+                    data-tip="Number of shares/units you currently hold across all accounts (PEA + Regular)."
+                  >
+                    Shares
+                  </th>
                   <th
                     scope="col"
                     data-k="avg"
@@ -1260,7 +1427,13 @@
                   >
                     Invested
                   </th>
-                  <th scope="col" data-k="price">Live Px</th>
+                  <th
+                    scope="col"
+                    data-k="price"
+                    data-tip="Latest known market price per share, from the most recent price fetch or a manual edit. Click a held row's price cell to override it."
+                  >
+                    Live Px
+                  </th>
                   <th
                     scope="col"
                     data-k="value"
@@ -1367,6 +1540,7 @@
           </div>
           <div class="form-row" style="align-items: flex-end">
             <label
+              data-tip="Which asset class to score and show: individual Stocks, OPCVM Funds, or All together."
               >Asset type<select id="sigAsset">
                 <option value="stocks">&#x1F4C8; Stocks</option>
                 <option value="opcvm">&#x1F3E6; OPCVM Funds</option>
@@ -1374,6 +1548,7 @@
               </select></label
             >
             <label
+              data-tip="Narrow the table: All signals, only Buy-rated names, only Sell/Trim-rated names, or only names you currently hold."
               >Filter<select id="sigFilter">
                 <option value="all">All signals</option>
                 <option value="buy">Buy only</option>
@@ -1381,7 +1556,9 @@
                 <option value="held">Held only</option>
               </select></label
             >
-            <label style="flex: 1; min-width: 180px"
+            <label
+              style="flex: 1; min-width: 180px"
+              data-tip="Type a ticker or company name to filter the table live."
               >Search opportunities
               <span style="position: relative; display: block">
                 <input
@@ -1394,7 +1571,7 @@
                 <button
                   id="sigSearchClear"
                   type="button"
-                  title="Clear search"
+                  data-tip="Clear the search box and show all names again."
                   style="
                     display: none;
                     position: absolute;
@@ -1428,10 +1605,31 @@
             <table id="sigTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l" data-k="ticker">Ticker</th>
-                  <th scope="col" class="l">Name</th>
-                  <th scope="col" class="center">Signal</th>
-                  <th scope="col" data-k="price">Price</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-k="ticker"
+                    data-tip="Casablanca exchange ticker. Click a column header to sort by it."
+                  >
+                    Ticker
+                  </th>
+                  <th scope="col" class="l" data-tip="Company / fund name.">
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="The overall recommendation (Strong Buy / Buy / Hold / Wait / Avoid / Trim / Sell / Speculative), derived from the score, valuation and data quality. Hover a row's badge for the full factor breakdown behind it."
+                  >
+                    Signal
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="price"
+                    data-tip="Latest known market price per share."
+                  >
+                    Price
+                  </th>
                   <th
                     scope="col"
                     data-k="fv"
@@ -1468,9 +1666,27 @@
                   >
                     Conviction
                   </th>
-                  <th scope="col" data-k="pir">PiR</th>
-                  <th scope="col" data-k="pe">P/E</th>
-                  <th scope="col" data-k="divy">Div Y</th>
+                  <th
+                    scope="col"
+                    data-k="pir"
+                    data-tip="Position in Range: where today's price sits within the 52-week low-to-high band (0% = at the low, 100% = at the high)."
+                  >
+                    PiR
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="pe"
+                    data-tip="Price / Earnings ratio: share price divided by earnings per share. Lower can mean cheaper, but compare within a sector."
+                  >
+                    P/E
+                  </th>
+                  <th
+                    scope="col"
+                    data-k="divy"
+                    data-tip="Dividend yield: trailing annual dividend per share divided by the current price, as a %."
+                  >
+                    Div Y
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -1558,11 +1774,35 @@
               <table id="divByTickerTable">
                 <thead>
                   <tr>
-                    <th scope="col" class="l">Ticker</th>
-                    <th scope="col" class="l">Name</th>
-                    <th scope="col" class="center">Payments</th>
-                    <th scope="col">Total Received (net)</th>
-                    <th scope="col">% of Total</th>
+                    <th
+                      scope="col"
+                      class="l"
+                      data-tip="The company/fund that paid the dividends."
+                    >
+                      Ticker
+                    </th>
+                    <th scope="col" class="l" data-tip="Company / fund name.">
+                      Name
+                    </th>
+                    <th
+                      scope="col"
+                      class="center"
+                      data-tip="How many dividend payments from this name are recorded in your transactions (all-time)."
+                    >
+                      Payments
+                    </th>
+                    <th
+                      scope="col"
+                      data-tip="Total dividend cash received from this name, all-time, net of withholding tax."
+                    >
+                      Total Received (net)
+                    </th>
+                    <th
+                      scope="col"
+                      data-tip="This name's share of all dividend income you've received = its net total divided by your grand total."
+                    >
+                      % of Total
+                    </th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -1578,6 +1818,7 @@
           <h2>&#x1F4C5; Dividend Calendar</h2>
           <div class="form-row">
             <label
+              data-tip="Choose which dividends the calendar lists: only upcoming ones for names you hold, all upcoming, everything including past, or eligible dividends you haven't recorded yet."
               >Show<select id="divFilter">
                 <option value="held" selected>Upcoming &#xB7; held only</option>
                 <option value="upcoming">Upcoming (all)</option>
@@ -1614,13 +1855,54 @@
             <table id="divTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l">Ex-Date</th>
-                  <th scope="col" class="l">Pay Date</th>
-                  <th scope="col" class="l">Ticker</th>
-                  <th scope="col" class="l">Issuer</th>
-                  <th scope="col" class="l">Type</th>
-                  <th scope="col">Amount/Sh</th>
-                  <th scope="col" class="center">Held?</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Ex-dividend date: own the shares before this date to receive the dividend."
+                  >
+                    Ex-Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Date the dividend cash is actually paid out."
+                  >
+                    Pay Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The holding this dividend is for."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The company (issuer) declaring the dividend."
+                  >
+                    Issuer
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Kind of distribution (e.g. ordinary dividend, special, etc.)."
+                  >
+                    Type
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Dividend amount per share (MAD) declared for this payment."
+                  >
+                    Amount/Sh
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Whether you held eligible shares as of the ex-date (so you qualify for this payment)."
+                  >
+                    Held?
+                  </th>
                   <th
                     scope="col"
                     class="center"
@@ -1670,8 +1952,20 @@
               <table id="divForecast">
                 <thead>
                   <tr>
-                    <th scope="col" class="l">Ticker</th>
-                    <th scope="col" class="l">History (per year)</th>
+                    <th
+                      scope="col"
+                      class="l"
+                      data-tip="The holding this forecast is for."
+                    >
+                      Ticker
+                    </th>
+                    <th
+                      scope="col"
+                      class="l"
+                      data-tip="Dividend per share actually paid in each of the last few years, used to build the projection. The badge shows payments per year when more than one."
+                    >
+                      History (per year)
+                    </th>
                     <th
                       scope="col"
                       data-tip="Projected dividend per share for next year"
@@ -1692,7 +1986,13 @@
                     >
                       Consistency
                     </th>
-                    <th scope="col" class="center">Exp. Month</th>
+                    <th
+                      scope="col"
+                      class="center"
+                      data-tip="The month the dividend is typically expected, based on prior years' pay dates."
+                    >
+                      Exp. Month
+                    </th>
                     <th
                       scope="col"
                       data-tip="Net (after dividend tax) projected income on shares you hold now"
@@ -1707,7 +2007,11 @@
                     <td class="l" colspan="6" style="text-align: right">
                       <b>Projected income (held shares)</b>
                     </td>
-                    <td class="nis-cell">
+                    <td
+                      class="nis-cell"
+                      style="cursor: help"
+                      data-tip="Sum of the net projected income across all names above, for the shares you currently hold. A reference estimate, not a guarantee."
+                    >
                       <b id="divForecastTotal">&#x2014;</b>
                     </td>
                   </tr>
@@ -1723,8 +2027,12 @@
         <div class="sec">
           <h2>&#x2795; Add Transaction</h2>
           <div class="form-row">
-            <label>Date<input type="date" id="tDate" /></label>
             <label
+              data-tip="Trade date (when the order executed). Used for FIFO cost-basis ordering and the realized-gain year."
+              >Date<input type="date" id="tDate"
+            /></label>
+            <label
+              data-tip="The security being traded. Start typing to pick from your known tickers."
               >Ticker<input
                 list="tickerList"
                 id="tTicker"
@@ -1738,6 +2046,7 @@
               style="display: none; align-self: end; margin-bottom: 6px"
             ></span>
             <label
+              data-tip="BUY = add shares, SELL = reduce shares (realizes a FIFO gain/loss), DIV = record a dividend received."
               >Action<select id="tAction">
                 <option>BUY</option>
                 <option>SELL</option>
@@ -1745,6 +2054,7 @@
               </select></label
             >
             <label
+              data-tip="Number of shares/units for this transaction. Fractional units allowed for OPCVM funds."
               >Quantity<input
                 type="number"
                 id="tQty"
@@ -1794,9 +2104,16 @@
                 style="width: 18px; height: 18px; margin-top: 6px"
             /></label>
             <label
+              data-tip="Which broker executed this trade. Sets the fee schedule used to compute commission on this transaction."
               >Broker<select id="tBroker" style="width: 120px"></select
             ></label>
-            <button class="btn" id="addTxn">Add</button>
+            <button
+              class="btn"
+              id="addTxn"
+              data-tip="Save this transaction to your ledger."
+            >
+              Add
+            </button>
             <button class="btn sec2" id="cancelEdit" style="display: none">
               Cancel edit
             </button>
@@ -1870,7 +2187,12 @@
             "
           >
             <span class="mini" id="txnSelCount" style="font-weight: 600"></span>
-            <button class="btn sec2" id="txnEditSel" style="font-size: 12px">
+            <button
+              class="btn sec2"
+              id="txnEditSel"
+              style="font-size: 12px"
+              data-tip="Edit the selected transaction(s). Works on a single selected row."
+            >
               &#x270E; Edit selected
             </button>
             <button
@@ -1885,10 +2207,16 @@
               class="btn"
               id="txnDelSel"
               style="font-size: 12px; background: var(--error)"
+              data-tip="Permanently delete the selected transaction(s) from the ledger. This also re-computes FIFO cost basis and realized gains."
             >
               &#x1F5D1; Delete selected
             </button>
-            <button class="btn sec2" id="txnClearSel" style="font-size: 12px">
+            <button
+              class="btn sec2"
+              id="txnClearSel"
+              style="font-size: 12px"
+              data-tip="Clear the current row selection (does not delete anything)."
+            >
               Clear
             </button>
           </div>
@@ -1903,12 +2231,38 @@
                       data-tip="Select all"
                     />
                   </th>
-                  <th scope="col" class="l">Date</th>
-                  <th scope="col" class="l">Ticker</th>
-                  <th scope="col" class="l">Name</th>
-                  <th scope="col" class="l">Action</th>
-                  <th scope="col">Qty</th>
-                  <th scope="col">Unit Px</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Date the transaction was executed."
+                  >
+                    Date
+                  </th>
+                  <th scope="col" class="l" data-tip="The security traded.">
+                    Ticker
+                  </th>
+                  <th scope="col" class="l" data-tip="Company / fund name.">
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="BUY, SELL, or DIV (dividend received)."
+                  >
+                    Action
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Number of shares/units in this transaction."
+                  >
+                    Qty
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Price per share/unit entered for this transaction (before fees)."
+                  >
+                    Unit Px
+                  </th>
                   <th
                     scope="col"
                     data-tip="Brokerage commission + fixed fee + TVA. OPCVM PEA: flat 11 MAD. Stocks: ~0.99% + 2.75 MAD."
@@ -1933,7 +2287,13 @@
                   >
                     Net Cash
                   </th>
-                  <th scope="col" class="center">Acct</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Account the trade settled in: PEA (tax-exempt gains) or Regular (taxable)."
+                  >
+                    Acct
+                  </th>
                   <th
                     scope="col"
                     class="center"
@@ -1971,6 +2331,7 @@
               class="btn cashAcctBtn active"
               data-cacct="all"
               style="font-size: 12px; padding: 5px 14px; border-radius: 14px"
+              data-tip="Show cash across all accounts. The per-broker buttons beside this filter the movements and balances to one broker/account."
             >
               All
             </button>
@@ -1987,8 +2348,12 @@
             Record deposits, withdrawals, and account management fees.
           </div>
           <div class="form-row">
-            <label>Date<input type="date" id="cashDate" /></label>
             <label
+              data-tip="Date of the cash movement. Future-dated entries are shown but not counted in the current balance until that date."
+              >Date<input type="date" id="cashDate"
+            /></label>
+            <label
+              data-tip="Deposit = money in; Withdrawal = money out; Account Fee = a bank/management charge; Initial Balance = your starting cash on a reference date (sets the point from which trading cash flow is tracked)."
               >Type<select id="cashType">
                 <option value="deposit">Deposit</option>
                 <option value="withdrawal">Withdrawal</option>
@@ -1997,6 +2362,7 @@
               </select></label
             >
             <label
+              data-tip="Amount in MAD. Enter a positive number; the Type decides whether it adds to or subtracts from your cash."
               >Amount (MAD)<input
                 type="number"
                 id="cashAmt"
@@ -2005,6 +2371,7 @@
                 placeholder="0.00"
             /></label>
             <label
+              data-tip="Optional free-text label for this movement (e.g. salary, dividend sweep, management fee)."
               >Note<input
                 type="text"
                 id="cashNote"
@@ -2012,6 +2379,7 @@
                 style="min-width: 140px"
             /></label>
             <label
+              data-tip="Which broker/bank this cash sits with. Determines which account the movement is filtered under."
               >Broker<select id="cashBroker" style="width: 110px"></select
             ></label>
             <label
@@ -2022,9 +2390,15 @@
                 align-self: flex-end;
                 font-size: 12px;
               "
+              data-tip="Tick if this cash belongs to a PEA account (vs a Regular account)."
               ><input type="checkbox" id="cashPea" checked /> PEA</label
             >
-            <button class="btn" id="cashAdd" style="align-self: flex-end">
+            <button
+              class="btn"
+              id="cashAdd"
+              style="align-self: flex-end"
+              data-tip="Save this cash movement."
+            >
               Add
             </button>
           </div>
@@ -2037,23 +2411,42 @@
             <table class="tx-table" id="cashTable">
               <thead>
                 <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Type</th>
+                  <th scope="col" data-tip="Date of the cash movement.">
+                    Date
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Deposit, Withdrawal, Account Fee, or Initial Balance."
+                  >
+                    Type
+                  </th>
                   <th
                     scope="col"
                     data-tip="Positive = money in (deposit). Negative = money out (withdrawal/fee)."
                   >
                     Amount
                   </th>
-                  <th scope="col">Acct</th>
-                  <th scope="col">Note</th>
+                  <th
+                    scope="col"
+                    data-tip="The broker/account this movement belongs to (PEA or Regular)."
+                  >
+                    Acct
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Your optional note for this movement."
+                  >
+                    Note
+                  </th>
                   <th
                     scope="col"
                     data-tip="Cumulative balance after this movement (deposits &#x2212; withdrawals &#x2212; fees)."
                   >
                     Running Balance
                   </th>
-                  <th scope="col">Actions</th>
+                  <th scope="col" data-tip="Edit or delete this cash movement.">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody id="cashBody"></tbody>
@@ -2072,8 +2465,12 @@
             them.
           </div>
           <div class="form-row">
-            <label>Date<input type="date" id="pDate" /></label>
             <label
+              data-tip="The date you placed (or plan to place) this order. Does not affect anything until the order is validated."
+              >Date<input type="date" id="pDate"
+            /></label>
+            <label
+              data-tip="The security to buy or sell. Start typing to pick from your known tickers."
               >Ticker<input
                 list="tickerList"
                 id="pTicker"
@@ -2085,12 +2482,14 @@
               style="display: none; align-self: end; margin-bottom: 6px"
             ></span>
             <label
+              data-tip="BUY = a planned purchase; SELL = a planned sale. Validating it later adds the matching transaction."
               >Action<select id="pAction">
                 <option>BUY</option>
                 <option>SELL</option>
               </select></label
             >
             <label
+              data-tip="Number of shares/units for this order. Fractional units allowed for OPCVM funds."
               >Quantity<input
                 type="number"
                 id="pQty"
@@ -2098,6 +2497,7 @@
                 style="width: 100px"
             /></label>
             <label
+              data-tip="Your intended price per share/unit. Leave blank for an OPCVM if you enter Total instead."
               >Unit Price<input
                 type="number"
                 id="pPrice"
@@ -2138,9 +2538,16 @@
                 style="width: 18px; height: 18px; margin-top: 6px"
             /></label>
             <label
+              data-tip="Broker this order will go through. Sets the fee schedule used to estimate its cost."
               >Broker<select id="pBroker" style="width: 120px"></select
             ></label>
-            <button class="btn" id="addPending">Add order</button>
+            <button
+              class="btn"
+              id="addPending"
+              data-tip="Save this pending order. It won't touch Positions or P&amp;L until you validate it."
+            >
+              Add order
+            </button>
             <button
               class="btn sec2"
               id="cancelPendingEdit"
@@ -2155,7 +2562,11 @@
         <div class="sec">
           <h2>
             &#x23F3; Pending Buy / Sell Orders
-            <span class="chip" id="pendCount"></span>
+            <span
+              class="chip"
+              id="pendCount"
+              data-tip="How many unexecuted buy/sell orders you have logged."
+            ></span>
           </h2>
           <div
             id="pendBulkBar"
@@ -2174,7 +2585,12 @@
               id="pendSelCount"
               style="font-weight: 600"
             ></span>
-            <button class="btn sec2" id="pendEditSel" style="font-size: 12px">
+            <button
+              class="btn sec2"
+              id="pendEditSel"
+              style="font-size: 12px"
+              data-tip="Edit the selected pending order(s)."
+            >
               &#x270E; Edit selected
             </button>
             <button
@@ -2189,10 +2605,16 @@
               class="btn"
               id="pendDelSel"
               style="font-size: 12px; background: var(--error)"
+              data-tip="Delete the selected pending order(s). Does not affect Positions since pending orders aren't executed."
             >
               &#x1F5D1; Delete selected
             </button>
-            <button class="btn sec2" id="pendClearSel" style="font-size: 12px">
+            <button
+              class="btn sec2"
+              id="pendClearSel"
+              style="font-size: 12px"
+              data-tip="Clear the current selection (does not delete anything)."
+            >
               Clear
             </button>
           </div>
@@ -2207,18 +2629,42 @@
                       data-tip="Select all"
                     />
                   </th>
-                  <th scope="col" class="l">Date</th>
-                  <th scope="col" class="l">Ticker</th>
-                  <th scope="col" class="l">Name</th>
-                  <th scope="col" class="l">Action</th>
-                  <th scope="col">Qty</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Date the order was logged."
+                  >
+                    Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The security to be bought or sold."
+                  >
+                    Ticker
+                  </th>
+                  <th scope="col" class="l" data-tip="Company / fund name.">
+                    Name
+                  </th>
+                  <th scope="col" class="l" data-tip="BUY or SELL.">Action</th>
+                  <th
+                    scope="col"
+                    data-tip="Number of shares/units in the order."
+                  >
+                    Qty
+                  </th>
                   <th
                     scope="col"
                     data-tip="Current live price from your master list (Signals/Data)"
                   >
                     Live Price
                   </th>
-                  <th scope="col">Unit Px</th>
+                  <th
+                    scope="col"
+                    data-tip="Your intended order price per share/unit."
+                  >
+                    Unit Px
+                  </th>
                   <th
                     scope="col"
                     class="center"
@@ -2233,7 +2679,12 @@
                   >
                     vs Target
                   </th>
-                  <th scope="col">Total</th>
+                  <th
+                    scope="col"
+                    data-tip="Estimated all-in cost (BUY) or net proceeds (SELL) if this order executes at your price, including fees and tax. Hover a row for the breakdown."
+                  >
+                    Total
+                  </th>
                   <th
                     scope="col"
                     data-tip="Dividend yield from the master list (same figure as the Signals tab)."
@@ -2246,7 +2697,13 @@
                   >
                     Exp. P&amp;L
                   </th>
-                  <th scope="col" class="center">Acct</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Account the order will settle in: PEA (tax-exempt gains) or Regular (taxable)."
+                  >
+                    Acct
+                  </th>
                   <th
                     scope="col"
                     class="center"
@@ -2261,7 +2718,13 @@
                   >
                     Order
                   </th>
-                  <th scope="col" class="center">Actions</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Validate (add to Transactions), edit, or delete this pending order."
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -2282,8 +2745,17 @@
           <h2 style="justify-content: space-between">
             <span
               >&#x1F4B0; Pending Dividends
-              <span class="chip" id="pendDivCount"></span></span
-            ><button class="btn sec2" id="clearPendDiv" style="font-size: 12px">
+              <span
+                class="chip"
+                id="pendDivCount"
+                data-tip="How many eligible dividends are awaiting payment/recording."
+              ></span></span
+            ><button
+              class="btn sec2"
+              id="clearPendDiv"
+              style="font-size: 12px"
+              data-tip="Remove all pending (eligible-but-unreceived) dividends from this list. Does not delete any recorded dividend transactions."
+            >
               &#x1F9F9; Clear pending dividends
             </button>
           </h2>
@@ -2291,19 +2763,56 @@
             <table id="pendDivTable">
               <thead>
                 <tr>
-                  <th scope="col" class="l">Pay Date</th>
-                  <th scope="col" class="l">Ex-Date</th>
-                  <th scope="col" class="l">Ticker</th>
-                  <th scope="col">Qty</th>
-                  <th scope="col">Amount/Sh</th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Date the dividend is due to be paid."
+                  >
+                    Pay Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="Ex-dividend date that has already passed, which is why you're eligible."
+                  >
+                    Ex-Date
+                  </th>
+                  <th
+                    scope="col"
+                    class="l"
+                    data-tip="The holding this dividend is for."
+                  >
+                    Ticker
+                  </th>
+                  <th
+                    scope="col"
+                    data-tip="Eligible shares held as of the ex-date."
+                  >
+                    Qty
+                  </th>
+                  <th scope="col" data-tip="Dividend amount per share (MAD).">
+                    Amount/Sh
+                  </th>
                   <th
                     scope="col"
                     data-tip="Estimated net dividend after withholding tax and any commission (0 tax on PEA-held shares)."
                   >
                     Est. Net
                   </th>
-                  <th scope="col" class="center">Acct</th>
-                  <th scope="col" class="center">Actions</th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Account the eligible shares are held in (PEA or Regular)."
+                  >
+                    Acct
+                  </th>
+                  <th
+                    scope="col"
+                    class="center"
+                    data-tip="Validate (mark received, add to Transactions), edit, or delete this pending dividend."
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -2568,14 +3077,25 @@
                 ></div>
                 <div id="brokerFeePanel"></div>
                 <div class="form-row" style="margin-top: 12px">
-                  <button class="btn" id="saveBrokerFeesBtn">Save fees</button>
-                  <button class="btn sec2" id="resetBrokerFeesBtn">
+                  <button
+                    class="btn"
+                    id="saveBrokerFeesBtn"
+                    data-tip="Save the fee settings above for the selected broker."
+                  >
+                    Save fees
+                  </button>
+                  <button
+                    class="btn sec2"
+                    id="resetBrokerFeesBtn"
+                    data-tip="Reset this broker's fees back to the built-in default values."
+                  >
                     Reset to defaults
                   </button>
                   <button
                     class="btn sec2"
                     id="addBrokerBtn"
                     style="font-size: 11px; padding: 5px 10px"
+                    data-tip="Add a new broker with its own fee schedule, so you can tag transactions to the right broker."
                   >
                     &#x2795; Add broker
                   </button>
@@ -2597,6 +3117,7 @@
                   </div>
                   <div class="fee-fields" style="margin-top: 8px">
                     <label
+                      data-tip="TPCVM = the Moroccan capital-gains tax rate applied to profits on Regular (non-PEA) share sells. Currently 15%. PEA gains are exempt."
                       >TPCVM &#x2014; capital-gains tax (%)
                       <input type="text" id="fe_tpcvm" placeholder="15%"
                     /></label>
@@ -2606,6 +3127,7 @@
                       class="btn sec2"
                       id="saveTpcvmBtn"
                       style="font-size: 12px; padding: 5px 12px"
+                      data-tip="Save the capital-gains tax rate. Applies to all brokers' Regular-account sells."
                     >
                       Save TPCVM
                     </button>
@@ -2622,8 +3144,19 @@
                   <table id="divTaxTable">
                     <thead>
                       <tr>
-                        <th scope="col" class="l">Year</th>
-                        <th scope="col">Rate</th>
+                        <th
+                          scope="col"
+                          class="l"
+                          data-tip="The year this dividend withholding-tax rate applies to."
+                        >
+                          Year
+                        </th>
+                        <th
+                          scope="col"
+                          data-tip="Dividend withholding-tax rate for that year. Years beyond the table use the latest defined rate."
+                        >
+                          Rate
+                        </th>
                         <th scope="col"></th>
                       </tr>
                     </thead>
@@ -2631,10 +3164,11 @@
                   </table>
                 </div>
                 <div class="fee-fields" style="margin-top: 10px">
-                  <label
+                  <label data-tip="The year to set a dividend-tax rate for."
                     >Year <input type="number" id="ntYear" placeholder="2028"
                   /></label>
                   <label
+                    data-tip="The dividend withholding-tax rate (%) for that year."
                     >Rate %
                     <input
                       type="number"
@@ -2644,7 +3178,11 @@
                   /></label>
                 </div>
                 <div class="form-row" style="margin-top: 10px">
-                  <button class="btn sec2" id="addYear">
+                  <button
+                    class="btn sec2"
+                    id="addYear"
+                    data-tip="Add a new year's dividend-tax rate, or update it if that year already exists in the table."
+                  >
                     Add / update year
                   </button>
                 </div>

@@ -572,14 +572,28 @@ export function planTrades(targets, positions, cash, helpers, opts) {
   const metaOf = (tk) => posByTk[tk] || {};
   const groupBy = (key, fallback) => {
     const g = {};
+    const members = {}; // group name -> [{ ticker, name, weight }]
     for (const tk in postVal) {
       if (postVal[tk] <= EPS) continue;
-      const k = metaOf(tk)[key] || fallback;
+      const meta = metaOf(tk);
+      const k = meta[key] || fallback;
       g[k] = (g[k] || 0) + postVal[tk];
+      (members[k] = members[k] || []).push({
+        ticker: tk,
+        name: meta.name || tk,
+        weight: totalPost > 0 ? postVal[tk] / totalPost : 0,
+      });
     }
-    // -> [{ name, weight }] of the TOTAL (incl cash), sorted desc
+    // -> [{ name, weight, members:[{ticker,name,weight}] }] of the TOTAL (incl
+    // cash), each sorted desc. `members` lets the UI show exactly which holdings
+    // make up a sector/cycle/style group on hover (incl. what "Uncategorized"
+    // actually contains).
     return Object.keys(g)
-      .map((k) => ({ name: k, weight: totalPost > 0 ? g[k] / totalPost : 0 }))
+      .map((k) => ({
+        name: k,
+        weight: totalPost > 0 ? g[k] / totalPost : 0,
+        members: (members[k] || []).sort((a, b) => b.weight - a.weight),
+      }))
       .sort((a, b) => b.weight - a.weight);
   };
   // Value-weight attractiveness and volatility. Each metric uses its OWN base

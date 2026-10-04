@@ -1,6 +1,6 @@
 // ============================================================
 // 03-signals.js
-// signals: scoring (num/lin/soft), sector stats, factorScores, fairValue, targets, signal, daysUntil
+// signals: scoring (num/lin/soft), sector stats, factorScores, fairValue, targets, signal
 // Part of the Portfolio Tracker app. Loaded as an ordered plain
 // <script> (shared global scope) - order matters, see index.html.
 // ============================================================
@@ -1055,13 +1055,4 @@ function signal(m, sc, held) {
   }
   R.push("Fairly valued \u2014 hold; add only on weakness.");
   return { t: "\u27A1\uFE0F HOLD", c: "b-hold", reasons: R };
-}
-
-// Back-compat alias used by renderSignals
-function scoreParts(m) {
-  const r = factorScores(m);
-  return r ? { total: r.score, pir: r.pir, coverage: r.coverage } : null;
-}
-function daysUntil(d) {
-  return Math.round((new Date(d) - TODAY) / 86400000);
 }

@@ -115,33 +115,89 @@ function renderSalary() {
   if (ph2) ph2.textContent = " = " + (r.ancPct * 100).toFixed(0) + "% premium";
   // cards
   document.getElementById("s_cards").innerHTML =
-    '<div class="salcard"><div class="k">Gross (Brut Global)</div><div class="v">' +
+    '<div class="salcard nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Gross (Brut Global)") +
+        tipRow("Base salary", mad(r.base)) +
+        tipRow("+ Seniority premium", mad(r.anc)) +
+        tipRow("+ Transport (exempt)", mad(i.transport)) +
+        tipRow("+ Panier (exempt)", mad(i.panier)) +
+        tipRow("+ RSU / other", mad(i.rsu)) +
+        tipRow("= Brut Global", mad(r.bg)) +
+        tipNote(
+          "Your total monthly gross pay before any social or tax deductions.",
+        ),
+    ) +
+    '"><div class="k">Gross (Brut Global)</div><div class="v">' +
     mad(r.bg) +
     '</div><div class="mini">MAD / month</div></div>' +
-    '<div class="salcard"><div class="k">Net in hand</div><div class="v" style="color:var(--success)">' +
+    '<div class="salcard nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Net in hand") +
+        tipRow("Brut Global", mad(r.bg)) +
+        tipRow("\u2212 CNSS + AMO + CIMR", mad(r.cnss + r.amo + r.cimr)) +
+        tipRow("\u2212 Income tax (IR)", mad(r.ir)) +
+        tipRow("= Net in hand", mad(r.net)) +
+        tipRow("Per year", mad(r.net * 12)) +
+        tipNote(
+          "What actually lands in your account each month, after social contributions and income tax. See the Breakdown table below for every line.",
+        ),
+    ) +
+    '"><div class="k">Net in hand</div><div class="v" style="color:var(--success)">' +
     mad(r.net) +
     '</div><div class="mini">MAD / month \u00B7 ' +
     mad(r.net * 12) +
     "/yr</div></div>" +
-    '<div class="salcard"><div class="k">Income Tax (IR)</div><div class="v" style="color:var(--error)">' +
+    '<div class="salcard nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Income Tax (IR)") +
+        tipRow("Revenu Net Imposable", mad(r.rni)) +
+        tipRow("Marginal rate", (r.rate * 100).toFixed(0) + "%") +
+        tipRow("IR before dependents", mad(r.irGross)) +
+        tipRow("\u2212 Dependent relief", mad(r.irGross - r.ir)) +
+        tipRow("= Income tax", mad(r.ir)) +
+        tipNote(
+          "Monthly income tax (IR) from the progressive Moroccan bar\u00E8me: marginal rate on your net taxable income, minus the fixed bracket deduction and dependent relief.",
+        ),
+    ) +
+    '"><div class="k">Income Tax (IR)</div><div class="v" style="color:var(--error)">' +
     mad(r.ir) +
     '</div><div class="mini">marginal ' +
     (r.rate * 100).toFixed(0) +
     "%</div></div>" +
-    '<div class="salcard"><div class="k">Effective deduction</div><div class="v">' +
+    '<div class="salcard nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Effective deduction") +
+        tipRow("Gross (Brut Global)", mad(r.bg)) +
+        tipRow("Net in hand", mad(r.net)) +
+        tipRow("Effective deduction", (r.effRate * 100).toFixed(2) + "%") +
+        tipNote(
+          "Share of your gross that is lost to all deductions combined = 1 - net / gross. Your true overall 'tax + contributions' rate.",
+        ),
+    ) +
+    '"><div class="k">Effective deduction</div><div class="v">' +
     (r.effRate * 100).toFixed(2) +
     '%</div><div class="mini">of gross</div></div>';
-  // table
-  const row = (l, v, cls) =>
+  // table. Optional 4th arg `tip` adds a hover explanation to the row (for the
+  // derived/aggregate lines a reader is likely to question).
+  const row = (l, v, cls, tip) =>
     '<tr class="' +
     (cls || "") +
-    '"><td>' +
+    (tip ? " nis-cell" : "") +
+    '"' +
+    (tip ? ' style="cursor:help" data-tip="' + tipRef(tip) + '"' : "") +
+    "><td>" +
     l +
     '</td><td class="num" style="text-align:right;font-family:var(--mono)">' +
     mad(v) +
     "</td></tr>";
   document.querySelector("#s_table tbody").innerHTML =
-    row("Base salary (monthly)", r.base) +
+    row(
+      "Base salary (monthly)",
+      r.base,
+      "",
+      "Your annual base salary divided by 12.",
+    ) +
     row(
       "+ Seniority (Anciennet\u00E9: " +
         i.ancYears +
@@ -149,30 +205,85 @@ function renderSalary() {
         (r.ancPct * 100).toFixed(0) +
         "%)",
       r.anc,
+      "",
+      "Seniority premium = base salary x the legally-scaled anciennet\u00E9 rate for your years of service (" +
+        (r.ancPct * 100).toFixed(0) +
+        "%).",
     ) +
-    row("+ Transport (exempt)", i.transport, "sub") +
-    row("+ Panier (exempt)", i.panier, "sub") +
-    row("+ RSU / other", i.rsu, "sub") +
-    row("= Brut Global (BG)", r.bg, "tot") +
-    row("Salaire Brut Imposable (SBI)", r.sbi) +
-    row("\u2212 CNSS (4.48% cap 6 000)", r.cnss, "sub") +
-    row("\u2212 AMO (2.26%)", r.amo, "sub") +
-    row("\u2212 CIMR (" + (i.cimr * 100).toFixed(1) + "%)", r.cimr, "sub") +
+    row(
+      "+ Transport (exempt)",
+      i.transport,
+      "sub",
+      "Transport allowance. Tax-exempt within legal limits, so it is added to take-home but not to the taxable base.",
+    ) +
+    row(
+      "+ Panier (exempt)",
+      i.panier,
+      "sub",
+      "Meal allowance (panier). Tax-exempt within legal limits.",
+    ) +
+    row(
+      "+ RSU / other",
+      i.rsu,
+      "sub",
+      "Other taxable income you entered (RSUs, bonuses, etc.).",
+    ) +
+    row(
+      "= Brut Global (BG)",
+      r.bg,
+      "tot",
+      "Brut Global = base + seniority + transport + panier + RSU. Your total gross pay.",
+    ) +
+    row(
+      "Salaire Brut Imposable (SBI)",
+      r.sbi,
+      "",
+      "Taxable gross = Brut Global minus the exempt allowances (transport, panier). This is what social contributions and tax are based on.",
+    ) +
+    row(
+      "\u2212 CNSS (4.48% cap 6 000)",
+      r.cnss,
+      "sub",
+      "Social-security contribution: 4.48% of taxable gross, capped at a 6,000 MAD base.",
+    ) +
+    row(
+      "\u2212 AMO (2.26%)",
+      r.amo,
+      "sub",
+      "Compulsory health-insurance contribution: 2.26% of taxable gross.",
+    ) +
+    row(
+      "\u2212 CIMR (" + (i.cimr * 100).toFixed(1) + "%)",
+      r.cimr,
+      "sub",
+      "Complementary retirement contribution at your chosen rate (" +
+        (i.cimr * 100).toFixed(1) +
+        "% of taxable gross).",
+    ) +
     row(
       "\u2212 Frais professionnels (" +
         (r.fraisProRate * 100).toFixed(0) +
         "% cap 35k/yr)",
       r.fraisPro,
       "sub",
+      "Standard professional-expense allowance: " +
+        (r.fraisProRate * 100).toFixed(0) +
+        "% of taxable gross (35% if annual \u2264 78,000 MAD else 25%), capped at 35,000 MAD/year.",
     ) +
     (i.logementOn
       ? row(
           "\u2212 Housing-loan interest deduction (\u226410% RNI)",
           r.logement,
           "sub",
+          "Primary-residence loan interest, deductible up to 10% of net taxable income.",
         )
       : "") +
-    row("= Revenu Net Imposable (RNI)", r.rni, "tot") +
+    row(
+      "= Revenu Net Imposable (RNI)",
+      r.rni,
+      "tot",
+      "Net taxable income = taxable gross minus CNSS, AMO, CIMR, professional expenses (and housing-loan interest if enabled). The income tax is computed on this.",
+    ) +
     row(
       "IR before dependents (marg " +
         (r.rate * 100).toFixed(0) +
@@ -181,14 +292,32 @@ function renderSalary() {
         ")",
       r.irGross,
       "sub",
+      "Income tax from the progressive bar\u00E8me: your net taxable income x the marginal rate (" +
+        (r.rate * 100).toFixed(0) +
+        "%), minus the fixed deduction for that bracket (" +
+        mad(r.ded) +
+        "), before dependent relief.",
     ) +
     row(
       "\u2212 Dependent relief (" + i.dep + " \u00D7 50)",
       r.depRelief,
       "sub",
+      "50 MAD per month per dependent (" +
+        i.dep +
+        " x 50), deducted from the income tax.",
     ) +
-    row("= Income Tax (IR)", r.ir, "tot") +
-    row("NET IN HAND", r.net, "tot");
+    row(
+      "= Income Tax (IR)",
+      r.ir,
+      "tot",
+      "Final monthly income tax after dependent relief.",
+    ) +
+    row(
+      "NET IN HAND",
+      r.net,
+      "tot",
+      "Take-home pay = Brut Global minus CNSS, AMO, CIMR and income tax.",
+    );
 }
 
 // live recompute on any salary input change
@@ -234,150 +363,7 @@ function renderSalary() {
   } catch (e) {}
 })();
 
-/* ===== Instant tooltip engine (data-tip) \u2014 no native title delay ===== */
-(function () {
-  if (window.__qtipInit) return;
-  window.__qtipInit = true;
-  const tip = document.createElement("div");
-  tip.id = "__qtip";
-  tip.style.cssText =
-    "position:fixed;z-index:99999;max-width:340px;background:#0d1520;color:#e6edf3;border:1px solid #2c3742;border-radius:8px;padding:9px 11px;font-size:11.5px;line-height:1.5;white-space:pre-line;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none;opacity:0;transition:opacity .08s;font-family:var(--sans,system-ui);display:none";
-  document.addEventListener("DOMContentLoaded", () =>
-    document.body.appendChild(tip),
-  );
-  if (document.body) document.body.appendChild(tip);
-  let cur = null;
-  function place(e) {
-    const pad = 14;
-    let x = e.clientX + pad,
-      y = e.clientY + pad;
-    const r = tip.getBoundingClientRect();
-    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
-    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
-    if (x < 8) x = 8;
-    if (y < 8) y = 8;
-    tip.style.left = x + "px";
-    tip.style.top = y + "px";
-  }
-  // Build a sanitized DOM fragment from tooltip HTML. Returns a DocumentFragment
-  // (never an HTML string), so callers use replaceChildren instead of innerHTML.
-  // `html` here is always TRUSTED app output taken from the __TIP registry
-  // (see tipRef below) - never a value read from the DOM - so no untrusted
-  // string is ever parsed as HTML. The whitelist below is defense-in-depth.
-  function buildTipNodes(html) {
-    // Parse with DOMParser (an inert document - scripts do not run, and no
-    // element is ever assigned via innerHTML), then transplant only whitelisted
-    // nodes into the live tooltip.
-    const doc = new DOMParser().parseFromString(String(html), "text/html");
-    const OK_TAGS = {
-      B: 1,
-      I: 1,
-      U: 1,
-      EM: 1,
-      STRONG: 1,
-      SPAN: 1,
-      DIV: 1,
-      BR: 1,
-      SMALL: 1,
-      P: 1,
-      UL: 1,
-      OL: 1,
-      LI: 1,
-      TABLE: 1,
-      THEAD: 1,
-      TBODY: 1,
-      TR: 1,
-      TD: 1,
-      TH: 1,
-    };
-    const OK_ATTR = { style: 1, class: 1 };
-    const clean = (src, dest) => {
-      for (const node of Array.prototype.slice.call(src.childNodes)) {
-        if (node.nodeType === 3) {
-          dest.appendChild(document.createTextNode(node.nodeValue));
-          continue;
-        }
-        if (node.nodeType !== 1) continue;
-        if (!OK_TAGS[node.tagName]) {
-          // Unknown/unsafe element: keep its text, drop the element itself.
-          const span = document.createElement("span");
-          clean(node, span);
-          while (span.firstChild) dest.appendChild(span.firstChild);
-          continue;
-        }
-        const el = document.createElement(node.tagName.toLowerCase());
-        for (const attr of Array.prototype.slice.call(node.attributes)) {
-          const n = attr.name.toLowerCase();
-          const v = String(attr.value);
-          if (!OK_ATTR[n]) continue;
-          if (
-            /(javascript|data|vbscript):/i.test(v) ||
-            /expression\s*\(/i.test(v)
-          ) {
-            continue;
-          }
-          el.setAttribute(n, v);
-        }
-        clean(node, el);
-        dest.appendChild(el);
-      }
-    };
-    const frag = document.createDocumentFragment();
-    clean(doc.body, frag);
-    return frag;
-  }
-  document.addEventListener("mouseover", (e) => {
-    const t = e.target.closest("[data-tip]");
-    if (!t) {
-      return;
-    }
-    var raw = t.getAttribute("data-tip") || "";
-    if (raw === "") return; // empty data-tip -> no tooltip
-    cur = t;
-    // Rich (HTML) tooltips are registered in the trusted __TIP store and the
-    // attribute only carries an opaque token (e.g. "#t42"). Plain-text tooltips
-    // keep their literal string in the attribute. This means untrusted DOM text
-    // is NEVER parsed as HTML - only trusted, app-built HTML from __TIP is.
-    var token = /^#t\d+$/.test(raw) ? raw : null;
-    if (token) {
-      const html = __TIP.get(token);
-      if (html == null) return; // token with no (surviving) content -> skip
-      tip.replaceChildren(buildTipNodes(html));
-      tip.style.whiteSpace = "normal";
-    } else {
-      // Legacy/plain path: literal text (optionally %-encoded), shown as text.
-      var txt = raw;
-      if (/%[0-9A-Fa-f]{2}/.test(raw)) {
-        try {
-          txt = decodeURIComponent(raw);
-        } catch (_) {
-          txt = raw;
-        }
-      }
-      tip.textContent = txt;
-      tip.style.whiteSpace = "pre-line";
-    }
-    tip.style.display = "block";
-    place(e);
-    requestAnimationFrame(() => {
-      tip.style.opacity = "1";
-      place(e);
-    });
-  });
-  document.addEventListener("mousemove", (e) => {
-    if (cur) place(e);
-  });
-  document.addEventListener("mouseout", (e) => {
-    const t = e.target.closest("[data-tip]");
-    if (t && t === cur) {
-      cur = null;
-      tip.style.opacity = "0";
-      setTimeout(() => {
-        if (!cur) tip.style.display = "none";
-      }, 100);
-    }
-  });
-})();
+/* ===== Instant tooltip engine moved to js/01b-tooltip.js ===== */
 
 /* ===== Stock Categories (manual, not TradingView) \u2014 upload / persist / apply ===== */
 const CAT_LS = "casa_categories_v1";
@@ -897,7 +883,7 @@ function renderCash() {
     <td style="font-size:11px;opacity:.8">${escapeHtml((BROKERS[r.broker] || {}).name || (r.pea ? "PEA" : "Reg"))} <span class="mini">${r.pea ? "PEA" : "Reg"}</span></td>
     <td>${escapeHtml(r.note || "\u2014")}</td>
     <td style="font-weight:600">${r._bal == null ? "\u2014" : money(r._bal) + " MAD"}</td>
-    <td><button class="btn-sm" data-act="editCashRow" data-args="${r._idx}" title="Edit">\u270e</button> <button class="btn-sm" data-act="deleteCashRow" data-args="${r._idx}" title="Delete">\u2715</button></td>
+    <td><button class="btn-sm" data-act="editCashRow" data-args="${r._idx}" data-tip="Edit this cash movement">\u270e</button> <button class="btn-sm" data-act="deleteCashRow" data-args="${r._idx}" data-tip="Delete this cash movement">\u2715</button></td>
   </tr>`,
     )
     .join("");

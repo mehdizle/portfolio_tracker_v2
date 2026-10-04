@@ -97,191 +97,10 @@ function safeParseLS(key, raw, fallback, label) {
     return { ok: false, value: fallback };
   }
 }
-// ---------- in-app modal helpers ----------
-function _qwTodayISO() {
-  const d = new Date();
-  const o = d.getTimezoneOffset();
-  const l = new Date(d.getTime() - o * 60000);
-  return l.toISOString().slice(0, 10);
-}
-// Validate a YYYY-MM-DD string is a REAL calendar date (rejects 2024-13-40,
-// 2024-02-30, empty, or non-string). Used to guard transaction/import input.
-function validTxnDate(s) {
-  if (typeof s !== "string") return false;
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return false;
-  const y = +m[1],
-    mo = +m[2],
-    da = +m[3];
-  if (mo < 1 || mo > 12 || da < 1 || da > 31) return false;
-  const dt = new Date(y, mo - 1, da);
-  // round-trip check: JS Date normalizes overflow (Feb 30 -> Mar 2), so a valid
-  // date must read back the same Y/M/D.
-  return (
-    dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === da
-  );
-}
-function appConfirm(message, opts) {
-  opts = opts || {};
-  return new Promise((res) => {
-    const back = document.createElement("div");
-    back.className = "qwmodal-back";
-    back.innerHTML =
-      '<div class="qwmodal" role="dialog" aria-modal="true">' +
-      "<h3>" +
-      escapeHtml(opts.title || "Please confirm") +
-      "</h3>" +
-      '<p class="qw-msg"></p>' +
-      '<div class="qw-btns">' +
-      '<button class="qw-b qw-cancel">' +
-      escapeHtml(opts.cancelText || "Cancel") +
-      "</button>" +
-      '<button class="qw-b qw-ok' +
-      (opts.danger ? " qw-danger" : "") +
-      '">' +
-      escapeHtml(opts.okText || "Confirm") +
-      "</button>" +
-      "</div></div>";
-    back.querySelector(".qw-msg").textContent = message;
-    const done = (v) => {
-      back.remove();
-      document.removeEventListener("keydown", onKey);
-      res(v);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") done(false);
-      else if (e.key === "Enter") done(true);
-    };
-    back.querySelector(".qw-cancel").onclick = () => done(false);
-    back.querySelector(".qw-ok").onclick = () => done(true);
-    back.addEventListener("mousedown", (e) => {
-      if (e.target === back) done(false);
-    });
-    document.addEventListener("keydown", onKey);
-    document.body.appendChild(back);
-    back.querySelector(".qw-ok").focus();
-  });
-}
-function appPrompt(label, value, opts) {
-  opts = opts || {};
-  return new Promise((res) => {
-    const back = document.createElement("div");
-    back.className = "qwmodal-back";
-    const showToday = !!opts.today;
-    back.innerHTML =
-      '<div class="qwmodal" role="dialog" aria-modal="true">' +
-      "<h3>" +
-      escapeHtml(opts.title || "Enter a value") +
-      "</h3>" +
-      '<label class="qw-field"><span class="qw-lbl"></span>' +
-      '<span class="qw-inrow"><input type="' +
-      (opts.inputType || "text") +
-      '">' +
-      (showToday
-        ? '<button type="button" class="qw-today">Today</button>'
-        : "") +
-      "</span></label>" +
-      '<div class="qw-btns">' +
-      '<button class="qw-b qw-cancel">Cancel</button>' +
-      '<button class="qw-b qw-ok">OK</button>' +
-      "</div></div>";
-    back.querySelector(".qw-lbl").textContent = label;
-    const inp = back.querySelector("input");
-    inp.value = value == null ? "" : value;
-    const done = (v) => {
-      back.remove();
-      document.removeEventListener("keydown", onKey);
-      res(v);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") done(null);
-      else if (e.key === "Enter") done(inp.value);
-    };
-    if (showToday) {
-      back.querySelector(".qw-today").onclick = () => {
-        inp.value = _qwTodayISO();
-        inp.focus();
-      };
-    }
-    back.querySelector(".qw-cancel").onclick = () => done(null);
-    back.querySelector(".qw-ok").onclick = () => done(inp.value);
-    back.addEventListener("mousedown", (e) => {
-      if (e.target === back) done(null);
-    });
-    document.addEventListener("keydown", onKey);
-    document.body.appendChild(back);
-    inp.focus();
-    inp.select();
-  });
-}
-// combined fill dialog for validating a pending order (date+Today, price, qty, total)
-function appFillDialog(o, isDiv, moneyFn) {
-  return new Promise((res) => {
-    const back = document.createElement("div");
-    back.className = "qwmodal-back";
-    const qtyRow = isDiv
-      ? ""
-      : '<label class="qw-field">Quantity executed (order is ' +
-        moneyFn(o.qty, o.qty % 1 ? 3 : 0) +
-        " \u2014 less = partial fill)" +
-        '<span class="qw-inrow"><input id="qwf-qty" type="text"></span></label>';
-    const totRow =
-      !isDiv && o.total != null
-        ? '<label class="qw-field">Executed Total TTC (blank = qty\u00D7price)' +
-          '<span class="qw-inrow"><input id="qwf-tot" type="text"></span></label>'
-        : "";
-    back.innerHTML =
-      '<div class="qwmodal" role="dialog" aria-modal="true">' +
-      "<h3>" +
-      (isDiv ? "Record dividend" : "Validate order") +
-      " \u2014 " +
-      escapeHtml(o.ticker || "") +
-      "</h3>" +
-      '<label class="qw-field">' +
-      (isDiv ? "Date received (YYYY-MM-DD)" : "Execution date (YYYY-MM-DD)") +
-      '<span class="qw-inrow"><input id="qwf-date" type="text"><button type="button" class="qw-today">Today</button></span></label>' +
-      '<label class="qw-field">' +
-      (isDiv ? "Dividend amount per share" : "Executed unit price") +
-      '<span class="qw-inrow"><input id="qwf-price" type="text"></span></label>' +
-      qtyRow +
-      totRow +
-      '<div class="qw-btns"><button class="qw-b qw-cancel">Cancel</button><button class="qw-b qw-ok">Confirm</button></div></div>';
-    const g = (id) => back.querySelector("#" + id);
-    g("qwf-date").value = o.date || "";
-    g("qwf-price").value = o.price != null ? o.price : "";
-    if (!isDiv) g("qwf-qty").value = o.qty;
-    if (totRow) g("qwf-tot").value = +o.total.toFixed(2);
-    back.querySelector(".qw-today").onclick = () => {
-      g("qwf-date").value = _qwTodayISO();
-      g("qwf-date").focus();
-    };
-    const done = (v) => {
-      back.remove();
-      document.removeEventListener("keydown", onKey);
-      res(v);
-    };
-    const submit = () =>
-      done({
-        date: g("qwf-date").value,
-        price: g("qwf-price").value,
-        qty: isDiv ? null : g("qwf-qty").value,
-        total: totRow ? g("qwf-tot").value : null,
-      });
-    const onKey = (e) => {
-      if (e.key === "Escape") done(null);
-      else if (e.key === "Enter" && e.target.tagName !== "BUTTON") submit();
-    };
-    back.querySelector(".qw-cancel").onclick = () => done(null);
-    back.querySelector(".qw-ok").onclick = submit;
-    back.addEventListener("mousedown", (e) => {
-      if (e.target === back) done(null);
-    });
-    document.addEventListener("keydown", onKey);
-    document.body.appendChild(back);
-    g("qwf-date").focus();
-    g("qwf-date").select();
-  });
-}
+// ---------- in-app modal helpers moved to js/01c-ui-kit.js ----------
+// (_qwTodayISO / validTxnDate / appConfirm / appPrompt / appFillDialog now live
+// in the UI-kit module.)
+
 // ---------- HTML escaping (XSS-safe interpolation of user text) ----------
 function escapeHtml(v) {
   if (v == null) return "";
@@ -296,145 +115,13 @@ function escapeHtml(v) {
   });
 }
 
-// ---------- Ticker badge (monogram fallback + optional real logo) ----------
-// Renders a small inline badge for a ticker:
-//   - a deterministic colored monogram (always works, offline, private), PLUS
-//   - an <img> that tries logos/<TICKER>.svg then logos/<TICKER>.png; if one
-//     loads it reveals itself and hides the monogram; if all 404 the monogram
-//     stays. No inline handlers - delegated load/error listeners (in 09-boot.js)
-//     wire the swap + fallback, keeping the "no inline onclick/onerror" model.
-// Drop real logos into public/logos/ (SVG preferred, PNG accepted), either flat
-// (logos/<TICKER>.svg) or under an exchange subfolder (logos/CSEMA/<TICKER>.svg).
-// Case-insensitive stored key; they override the monogram automatically.
-// Exchange subfolders under logos/ to search for a ticker logo, in order.
-// "" = the flat logos/ root (kept last so a top-level drop-in still works).
-// Add more exchanges here (e.g. "NYSE", "LSE") if logos are sorted by market.
-const LOGO_DIRS = ["CSEMA", ""];
-function _tickerHue(tk) {
-  // Stable hash -> hue (0..359). Same ticker always gets the same color.
-  let h = 0;
-  const s = String(tk || "");
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
-  return h;
-}
-function _tickerInitials(tk) {
-  const s = String(tk || "").replace(/[^A-Za-z0-9]/g, "");
-  if (!s) return "?";
-  // Up to 3 chars for readability (e.g. "NKL", "ATW", "SBM").
-  return s.slice(0, 3).toUpperCase();
-}
-// Filesystem-safe logo key for a ticker (spaces/punct -> underscore, upper).
-function _tickerLogoKey(tk) {
-  return String(tk || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-// Logo file extensions tried per directory, in order (SVG preferred).
-const LOGO_EXTS = ["svg", "png"];
-// i-th logo-URL candidate for a ticker key, or null once exhausted. The URL is
-// built ONLY from hardcoded constants (LOGO_DIRS/LOGO_EXTS) plus the key
-// re-sanitized here to [A-Z0-9_], so nothing derived from untrusted DOM text is
-// ever assigned to an <img src>. This is the single source of truth for both
-// the initial badge src and the on-error fallback walk (09-boot.js), which lets
-// CodeQL see the sink is fed only by safe, constant-derived strings.
-function logoCandidate(key, i) {
-  const safe = String(key || "").replace(/[^A-Z0-9_]/g, "");
-  if (!safe) return null;
-  const perDir = LOGO_EXTS.length;
-  const dirIdx = Math.floor(i / perDir);
-  if (dirIdx >= LOGO_DIRS.length) return null;
-  const dir = LOGO_DIRS[dirIdx];
-  const ext = LOGO_EXTS[i % perDir];
-  return "logos/" + (dir ? dir + "/" : "") + safe + "." + ext;
-}
-// size = badge diameter in px (default 20). Returns an inline-block HTML string.
-function tickerBadge(tk, size) {
-  const px = size || 20;
-  const key = _tickerLogoKey(tk);
-  if (!key) return "";
-  const hue = _tickerHue(key);
-  const initials = escapeHtml(_tickerInitials(tk));
-  const fontPx = Math.max(
-    7,
-    Math.round(px * (initials.length >= 3 ? 0.34 : 0.42)),
-  );
-  // logos/ is relative to the page, so it resolves under the GitHub Pages base
-  // (/portfolio_tracker_v2/logos/...) and locally, with no build-time base var.
-  // Candidate URLs, tried in order: each exchange subfolder (LOGO_DIRS) then the
-  // flat logos/ root, SVG before PNG (see logoCandidate). This lets logos be
-  // organized by exchange (logos/CSEMA/ATW.svg) or dropped flat (logos/ATW.svg).
-  // First candidate is the initial src; the on-error walk (09-boot.js) advances
-  // the attempt index (data-logo-i) and rebuilds the next URL via logoCandidate,
-  // so no DOM-attribute text is ever assigned to img.src. If every candidate
-  // 404s, the monogram stays.
-  const src = logoCandidate(key, 0) || "";
-  return (
-    '<span class="tkr-badge" style="width:' +
-    px +
-    "px;height:" +
-    px +
-    'px;position:relative;display:inline-flex;flex:none;vertical-align:middle;margin-right:6px;border-radius:6px;overflow:hidden;align-items:center;justify-content:center;background:#fff">' +
-    // monogram (visible fallback)
-    '<span class="tkr-mono" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:' +
-    fontPx +
-    "px;color:#fff;background:hsl(" +
-    hue +
-    ',62%,42%);letter-spacing:.02em">' +
-    initials +
-    "</span>" +
-    // real logo, layered ON TOP of the monogram with an opaque white background
-    // so it covers it when present. It is VISIBLE by default (not display:none)
-    // so the browser always fetches it - a hidden/lazy image is often never
-    // loaded, which previously left the monogram stuck. On error the delegated
-    // handler (09-boot.js) advances data-logo-i and rebuilds the next candidate
-    // via logoCandidate; once exhausted it hides the img so the monogram shows
-    // through. No loading="lazy" for the same reason.
-    '<img class="tkr-logo" alt="" src="' +
-    escapeHtml(src) +
-    '" data-logo-key="' +
-    escapeHtml(key) +
-    '" data-logo-i="0"' +
-    // inset:-1px makes the logo slightly OVERFILL the wrapper so its opaque
-    // pixels extend under the rounded clip at the corners - this removes the
-    // ~1px antialiased white halo where the wrapper background would otherwise
-    // bleed through. width/height use calc(100% + 2px) to match the overfill.
-    ' style="position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px);object-fit:cover;display:block">' +
-    "</span>"
-  );
-}
+// ---------- Ticker badge widget moved to js/01c-ui-kit.js ----------
+// (tickerBadge / logoCandidate / LOGO_DIRS / LOGO_EXTS and the logo-error
+// fallback now live in the UI-kit module.)
 
-// ---------- Trusted tooltip registry ----------
-// Rich (HTML) tooltips are our OWN generated markup, but embedding that HTML in
-// a data-tip attribute means it must be re-parsed from the DOM on hover - a
-// tainted "DOM text -> HTML" flow. Instead we keep the trusted HTML in this
-// in-memory store and put only an opaque token ("#t<n>") in the attribute. The
-// tooltip engine (08-salary.js) looks the token up here and builds DOM from the
-// trusted string, so no untrusted attribute value is ever parsed as HTML.
-const __TIP = new Map(); // token -> trusted tooltip HTML
-const __TIP_BY_HTML = new Map(); // html -> token (content-addressed dedupe)
-let __TIP_SEQ = 0;
-// Register trusted tooltip HTML, return the token to place in data-tip="...".
-// Content-addressed: identical HTML reuses the same token, so the store only
-// grows by DISTINCT tooltip content (bounded and small) and never needs a reset
-// that could orphan tokens still referenced by another tab's live DOM.
-// Plain text should NOT use this - pass it directly so it renders as text.
-function tipRef(html) {
-  if (html == null || html === "") return "";
-  const s = String(html);
-  let token = __TIP_BY_HTML.get(s);
-  if (token == null) {
-    token = "#t" + ++__TIP_SEQ;
-    __TIP.set(token, s);
-    __TIP_BY_HTML.set(s, token);
-  }
-  return token;
-}
-if (typeof window !== "undefined") {
-  window.__TIP = __TIP;
-  window.tipRef = tipRef;
-}
+// ---------- Tooltip registry + engine moved to js/01b-tooltip.js ----------
+// (tipRef / __TIP and the hover engine now live in the dedicated tooltip
+// module, which loads immediately after this file.)
 
 // ---------- Highcharts load guard (graceful offline degradation) ----------
 (function () {
@@ -498,7 +185,8 @@ const SEED = {
   master: {},
   dividend_calendar: [],
   fee_params: { commission: 0.0099, fixed_fee: 2.75, tpcvm: 0.15 },
-  div_tax_by_year: { 2025: 0.12, 2026: 0.1125, 2027: 0.1 },
+  // Dividend tax by year now has a single source of truth in src/core/config.js
+  // (DIVTAX_DEFAULT, via __core.defaults); 02b-fees.js seeds from there.
   prices_updated: "2026-07-29",
 };
 const LS_KEY = "casa_portfolio_txns_v1";
@@ -558,232 +246,9 @@ const ISSUER_TO_TICKER = {
 };
 const TODAY = new Date();
 TODAY.setHours(0, 0, 0, 0);
-// Granular, editable & persisted fee parameters (defaults mirror Excel BS:BX)
-const FP_DEFAULT = {
-  c_marche: 0.002,
-  c_interm: 0.006,
-  c_regl: 0.001,
-  vat: 0.1,
-  courier: 2.5,
-  tpcvm: 0.15,
-};
-let FP = (() => {
-  try {
-    const s = localStorage.getItem("casa_fees_v1");
-    if (s) return { ...FP_DEFAULT, ...JSON.parse(s) };
-  } catch (e) {
-    console.warn(
-      "Could not load saved fees (casa_fees_v1); using defaults.",
-      e,
-    );
-  }
-  return { ...FP_DEFAULT };
-})();
-function saveFees() {
-  if (safeSetItem("casa_fees_v1", JSON.stringify(FP))) markSaved();
-}
-// \u2500\u2500 GLOBAL VAT (single source of truth) \u2500\u2500
-// VAT is a national 10% rate applied to broker commissions everywhere. Stored once
-// on FP.vat (editable under Data \u25B8 Global tax). All fee helpers read vatRate() so
-// per-broker vat fields are NOT authoritative \u2014 change it here, it flows everywhere.
-// v2: fee/tax leaf helpers delegate to the tested core (src/core/fees.js,
-// tax.js) so the whole app shares ONE rounding-correct implementation. They
-// keep their v1 names/signatures, reading the live FP/FP_PEA/BROKERS/DIVTAX
-// globals and forwarding them to the pure core functions.
-function vatRate() {
-  return __core.fees.vatRate(FP);
-}
-function feeRate() {
-  return __core.fees.feeRate(FP, vatRate());
-}
-function fixedFee() {
-  return __core.fees.fixedFee(FP, vatRate());
-}
-// ---------- PEA account (ECO) fee model \u2014 independent, editable & persisted ----------
-// PEA stock trades use a single 'courtage' commission (min floor), a r\u00E8glement/livraison
-// commission, and the Bourse de Casa commission ("imp\u00F4t de bourse"); TVA applies to ALL three.
-//   fees = [ max(gross*courtage, min) + gross*regl + gross*bourse ] * (1+tva)
-// OPCVM (PEA): entry/exit free, flat order fee (MAD HT) + TVA per transaction.
-// Dividends (PEA): commission de distribution (% HT) + TVA; no TPCVM.
-const FP_PEA_DEFAULT = {
-  courtage: 0.01,
-  courtageMin: 10,
-  regl: 0.002,
-  bourse: 0.001,
-  vat: 0.1,
-  opcvmOrder: 10,
-  divComm: 0.02,
-};
-let FP_PEA = (() => {
-  try {
-    const s = localStorage.getItem("casa_fees_pea_v1");
-    if (s) return { ...FP_PEA_DEFAULT, ...JSON.parse(s) };
-  } catch (e) {
-    console.warn(
-      "Could not load saved PEA fees (casa_fees_pea_v1); using defaults.",
-      e,
-    );
-  }
-  return { ...FP_PEA_DEFAULT };
-})();
-function saveFeesPea() {
-  if (safeSetItem("casa_fees_pea_v1", JSON.stringify(FP_PEA))) markSaved();
-}
-
-// \u2550\u2550\u2550\u2550\u2550\u2550\u2550 BROKER-BASED FEE SYSTEM \u2550\u2550\u2550\u2550\u2550\u2550\u2550
-// Each broker has: {name, feeType:'regular'|'pea', fees:{...}}
-// feeType determines WHICH formula to apply (rate-based vs courtage-based).
-// TPCVM is global (government tax), not per-broker.
-const BROKER_DEFAULTS = {
-  saham: {
-    name: "Saham",
-    feeType: "regular",
-    fees: {
-      c_marche: 0.002,
-      c_interm: 0.006,
-      c_regl: 0.001,
-      vat: 0.1,
-      courier: 2.5,
-    },
-  },
-  attijari: {
-    name: "Attijari",
-    feeType: "pea",
-    fees: {
-      courtage: 0.01,
-      courtageMin: 10,
-      regl: 0.002,
-      bourse: 0.001,
-      vat: 0.1,
-      opcvmOrder: 10,
-      divComm: 0.02,
-    },
-  },
-};
-let BROKERS =
-  (() => {
-    try {
-      const s = localStorage.getItem("casa_brokers_v1");
-      if (s) return JSON.parse(s);
-    } catch (e) {
-      console.warn(
-        "Could not load saved brokers (casa_brokers_v1); using defaults.",
-        e,
-      );
-    }
-    return null;
-  })() || JSON.parse(JSON.stringify(BROKER_DEFAULTS));
-function saveBrokers() {
-  if (safeSetItem("casa_brokers_v1", JSON.stringify(BROKERS))) markSaved();
-}
-
-// Resolve broker for a transaction. New/edited transactions carry an explicit
-// `broker`. For legacy/imported rows with no broker field, fall back by asset type
-// to match the real setup (OPCVM funds are held at Attijari; stocks at Saham).
-// Broker and PEA-status are independent \u2014 we do NOT infer broker from the pea flag.
-function txnBroker(t) {
-  if (t.broker) return t.broker;
-  const _isOpcvm =
-    t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
-  return _isOpcvm ? "attijari" : "saham";
-}
-
-// \u2500\u2500 SINGLE SOURCE OF TRUTH for OPCVM (fund) fees \u2500\u2500
-// An OPCVM order fee = the fund's own buy/sell % (imported from the Data tab)
-// PLUS, for brokers that charge a flat order fee (Attijari: opcvmOrder + VAT,
-// e.g. 10 \u00D7 1.10 = 11 MAD), that surcharge on top. Saham has no surcharge.
-// Dividends carry no fund fee.
-//   gross          : NAV amount (price \u00D7 qty)
-//   action         : BUY | SELL | DIV
-//   broker         : resolved broker object (BROKERS[...])
-//   meta           : master record M[ticker] (holds buyFee/sellFee)
-//   includeFundPct : true  \u2192 apply the fund % (computed paths: Net-if-Sold, qty\u00D7price entry)
-//                    false \u2192 fund % already baked into a manually-entered Total; add surcharge only
-function opcvmFee(gross, action, broker, meta, includeFundPct) {
-  // v2: delegate to core (broker arg unused there - surcharge is Attijari-based).
-  return __core.fees.opcvmFee(
-    gross,
-    action,
-    meta,
-    includeFundPct,
-    _brokersOrDefaults(),
-    vatRate(),
-  );
-}
-function opcvmSurcharge() {
-  return __core.fees.opcvmSurcharge(_brokersOrDefaults(), vatRate());
-}
-// Live brokers if present, else the core defaults (matches v1 fallback).
-function _brokersOrDefaults() {
-  return typeof BROKERS !== "undefined" && BROKERS
-    ? BROKERS
-    : __core.defaults.BROKER_DEFAULTS;
-}
-
-// Populate broker <select> elements with current broker list
-function populateBrokerSelects() {
-  document.querySelectorAll("#tBroker,#pBroker").forEach((sel) => {
-    const cur = sel.value;
-    sel.innerHTML = Object.keys(BROKERS)
-      .map(
-        (id) =>
-          '<option value="' +
-          escapeHtml(id) +
-          '">' +
-          escapeHtml(BROKERS[id].name) +
-          "</option>",
-      )
-      .join("");
-    sel.value = cur && BROKERS[cur] ? cur : "attijari";
-  });
-}
-// Broker and PEA-status are INDEPENDENT (you can hold a PEA at any broker).
-// We no longer force broker=Attijari when PEA is ticked \u2014 the user chooses each
-// freely. Defaults (Attijari + PEA) are set once for convenience via the selects'
-// initial values; toggling PEA does not override the broker.
-function wireBrokerAutoSelect() {
-  /* intentionally no auto-mapping \u2014 broker is chosen independently of PEA */
-}
-
-// Compute fees for a broker by its feeType
-// NOTE: all broker fee helpers use the GLOBAL vatRate() \u2014 per-broker vat is ignored.
-function brokerFeeRate(bk) {
-  return __core.fees.brokerFeeRate(bk, vatRate());
-}
-function brokerFixedFee(bk) {
-  return __core.fees.brokerFixedFee(bk, vatRate());
-}
-function brokerStockFees(gross, bk) {
-  return __core.fees.brokerStockFees(gross, bk, vatRate());
-}
-
-// Universal fee calculator: given gross, action, broker object -> fees (delegates to core).
-function calcBrokerFees(gross, action, bk, isOpcvm) {
-  return __core.fees.calcBrokerFees(gross, action, bk, isOpcvm, vatRate(), FP);
-}
-// Stock BUY/SELL fees for a PEA trade of value `gross` (MAD). Returns fees incl. VAT (global).
-function peaStockFees(gross, fp) {
-  return __core.fees.peaStockFees(gross, fp || FP_PEA, vatRate());
-}
-// PEA dividend commission (incl. VAT global) on gross dividend.
-function peaDivFees(gross, fp) {
-  return __core.fees.peaDivFees(gross, fp || FP_PEA, vatRate());
-}
-let DIVTAX = (() => {
-  try {
-    const s = localStorage.getItem("casa_divtax_v1");
-    if (s) return JSON.parse(s);
-  } catch (e) {
-    console.warn(
-      "Could not load saved dividend tax (casa_divtax_v1); using defaults.",
-      e,
-    );
-  }
-  return { ...SEED.div_tax_by_year };
-})();
-function saveDivTax() {
-  if (safeSetItem("casa_divtax_v1", JSON.stringify(DIVTAX))) markSaved();
-}
+// ---------- Fee / broker / dividend-tax config moved to js/02b-fees.js ----------
+// (FP, FP_PEA, BROKERS, DIVTAX and their ~20 helper functions now live in the
+// fees module, which loads right after this file and before 02-compute.js.)
 const M = SEED.master; // ticker -> metrics
 
 // ---------- persistence ----------
@@ -859,7 +324,28 @@ const money = (v, d = 2) =>
 const pct = (v, d = 1) =>
   v == null || isNaN(v) ? "\u2014" : (v * 100).toFixed(d) + "%";
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
+// Compact percentage: up to 3 decimals, trailing zeros trimmed (e.g. 0.99%,
+// 2.75%). Used for fee-rate displays. Single source for what was copied inline
+// in several render/fee tooltips.
+const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
+// Is this ticker an OPCVM fund? Single source of truth for the sector check
+// that was scattered as `M[tk].cat === "OPCVM"` across the app.
+function isOpcvm(tk) {
+  return !!(M[tk] && M[tk].cat === "OPCVM");
+}
+// Is this transaction/order an OPCVM trade? Honors an explicit `opcvm` flag,
+// else falls back to the ticker's master category. Single source for the
+// compound check that was duplicated in fees/import/backup/pending code.
+function isOpcvmTxn(t) {
+  return !!(t && (t.opcvm === true || isOpcvm(t.ticker)));
+}
 function divRate(year) {
   // v2: delegate to core (same forward/backward-fill logic).
   return __core.tax.divRate(year, DIVTAX, FP.tpcvm);
+}
+
+// Whole days from today (midnight) to date `d`; negative = past.
+// Generic date util (moved from 03-signals.js, which is pure scoring).
+function daysUntil(d) {
+  return Math.round((new Date(d) - TODAY) / 86400000);
 }

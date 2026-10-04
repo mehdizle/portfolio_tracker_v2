@@ -915,8 +915,7 @@ document.getElementById("txnEditSel").onclick = () => {
     .map((i) => {
       const t = TXNS[i];
       const curBroker = txnBroker(t);
-      const isOpc =
-        t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
+      const isOpc = isOpcvmTxn(t);
       return `<div class="behdr" data-idx="${i}" style="${GRID}">
       <input type="date" class="beDate" value="${t.date}" style="width:100%;box-sizing:border-box">
       <input list="beTickersTxn" class="beTicker" value="${escapeHtml(t.ticker)}" placeholder="ticker" style="width:100%;box-sizing:border-box">

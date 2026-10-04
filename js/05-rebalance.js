@@ -5,6 +5,11 @@
 // <script> (shared global scope) - order matters, see index.html.
 // ============================================================
 // ============ REBALANCE / SECTOR-DIVERSIFY OPTIMIZER ============
+// Default sector-concentration caps (%), the fallback when the rbCap/rbCapOpcvm
+// inputs are empty. Single source for these two literals, which were otherwise
+// repeated here and in the Sector-Headroom widget (03b-signals-ui.js). Each
+// consumer still applies its own clamp range + unit (fraction vs percent).
+const RB_CAP_DEFAULTS = { cap: 20, opcvm: 35 };
 function estBuyCost(px, qty, brokerId) {
   const bk = BROKERS[brokerId || "attijari"];
   if (bk) {
@@ -22,9 +27,10 @@ function estSellNet(px, qty, brokerId) {
   return px * qty * (1 - feeRate()) - fixedFee();
 }
 // ---- Moroccan market lot rule: stocks trade in WHOLE shares only; OPCVM funds allow fractions ----
+// Thin alias to the shared isOpcvm() (01-core) - kept because this file calls it
+// in many lot-rounding spots; the actual OPCVM test lives in one place now.
 function isOpcvmTk(tk) {
-  const m = M[tk];
-  return !!(m && m.cat === "OPCVM");
+  return isOpcvm(tk);
 }
 // Max buyable quantity for a given cash amount at price px. Stocks floor to integer; OPCVM keep 4-dp fraction.
 function buyableQty(px, amount, opcvm) {
@@ -48,7 +54,8 @@ function computeRebalance() {
       100,
       Math.max(
         5,
-        parseFloat((document.getElementById("rbCap") || {}).value) || 20,
+        parseFloat((document.getElementById("rbCap") || {}).value) ||
+          RB_CAP_DEFAULTS.cap,
       ),
     ) / 100;
   const capOpcvm =
@@ -56,7 +63,8 @@ function computeRebalance() {
       100,
       Math.max(
         5,
-        parseFloat((document.getElementById("rbCapOpcvm") || {}).value) || 35,
+        parseFloat((document.getElementById("rbCapOpcvm") || {}).value) ||
+          RB_CAP_DEFAULTS.opcvm,
       ),
     ) / 100;
   const maxBuys = Math.min(
@@ -986,14 +994,37 @@ function renderRebalance() {
     const bars = arr
       .map((s) => {
         const over = capLine != null && s.weight > capLine + 1e-9;
+        // Per-holding breakdown: list each ticker in this group with its own
+        // weight, so hovering (e.g.) "Banks" or "Uncategorized" shows exactly
+        // which names make it up.
+        const mem = (s.members || []).slice();
+        const memRows = mem.length
+          ? tipRule() +
+            tipRow("<b>Holdings (" + mem.length + ")</b>", "") +
+            mem
+              .map((m) =>
+                tipRow(
+                  escapeHtml(
+                    m.name && m.name !== m.ticker
+                      ? m.name + " (" + m.ticker + ")"
+                      : m.ticker,
+                  ),
+                  pct1(m.weight),
+                ),
+              )
+              .join("")
+          : "";
         const barTip =
           tipHead(escapeHtml(s.name)) +
           tipRow("Projected weight", pct1(s.weight)) +
           (capLine != null ? tipRow("Cap", pct0(capLine)) : "") +
+          memRows +
           tipNote(
             over
               ? "This would land above your cap after the plan \u2014 reduce new buys here or add trims."
-              : "Share of the whole portfolio (holdings + cash) this group would hold after the plan executes.",
+              : s.name === "Uncategorized" || s.name === "Unclassified"
+                ? "These holdings have no sector/cycle/style set in your master data \u2014 add one so they're grouped correctly."
+                : "Share of the whole portfolio (holdings + cash) this group would hold after the plan executes.",
           );
         return (
           '<div class="nis-cell" style="cursor:help" data-tip="' +
@@ -1180,33 +1211,7 @@ function renderRebalance() {
     if (typeof renderTopHeadroom === "function") renderTopHeadroom();
   } catch (e) {}
 }
-// Small tooltip builders (fall back to shared _tip* if present).
-function tipHead(t) {
-  return typeof _tipHead === "function"
-    ? _tipHead(t)
-    : '<div style="font-weight:700;margin-bottom:6px">' + t + "</div>";
-}
-function tipRow(l, v) {
-  return typeof _tipRow === "function"
-    ? _tipRow(l, v)
-    : '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
-        l +
-        '</span><span style="font-family:var(--mono)">' +
-        v +
-        "</span></div>";
-}
-function tipNote(t) {
-  return t
-    ? '<div class="mini" style="color:var(--text2);margin-top:6px;max-width:300px;white-space:normal">' +
-        t +
-        "</div>"
-    : "";
-}
-function tipRule() {
-  return typeof _tipRule === "function"
-    ? _tipRule()
-    : '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-}
+// Tooltip builders (tipHead/tipRow/tipNote/tipRule) moved to js/01b-tooltip.js.
 
 function rbDraftOne(tk, px, qty) {
   const today = new Date().toISOString().slice(0, 10);
@@ -1968,3 +1973,33 @@ window.draftPendingFromDetail = function (tk) {
   closeCompanyDetail();
   if (typeof prefillPending === "function") prefillPending(tk);
 };
+
+// ============================================================
+// Rebalance "why" tooltips + above-target entry badge (moved from
+// 04-render.js: these explain the rebalance plan's buy/trim rows).
+// ============================================================
+// ---- rebalance "why" tooltips ----
+// Live price vs target buy: flag entries trading materially above their ideal entry.
+const ABOVE_TGT_THRESH = 0.1; // >10% above target buy = not an ideal entry yet
+function aboveTgtPct(px, tbuy) {
+  return tbuy != null && isFinite(tbuy) && tbuy > 0 && px != null
+    ? (px - tbuy) / tbuy
+    : null;
+}
+function aboveTgtBadge(px, tbuy) {
+  const a = aboveTgtPct(px, tbuy);
+  if (a == null || a <= ABOVE_TGT_THRESH) return "";
+  return (
+    ' <span class="badge b-abovetgt" data-tip="' +
+    tipRef(
+      "Live price is " +
+        (a * 100).toFixed(0) +
+        "% above target buy (" +
+        money(tbuy) +
+        " MAD). It qualifies as undervalued vs fair value, but you'd be paying above the ideal entry \u2014 consider waiting for a dip.",
+    ) +
+    '" style="cursor:help">\u26A0 +' +
+    (a * 100).toFixed(0) +
+    "% vs tgt</span>"
+  );
+}

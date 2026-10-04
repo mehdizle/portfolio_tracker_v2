@@ -248,18 +248,6 @@ function eCurMonth() {
   const now = new Date();
   return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
 }
-// List of months to offer in the nav: unique months from the log, plus current month.
-function eMonthOptions() {
-  const set = new Set();
-  (E_STATE.log || []).forEach((r) => {
-    if (/^\d{4}-\d{2}$/.test(r.month || "")) set.add(r.month);
-  });
-  const now = new Date();
-  set.add(
-    now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0"),
-  );
-  return [...set].sort();
-}
 // Effective bills for a given month = defaults, with any per-month override applied.
 // Override shape: E_STATE.monthBills[month] = { [billIndex]: {off?, amt?, by?, note?} }
 function eMonthBills(month) {
@@ -329,37 +317,6 @@ function eRenderMonthNav() {
   if (!box) return;
   const cur = eCurMonth();
   box.innerHTML = `<div style="font-size:15px;font-weight:800;color:var(--text)">${eMonthLabel(cur)}</div>`;
-}
-
-function eRenderSettleBanner() {
-  const el = document.getElementById("e_settleBanner");
-  if (!el) return;
-  const cur = eCurMonth();
-  const bills = eMonthBills(cur);
-  const c = eCompute(bills);
-  const net = c.netMDtoBT; // >0 => MD sends to BT ; <0 => BT sends to MD
-  const amt = Math.abs(Math.round(net));
-  const mdToBt = net >= 0;
-  const dirTxt =
-    amt === 0
-      ? "Nothing to settle this month"
-      : "This month you " + (mdToBt ? "send" : "receive");
-  const whoHTML =
-    amt === 0
-      ? '<span class="paypill md">MD</span> <span class="settle-arrow">=</span> <span class="paypill bt">BT</span>'
-      : mdToBt
-        ? '<span class="paypill md">MD</span> <span class="settle-arrow">\u2192</span> <span class="paypill bt">BT</span>'
-        : '<span class="paypill bt">BT</span> <span class="settle-arrow">\u2192</span> <span class="paypill md">MD</span>';
-  const col =
-    amt === 0 ? "var(--text2)" : mdToBt ? "var(--primary2)" : "var(--success)";
-  el.className = "settle-banner";
-  el.innerHTML = `
-    <div>
-      <div class="dir">${dirTxt}${amt ? " to " + (mdToBt ? "BT" : "MD") : ""}</div>
-      <div class="big" style="color:${col}">${money(amt, 0)} <span style="font-size:15px;color:var(--text2)">MAD</span></div>
-      <div class="dir">to keep the 50/50 split even \u00b7 <b>${eMonthLabel(cur)}</b></div>
-    </div>
-    <div class="settle-who">${whoHTML}</div>`;
 }
 
 // Cards: how much each partner keeps this month (discretionary leftover = pool/2 each),
@@ -1619,7 +1576,7 @@ function eRenderBuckets() {
           <span class="mono mini" style="width:66px;flex:none;color:var(--text2)">${escapeHtml(d.when || "\u2014")}</span>
           <span class="mono" style="width:66px;flex:none;text-align:right;color:var(--warn)">${money(+d.amount || 0, 0)}</span>
           <span class="mini" style="flex:1;min-width:0;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(d.note || "")}">${escapeHtml(d.note || "")}</span>
-          <button class="chip" style="cursor:pointer;border:none;flex:none" title="Delete draw" data-act="eDelLoanDraw" data-args="${d.id}">\u2715</button>
+          <button class="chip" style="cursor:pointer;border:none;flex:none" data-tip="Delete this loan draw" data-act="eDelLoanDraw" data-args="${d.id}">\u2715</button>
         </div>`,
               )
               .join("");

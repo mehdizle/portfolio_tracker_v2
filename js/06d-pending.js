@@ -1,12 +1,3 @@
-// 06d-pending.js - split from 06-features.js (pending orders + indicators + tooltips, recently sold/bought). Shared scope.
-// ---------- pending indicators (dashboard banner + positions) ----------
-function pendingByTicker() {
-  const m = {};
-  PENDING.forEach((o) => {
-    (m[o.ticker] = m[o.ticker] || []).push(o);
-  });
-  return m;
-}
 function renderPendingBanner() {
   const el = document.getElementById("pendingBanner");
   if (!el) return;
@@ -364,8 +355,7 @@ window.editPending = function (i) {
       if (BROKERS[_bv]) _bs.value = _bv;
     }
   }
-  document.getElementById("pOpcvm").checked =
-    o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
+  document.getElementById("pOpcvm").checked = isOpcvmTxn(o);
   document.getElementById("pOpcvm").dispatchEvent(new Event("change"));
   window._loadingEditForm = false;
   document.getElementById("addPending").textContent = "Update order";
@@ -592,8 +582,7 @@ document.getElementById("pendEditSel").onclick = () => {
     .map((i) => {
       const o = PENDING[i];
       const curBroker = txnBroker(o);
-      const isOpc =
-        o.opcvm === true || !!(M[o.ticker] && M[o.ticker].cat === "OPCVM");
+      const isOpc = isOpcvmTxn(o);
       return `<div class="behdr" data-idx="${i}" style="${GRID}">
       <input type="date" class="beDate" value="${escapeHtml(o.date)}" style="width:100%;box-sizing:border-box">
       <input list="beTickersPend" class="beTicker" value="${escapeHtml(o.ticker)}" placeholder="ticker" style="width:100%;box-sizing:border-box">
@@ -1378,8 +1367,8 @@ function renderPending() {
           <td class="center" style="font-size:10px;color:var(--text2)">${o._ord ? escapeHtml(String(o._ord)) : "\u2014"}</td>
           <td class="center" style="white-space:nowrap">
             <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark executed \u2192 add to Transactions">\u2713</button>
-            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" title="Edit order">\u270E</button>
-            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" title="Delete pending order">\u2715</button>
+            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" data-tip="Edit this pending order">\u270E</button>
+            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" data-tip="Delete this pending order">\u2715</button>
           </td></tr>`;
         })
         .join("");
@@ -1511,8 +1500,8 @@ function renderPending() {
           <td class="center" style="font-size:11px">${(BROKERS[o.broker] || {}).name || (o.pea ? "PEA" : "REG")}<br><span class="mini">${o.pea ? "PEA" : "Reg"}</span></td>
           <td class="center" style="white-space:nowrap">
             <button class="chip" style="cursor:pointer;border:none;background:rgba(38,208,124,.15);color:var(--success);margin-right:4px" data-act="validatePending" data-args="${i}" aria-label="Mark executed" title="Mark executed" data-tip="Mark received \u2192 add to Transactions">\u2713</button>
-            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" title="Edit order">\u270E</button>
-            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" title="Delete pending order">\u2715</button>
+            <button class="chip" style="cursor:pointer;border:none;margin-right:4px" data-act="editPending" data-args="${i}" aria-label="Edit order" data-tip="Edit this pending order">\u270E</button>
+            <button class="chip" style="cursor:pointer;border:none" data-act="delPending" data-args="${i}" aria-label="Delete pending order" data-tip="Delete this pending order">\u2715</button>
           </td></tr>`;
         })
         .join("");
@@ -1740,3 +1729,148 @@ document.querySelectorAll(".app-btn[data-app]").forEach(
       }
     }),
 );
+
+// ============================================================
+// Draft-selected-buys flow (moved from 04-render.js): turns ticked Top
+// Buys into pending BUY orders. Writes PENDING / calls savePending.
+// ============================================================
+function openDraftSelected() {
+  const sel = Object.keys(window.__tbSel || {});
+  const top = window.__topBuys || [];
+  const picks = top.filter((r) => sel.includes(r.ticker));
+  if (!picks.length) {
+    toast("Tick at least one name first.", "warn");
+    return;
+  }
+  let ov = document.getElementById("draftSelOverlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "draftSelOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
+    ov.onclick = (e) => {
+      if (e.target === ov) closeDraftSelected();
+    };
+    document.body.appendChild(ov);
+  }
+  const rowH = picks
+    .map((r) => {
+      const px = r.price != null && isFinite(r.price) ? r.price : null; // LIVE price = what you actually pay
+      const tb = r.tbuy != null && isFinite(r.tbuy) ? r.tbuy : null; // target buy = ideal entry (reference only)
+      return `<tr data-tk="${escapeHtml(r.ticker)}" data-px="${px || ""}">
+      <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(r.name || "")}</span></td>
+      <td style="text-align:right;font-family:var(--mono)"><b>${px != null ? money(px) : "\u2014"}</b></td>
+      <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${tb != null ? money(tb) : "\u2014"}</td>
+      <td style="text-align:right"><input type="number" min="0" step="100" class="ds-amt" value="10000" style="width:100px;text-align:right" data-act="recalcDraftSel" data-on="input"></td>
+      <td style="text-align:right;font-family:var(--mono)" class="ds-qty">\u2014</td>
+      <td style="text-align:right;font-family:var(--mono)" class="ds-cost">\u2014</td>
+    </tr>`;
+    })
+    .join("");
+  ov.innerHTML = `<div class="sec" style="max-width:640px;width:100%;max-height:85vh;overflow:auto;margin:0;padding:16px 18px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <h2 style="margin:0">\u2795 Draft selected buys <span class="mini" style="font-weight:400">\u2014 ${picks.length} name${picks.length === 1 ? "" : "s"}</span></h2>
+      <button class="btn sec2" data-act="closeDraftSelected" style="padding:2px 10px" aria-label="Close" data-tip="Close this draft panel without saving">\u2715</button>
+    </div>
+    <div class="mini" style="color:var(--text2);margin-bottom:10px">Enter how much to buy for each (MAD). Quantity is computed at the live market price (what you pay), rounded down. Edit or set 0 to skip a name.</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <span class="mini" style="color:var(--text2)">Set all to</span>
+      <input type="number" min="0" step="500" id="dsAll" value="10000" style="width:110px;text-align:right">
+      <button class="btn sec2" data-act="applyDraftAll" style="font-size:11px;padding:4px 10px">Apply to all</button>
+    </div>
+    <table><thead><tr>
+      <th scope="col" class="l">Name</th><th scope="col" style="text-align:right" data-tip="Live market price \u2014 what you actually pay now">Live px</th><th scope="col" style="text-align:right" data-tip="Target buy (ideal entry below fair value) \u2014 reference only">Tgt buy</th><th scope="col" style="text-align:right">Amount MAD</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Est. cost</th>
+    </tr></thead><tbody id="dsBody">${rowH}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
+      <td class="l">Total</td><td></td><td></td><td></td><td style="text-align:right" id="dsQtyTot">\u2014</td><td style="text-align:right;font-family:var(--mono)" id="dsCostTot">\u2014</td>
+    </tr></tfoot></table>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+      <button class="btn sec2" data-act="closeDraftSelected">Cancel</button>
+      <button class="btn" data-act="commitDraftSelected">Push to Pending</button>
+    </div>
+  </div>`;
+  recalcDraftSel();
+}
+function applyDraftAll() {
+  const v = document.getElementById("dsAll").value;
+  document
+    .querySelectorAll("#dsBody .ds-amt")
+    .forEach((inp) => (inp.value = v));
+  recalcDraftSel();
+}
+function recalcDraftSel() {
+  let qTot = 0,
+    cTot = 0;
+  document.querySelectorAll("#dsBody tr").forEach((tr) => {
+    const px = parseFloat(tr.getAttribute("data-px"));
+    const amt = parseFloat(tr.querySelector(".ds-amt").value);
+    const _fund = isOpcvmTk(tr.getAttribute("data-tk"));
+    let qty = 0,
+      cost = 0;
+    if (isFinite(px) && px > 0 && isFinite(amt) && amt > 0) {
+      qty = buyableQty(px, amt, _fund);
+      cost = qty * px;
+    }
+    tr.querySelector(".ds-qty").textContent =
+      qty > 0 ? money(qty, _fund && qty % 1 ? 4 : 0) : "\u2014";
+    tr.querySelector(".ds-cost").textContent =
+      cost > 0 ? money(cost, 0) : "\u2014";
+    qTot += qty;
+    cTot += cost;
+  });
+  document.getElementById("dsQtyTot").textContent =
+    qTot > 0 ? money(qTot, qTot % 1 ? 2 : 0) : "\u2014";
+  document.getElementById("dsCostTot").textContent =
+    cTot > 0 ? money(cTot, 0) + " MAD" : "\u2014";
+}
+function commitDraftSelected() {
+  const today = new Date().toISOString().slice(0, 10);
+  let added = 0;
+  document.querySelectorAll("#dsBody tr").forEach((tr) => {
+    const tk = tr.getAttribute("data-tk");
+    const px = parseFloat(tr.getAttribute("data-px"));
+    const amt = parseFloat(tr.querySelector(".ds-amt").value);
+    if (!(isFinite(px) && px > 0 && isFinite(amt) && amt > 0)) return;
+    const m = M[tk];
+    const isOpcvm = !!(m && m.cat === "OPCVM");
+    const qty = buyableQty(px, amt, isOpcvm);
+    if (qty <= 0) return;
+    PENDING.push({
+      date: today,
+      ticker: tk,
+      action: "BUY",
+      qty: qty,
+      price: px,
+      pea: true,
+      opcvm: isOpcvm,
+      broker: "attijari",
+    });
+    added++;
+  });
+  if (!added) {
+    toast(
+      "Nothing to draft \u2014 set an amount for at least one name.",
+      "warn",
+    );
+    return;
+  }
+  savePending();
+  closeDraftSelected();
+  window.__tbSel = {};
+  gotoTab("pending");
+  if (typeof renderPending === "function") renderPending();
+  const hint = document.getElementById("pendHint");
+  if (hint) {
+    hint.style.color = "var(--info)";
+    hint.textContent =
+      "Drafted " +
+      added +
+      " pending buy" +
+      (added === 1 ? "" : "s") +
+      " from your Top Buys selection. Review quantities before confirming.";
+  }
+}
+function closeDraftSelected() {
+  const ov = document.getElementById("draftSelOverlay");
+  if (ov) ov.remove();
+}

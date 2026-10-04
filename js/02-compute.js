@@ -102,3 +102,31 @@ function runFIFO() {
   _fifoCache = __core.fifo.runFIFO(TXNS, _coreCtx());
   return _fifoCache;
 }
+
+// Total shares held for a ticker across all FIFO position buckets (PEA+Reg).
+// A general position helper used by signals, rebalance and dividends.
+function heldSharesOf(pos, tk) {
+  let q = 0;
+  for (const k in pos) {
+    if (pos[k].ticker === tk) q += pos[k].held;
+  }
+  return q;
+}
+
+// Sum held-position VALUE grouped by a master-metadata field (cat / cycle /
+// style), returning { groupKey: totalValue }. Single source for the "bucket my
+// holdings by sector/field and sum value" aggregation that the dashboard
+// allocation pie and the Signals "Your Mix" donuts both need. Each caller maps
+// the returned map into its own chart/row shape and sorts as it likes. `held`
+// is the array of position rows (already filtered to held>0, value>0 by the
+// caller); `fallback` is the bucket name for a missing/blank field value.
+function sumValueByField(held, field, fallback) {
+  const by = {};
+  (held || []).forEach((p) => {
+    const m = M[p.ticker] || {};
+    const raw = m[field];
+    const k = raw != null && ("" + raw).trim() ? ("" + raw).trim() : fallback;
+    by[k] = (by[k] || 0) + (p.value || 0);
+  });
+  return by;
+}

@@ -17,19 +17,6 @@ function cleanNum(s) {
   return isNaN(v) ? null : v;
 }
 const TICKERS = Object.keys(M).sort((a, b) => b.length - a.length); // longest first for prefix match
-function extractTicker(colA) {
-  if (!colA) return null;
-  const s = String(colA).trim();
-  for (const t of TICKERS) {
-    if (s.toUpperCase().startsWith(t.toUpperCase())) return t;
-  }
-  // fallback: leading capital block
-  const m = s.match(/^([A-Z0-9]{2,5})/);
-  return m ? m[1] : null;
-}
-
-// Multi-line TradingView watchlist parser (ticker / company / "D" / data row / rating / category+metrics)
-const TV_TICKERS = Object.keys(M).sort((a, b) => b.length - a.length);
 // TradingView ticker aliases: maps TV ticker \u2192 master ticker when they differ.
 // Add entries here when a stock's TV symbol doesn't match your master key.
 const TV_TICKER_ALIAS = { SOT: "SSOT" };
@@ -1315,7 +1302,7 @@ function renderDivTax() {
       .map(
         (y) => `<tr>
     <td class="l">${y}</td><td>${(DIVTAX[y] * 100).toFixed(2)}%</td>
-    <td class="center"><button class="chip" style="cursor:pointer;border:none" data-act="delYear" data-args="${y}" aria-label="Delete year" title="Delete year">\u2715</button></td></tr>`,
+    <td class="center"><button class="chip" style="cursor:pointer;border:none" data-act="delYear" data-args="${y}" aria-label="Delete year" data-tip="Delete this year's dividend-tax rate">\u2715</button></td></tr>`,
       )
       .join("") +
     `<tr style="border-top:1px solid var(--border)"><td class="l" style="color:var(--muted)"><i>2028+ \u2192</i></td><td style="color:var(--muted)">${yrs.length ? (DIVTAX[yrs[yrs.length - 1]] * 100).toFixed(2) + "%" : "\u2014"}</td><td></td></tr>`;
@@ -1381,8 +1368,7 @@ window.editTxn = function (i) {
       if (BROKERS[_bv]) _bs.value = _bv;
     }
   }
-  document.getElementById("tOpcvm").checked =
-    t.opcvm === true || !!(M[t.ticker] && M[t.ticker].cat === "OPCVM");
+  document.getElementById("tOpcvm").checked = isOpcvmTxn(t);
   document.getElementById("tOpcvm").dispatchEvent(new Event("change"));
   window._loadingEditForm = false;
   document.getElementById("addTxn").textContent = "Update";
@@ -2428,11 +2414,11 @@ function renderBrokerFeeForm() {
     ' <span class="mini">\u2014 trading fees</span></div>';
   h += '<div class="fee-fields" style="margin-top:8px">';
   h +=
-    '<label>Broker name <input type="text" id="bk_name" value="' +
+    '<label data-tip="Display name for this broker, shown in the Broker dropdowns on transactions and pending orders."><span>Broker name</span> <input type="text" id="bk_name" value="' +
     bk.name +
     '"></label>';
   h +=
-    '<label>Fee formula <select id="bk_feeType"><option value="regular"' +
+    '<label data-tip="Which fee model this broker uses. Rate-based = sum of percentage commissions plus a fixed courier fee (typical Regular account). Courtage-based = a single courtage % with a per-order minimum plus settlement and exchange fees (typical PEA). Changing this resets the fields to that model\'s defaults."><span>Fee formula</span> <select id="bk_feeType"><option value="regular"' +
     (bk.feeType === "regular" ? " selected" : "") +
     '>Rate-based (c.march\u00E9 + c.interm + c.r\u00E8gl + courier)</option><option value="pea"' +
     (bk.feeType === "pea" ? " selected" : "") +
@@ -2440,31 +2426,31 @@ function renderBrokerFeeForm() {
 
   if (bk.feeType === "regular") {
     h +=
-      '<label>Commission de march\u00E9 (%) <input type="text" id="bk_c_marche" value="' +
+      '<label data-tip="Market commission: a % of the trade value charged by the broker. Part of the per-trade stock commission."><span>Commission de march\u00E9 (%)</span> <input type="text" id="bk_c_marche" value="' +
       fmtPct(f.c_marche) +
       '"></label>';
     h +=
-      '<label>Commission d\'interm\u00E9diation (%) <input type="text" id="bk_c_interm" value="' +
+      '<label data-tip="Intermediation commission: the broker\'s own % cut of the trade value, on top of the market commission."><span>Commission d\'interm\u00E9diation (%)</span> <input type="text" id="bk_c_interm" value="' +
       fmtPct(f.c_interm) +
       '"></label>';
     h +=
-      '<label>Commission r\u00E8glement/livraison (%) <input type="text" id="bk_c_regl" value="' +
+      '<label data-tip="Settlement/delivery commission: a % charged to settle and deliver the shares."><span>Commission r\u00E8glement/livraison (%)</span> <input type="text" id="bk_c_regl" value="' +
       fmtPct(f.c_regl) +
       '"></label>';
     h +=
-      '<label>VAT on fees (%) <input type="text" id="bk_vat" value="' +
+      '<label data-tip="VAT (TVA) applied on top of the commissions above. In Morocco this is typically 10%."><span>VAT on fees (%)</span> <input type="text" id="bk_vat" value="' +
       fmtPct(f.vat) +
       '"></label>';
     h +=
-      '<label>Frais de courrier (fixed, MAD) <input type="text" id="bk_courier" value="' +
+      '<label data-tip="A fixed per-trade courier/handling fee in MAD (VAT added on top), charged regardless of trade size."><span>Frais de courrier (fixed, MAD)</span> <input type="text" id="bk_courier" value="' +
       (f.courier || 0) +
       '"></label>';
     h +=
-      '<label>OPCVM order fee (MAD HT) <input type="text" id="bk_opcvmOrder" value="' +
+      '<label data-tip="Fixed fee (MAD, before VAT) charged per OPCVM fund order, used instead of the stock commission for fund trades."><span>OPCVM order fee (MAD HT)</span> <input type="text" id="bk_opcvmOrder" value="' +
       (f.opcvmOrder || 0) +
       '"></label>';
     h +=
-      '<label>Dividend commission (% HT) <input type="text" id="bk_divComm" value="' +
+      '<label data-tip="Commission (%, before VAT) the broker takes on dividend payments received through this account."><span>Dividend commission (% HT)</span> <input type="text" id="bk_divComm" value="' +
       fmtPct(f.divComm) +
       '"></label>';
     // Effective rate display
@@ -2486,31 +2472,31 @@ function renderBrokerFeeForm() {
       "</div>";
   } else {
     h +=
-      '<label>Commission de courtage (%) <input type="text" id="bk_courtage" value="' +
+      '<label data-tip="Brokerage commission: the broker\'s main % cut of the trade value (subject to the minimum below)."><span>Commission de courtage (%)</span> <input type="text" id="bk_courtage" value="' +
       fmtPct(f.courtage) +
       '"></label>';
     h +=
-      '<label>Courtage minimum (MAD) <input type="text" id="bk_courtageMin" value="' +
+      '<label data-tip="Minimum courtage charged per order in MAD: if the % commission works out lower than this, you pay this instead. Applied once per broker order."><span>Courtage minimum (MAD)</span> <input type="text" id="bk_courtageMin" value="' +
       (f.courtageMin || 0) +
       '"></label>';
     h +=
-      '<label>Commission r\u00E8glement/livr. (%) <input type="text" id="bk_regl" value="' +
+      '<label data-tip="Settlement/delivery commission: a % charged to settle and deliver the shares."><span>Commission r\u00E8glement/livr. (%)</span> <input type="text" id="bk_regl" value="' +
       fmtPct(f.regl) +
       '"></label>';
     h +=
-      '<label>Commission Bourse de Casa (%) <input type="text" id="bk_bourse" value="' +
+      '<label data-tip="Casablanca Stock Exchange fee: a % levied by the exchange on each trade."><span>Commission Bourse de Casa (%)</span> <input type="text" id="bk_bourse" value="' +
       fmtPct(f.bourse) +
       '"></label>';
     h +=
-      '<label>TVA on fees (%) <input type="text" id="bk_vat" value="' +
+      '<label data-tip="VAT (TVA) applied on top of the commissions above. In Morocco this is typically 10%."><span>TVA on fees (%)</span> <input type="text" id="bk_vat" value="' +
       fmtPct(f.vat) +
       '"></label>';
     h +=
-      '<label>OPCVM order fee (MAD HT) <input type="text" id="bk_opcvmOrder" value="' +
+      '<label data-tip="Fixed fee (MAD, before VAT) charged per OPCVM fund order, used instead of the stock commission for fund trades."><span>OPCVM order fee (MAD HT)</span> <input type="text" id="bk_opcvmOrder" value="' +
       (f.opcvmOrder || 0) +
       '"></label>';
     h +=
-      '<label>Dividend commission (% HT) <input type="text" id="bk_divComm" value="' +
+      '<label data-tip="Commission (%, before VAT) the broker takes on dividend payments received through this account."><span>Dividend commission (% HT)</span> <input type="text" id="bk_divComm" value="' +
       fmtPct(f.divComm) +
       '"></label>';
     // Effective rate

@@ -297,11 +297,6 @@ function dashDivEstimates() {
   } catch (_e) {}
   return res;
 }
-// Back-compat thin wrapper: next-3-months net estimate.
-function dashUpcomingDiv3mo() {
-  return dashDivEstimates().d90;
-}
-
 // Single entry point to refresh the Dashboard KPI row from live data. Recomputes
 // the position totals from runFIFO() and re-renders #kpiRow. Called by render()
 // AND by savePending() so the KPI cards that depend on PENDING (Cash Available,
@@ -462,7 +457,21 @@ function renderHero(t) {
     // Main value card. Left = label/value/lifetime; Right (smaller) = the two
     // portfolio totals, tucked inside this same card (no extra grid column).
     '<div class="hero-main">' +
-    '<div class="hero-main-left">' +
+    '<div class="hero-main-left nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Portfolio value") +
+        tipRow("Held market value", money(t.val, 0) + " MAD") +
+        tipRule() +
+        tipRow(
+          "Lifetime return",
+          (t.life >= 0 ? "+" : "") + money(t.life, 0) + " MAD",
+        ) +
+        tipRow("ROI", pct(roi)) +
+        tipNote(
+          "Current market value of everything you still hold (shares x live price). Lifetime return = unrealized + realized + dividends, as a % of the cash you invested.",
+        ),
+    ) +
+    '">' +
     '<div class="hero-label">Portfolio value</div>' +
     '<div class="hero-value">' +
     money(t.val, 0) +
@@ -478,21 +487,53 @@ function renderHero(t) {
     verdict +
     "</div></div>" +
     '<div class="hero-totals">' +
-    '<div class="hero-total"><div class="k">Total Portfolio</div><div class="v ' +
+    '<div class="hero-total nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Total Portfolio") +
+        tipRow("Held market value", money(t.val, 0) + " MAD") +
+        tipRow("+ Cash (all accounts)", money(_cash, 0) + " MAD") +
+        tipRow("= Total Portfolio", money(_totalInclCash, 0) + " MAD") +
+        tipNote(
+          "Everything you own right now at live prices, plus uninvested cash across every account. This is your gross net worth in the app, before any exit fees or tax.",
+        ),
+    ) +
+    '"><div class="k">Total Portfolio</div><div class="v ' +
     verdictCls +
     '">' +
     money(_totalInclCash, 0) +
     ' <span class="u">MAD</span></div><div class="mini">incl. cash ' +
     money(_cash, 0) +
     "</div></div>" +
-    '<div class="hero-total"><div class="k">Total if sold</div><div class="v ' +
+    '<div class="hero-total nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Total if sold") +
+        tipRow("Net if sold (holdings)", money(t.net, 0) + " MAD") +
+        tipRow("+ Cash (all accounts)", money(_cash, 0) + " MAD") +
+        tipRow("= Total if sold", money(_totalIfSold, 0) + " MAD") +
+        tipNote(
+          "What you would actually walk away with if you liquidated everything today: market value minus estimated broker commission and capital-gains tax on each holding, plus your cash.",
+        ),
+    ) +
+    '"><div class="k">Total if sold</div><div class="v ' +
     verdictCls +
     '">' +
     money(_totalIfSold, 0) +
     ' <span class="u">MAD</span></div><div class="mini">net of exit fees &amp; tax</div></div>' +
     "</div>" +
     "</div>" +
-    '<div class="hero-card"><div class="k">Invested (held)</div><div class="v">' +
+    '<div class="hero-card nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Invested (held)") +
+        tipRow("Cost basis of holdings", money(t.inv, 0) + " MAD") +
+        tipRow(
+          "Unrealized P&L",
+          (t.unreal >= 0 ? "+" : "") + money(t.unreal, 0) + " MAD",
+        ) +
+        tipNote(
+          "The cash cost basis of the shares you still hold (FIFO). Unrealized P&L = current market value minus that cost basis - paper gain/loss not yet locked in.",
+        ),
+    ) +
+    '"><div class="k">Invested (held)</div><div class="v">' +
     money(t.inv, 0) +
     '</div><div class="mini">unrealized <span class="' +
     cls(t.unreal) +
@@ -500,7 +541,17 @@ function renderHero(t) {
     (t.unreal >= 0 ? "+" : "") +
     money(t.unreal, 0) +
     "</span></div></div>" +
-    '<div class="hero-card"><div class="k">Realized + Dividends</div><div class="v">' +
+    '<div class="hero-card nis-cell" style="cursor:help" data-tip="' +
+    tipRef(
+      tipHead("Realized + Dividends") +
+        tipRow("Realized gains (locked in)", money(t.real, 0) + " MAD") +
+        tipRow("Dividends received (net)", money(t.div, 0) + " MAD") +
+        tipRow("= Total", money(t.real + t.div, 0) + " MAD") +
+        tipNote(
+          "Money already banked: realized = profit/loss on shares you have sold (FIFO, net of fees/tax); dividends = cash distributions received, net of dividend tax.",
+        ),
+    ) +
+    '"><div class="k">Realized + Dividends</div><div class="v">' +
     money(t.real + t.div, 0) +
     '</div><div class="mini">realized ' +
     money(t.real, 0) +
@@ -514,11 +565,7 @@ function renderDashAllocBars(arr) {
   const el = document.getElementById("dashAllocBars");
   if (!el) return;
   const held = arr.filter((p) => p.held > 0 && p.value > 0);
-  const byCat = {};
-  held.forEach((p) => {
-    const cat = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
-    byCat[cat] = (byCat[cat] || 0) + p.value;
-  });
+  const byCat = sumValueByField(held, "cat", "Uncategorized");
   const data = Object.keys(byCat)
     .map((k) => ({ name: k, y: +byCat[k].toFixed(2) }))
     .sort((a, b) => b.y - a.y);
@@ -693,16 +740,6 @@ function renderCharts(arr, t) {
     ],
   });
 }
-function sortArr(arr, key) {
-  const s = (sortState[key] = sortState[key] === 1 ? -1 : 1);
-  arr.sort((a, b) => {
-    let x = a[key],
-      y = b[key];
-    if (typeof x === "string") return s * x.localeCompare(y);
-    return s * ((x || 0) - (y || 0));
-  });
-  return arr;
-}
 function dispName(tk) {
   const m = M[tk];
   return m && m.cat === "OPCVM" && m.name ? m.name : tk;
@@ -872,14 +909,13 @@ function _nisSingle(p, compact) {
   const tax = p.sellTax || 0;
   const row = (l, v, cl) =>
     `<div style="display:flex;justify-content:space-between;gap:20px"><span>${l}</span><span class="${cl || ""}" style="font-family:var(--mono)">${v}</span></div>`;
-  const pctOf = (r) => (r * 100).toFixed(3).replace(/\.?0+$/, "") + "%";
   const meta = M[p.ticker];
-  const isOpcvm = !!(meta && meta.cat === "OPCVM");
+  const _isOpcvm = isOpcvm(p.ticker);
   let h = compact
     ? ""
     : `<div style="font-weight:700;margin-bottom:6px">If sold today \u00B7 ${escapeHtml(p.account)} account</div>`;
   h += row("Gross (market value)", money(gross) + " MAD");
-  if (isOpcvm) {
+  if (_isOpcvm) {
     const sf = meta.sellFee != null ? meta.sellFee : null;
     // Split the stored total sell fee (from computeRow \u2192 opcvmFee) into its parts:
     // fund redemption % on gross, plus the flat Attijari order surcharge (\u224811 MAD).
@@ -981,7 +1017,7 @@ function _nisSingle(p, compact) {
 }
 
 function posChips(p) {
-  return `${p.acctList ? (p.acctList.length > 1 ? ' <span class="chip" data-tip="Combined: PEA + Regular" style="background:rgba(139,92,246,.16);color:#a78bfa;cursor:help">PEA+Reg</span>' : p.acctList[0] === "PEA" ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : '<span class="chip" style="background:var(--panel2);color:var(--muted)">REG</span>') : p.isPea ? ' <span class="chip" style="background:rgba(56,189,248,.15);color:var(--info)">PEA</span>' : '<span class="chip" style="background:var(--panel2);color:var(--muted)">REG</span>'}${(function () {
+  return `${p.acctList ? (p.acctList.length > 1 ? ' <span class="chip" data-tip="Combined: held in BOTH a PEA (tax-exempt) and a Regular (taxable) account. Expand the row to see the per-account split." style="background:rgba(139,92,246,.16);color:#a78bfa;cursor:help">PEA+Reg</span>' : p.acctList[0] === "PEA" ? ' <span class="chip" data-tip="Held in a PEA account \u2014 capital gains are tax-exempt." style="background:rgba(56,189,248,.15);color:var(--info);cursor:help">PEA</span>' : '<span class="chip" data-tip="Held in a Regular (taxable) account \u2014 capital gains are subject to TPCVM tax." style="background:var(--panel2);color:var(--muted);cursor:help">REG</span>') : p.isPea ? ' <span class="chip" data-tip="Held in a PEA account \u2014 capital gains are tax-exempt." style="background:rgba(56,189,248,.15);color:var(--info);cursor:help">PEA</span>' : '<span class="chip" data-tip="Held in a Regular (taxable) account \u2014 capital gains are subject to TPCVM tax." style="background:var(--panel2);color:var(--muted);cursor:help">REG</span>'}${(function () {
     const pd = PENDING.filter((o) => o.ticker === p.ticker);
     if (!pd.length) return "";
     const nb = pd.filter((o) => o.action === "BUY").length,
@@ -1004,10 +1040,10 @@ function posCells(p, showDivY) {
   const priceCell =
     p.held > 0
       ? `<td class="right" data-tip="Click to edit price" style="cursor:pointer;color:var(--info)" data-act="editPrice" data-args="${p.ticker}">${p.price != null ? money(p.price) : "set"} \u270e</td>`
-      : `<td>${p.price != null ? money(p.price) : "\u2014"}</td>`;
+      : `<td class="nis-cell" style="cursor:help" data-tip="Last known market price per share. This position isn't currently held, so the price is shown for reference only.">${p.price != null ? money(p.price) : "\u2014"}</td>`;
   return `<td class="l" style="color:var(--text2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" data-tip="Click for return waterfall" data-act="showPosWaterfall" data-args="${p.key}">${escapeHtml((M[p.ticker] && M[p.ticker].name) || "")} <span style="color:var(--muted)">\ud83d\udcca</span></td><td>${money(p.held, p.held % 1 ? 3 : 0)}</td><td>${money(p.avg)}</td>
-    <td>${p.held > 0 ? money(p.invested) : "\u2014"}</td>${priceCell}
-    <td>${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? tipRef(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? tipRef(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
+    <td class="nis-cell" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? "Total cash cost basis of the shares you still hold (FIFO, including all buy fees)." : ""}">${p.held > 0 ? money(p.invested) : "\u2014"}</td>${priceCell}
+    <td class="nis-cell" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? "Current market value = shares held x live price." : ""}">${p.held > 0 ? money(p.value) : "\u2014"}</td><td class="nis-cell" style="${p.netIfSold != null ? "cursor:help" : ""}" data-tip="${p.netIfSold != null ? tipRef(netIfSoldTipHTML(p)) : ""}">${p.netIfSold != null ? money(p.netIfSold) : "\u2014"}</td><td class="${cls(p.unreal)} ${p.held > 0 ? "nis-cell" : ""}" style="${p.held > 0 ? "cursor:help" : ""}" data-tip="${p.held > 0 ? tipRef(unrealTipHTML(p)) : ""}">${p.held > 0 ? money(p.unreal) : "\u2014"}</td>
     <td class="${cls(p.realized)} ${p.realizedDetail && p.realizedDetail.length ? "nis-cell" : ""}" style="${p.realizedDetail && p.realizedDetail.length ? "cursor:help" : ""}" data-tip="${p.realizedDetail && p.realizedDetail.length ? tipRef(realizedTipHTML(p)) : ""}">${money(p.realized)}</td><td class="${divCls} ${p.divDetail && p.divDetail.length ? "nis-cell" : ""}" style="${p.divDetail && p.divDetail.length ? "cursor:help" : ""}" data-tip="${p.divDetail && p.divDetail.length ? tipRef(divTipHTML(p)) : ""}">${money(p.divs)}</td>
     <td class="${cls(p.lifetime)} nis-cell" style="cursor:help" data-tip="${tipRef(lifetimeTipHTML(p))}"><b>${money(p.lifetime)}</b></td><td class="${cls(p.lifepct)}">${pct(p.lifepct)}</td>
     ${
@@ -1035,7 +1071,7 @@ function posCells(p, showDivY) {
           })()
         : ""
     }
-    <td class="center"><span class="st-${p.status === "Closed" ? "closed" : "open"}">${p.status}</span></td>`;
+    <td class="center"><span class="st-${p.status === "Closed" ? "closed" : "open"} nis-cell" style="cursor:help" data-tip="Position lifecycle: Open = still fully held, Partial = some shares sold, Closed = fully exited.">${p.status}</span></td>`;
 }
 function posRow(p, showDivY) {
   const expandable = COMBINE_ACCT && p.children && p.children.length > 1;
@@ -1060,9 +1096,6 @@ function posRow(p, showDivY) {
     .join("");
   return parent + kids;
 }
-function sectionHeader(label) {
-  return `<tr><td class="l" colspan="14" style="background:var(--panel2);color:var(--text2);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px">${label}</td></tr>`;
-}
 // Sort: Open/Partial before Closed, then by current sort key (default lifetime desc)
 function posSort(a, b) {
   const oa = a.status === "Closed" ? 1 : 0,
@@ -1078,34 +1111,6 @@ function posSort(a, b) {
   return b.lifetime - a.lifetime;
 }
 let POS_SORT = { k: null, d: -1 };
-function subtotalRow(label, rows) {
-  const s = rows.reduce(
-    (a, p) => ({
-      inv: a.inv + (p.held > 0 ? p.invested : 0),
-      val: a.val + p.value,
-      net: a.net + (p.netIfSold || 0),
-      unreal: a.unreal + p.unreal,
-      real: a.real + p.realized,
-      div: a.div + p.divs,
-      life: a.life + p.lifetime,
-      cost: a.cost + (p.costBasis || 0),
-    }),
-    {
-      inv: 0,
-      val: 0,
-      net: 0,
-      unreal: 0,
-      real: 0,
-      div: 0,
-      life: 0,
-      cost: 0,
-    },
-  );
-  return `<tr style="border-top:1px solid var(--border)"><td class="l" style="color:var(--text2)"><i>${label} subtotal</i></td>
-    <td></td><td></td><td></td><td>${money(s.inv)}</td><td></td><td>${money(s.val)}</td><td>${money(s.net)}</td>
-    <td class="${cls(s.unreal)}">${money(s.unreal)}</td><td class="${cls(s.real)}">${money(s.real)}</td>
-    <td class="${s.div > 0 ? "pos" : ""}">${money(s.div)}</td><td class="${cls(s.life)}">${money(s.life)}</td><td></td><td></td></tr>`;
-}
 let HIDE_CLOSED = true;
 // Positions tab: group stocks under sector headers. Persisted so the user's
 // last choice survives a refresh (and rides in backup via casa_group_sector_v1).
@@ -1464,1341 +1469,125 @@ function renderPositions(arr, t) {
     t,
   );
 }
-function computeSignalsRows() {
-  const { pos } = runFIFO();
-  return Object.keys(M).map((tk) => {
-    const m = M[tk];
-    const sc = factorScores(m); // {score, pir, coverage, parts} or null
-    const sig = signal(m, sc, heldSharesOf(pos, tk) > 0);
-    return {
-      ticker: tk,
-      name: m.name,
-      m,
-      sc,
-      sig,
-      price: m.price,
-      tbuy: targetBuy(m, sc),
-      tsell: targetSell(m, sc),
-      score: sc ? sc.score : null,
-      pir: sc ? sc.pir : null,
-      pe: m.pe,
-      divy: m.divy,
-      fv: fairValue(m),
-      conviction: sc ? sc.conviction : null,
-      profile: sc ? sc.profile : null,
-      held: heldSharesOf(pos, tk) > 0,
-    };
+// ---------- Signals row model + factor-breakdown tooltips moved to js/03b-signals-ui.js ----------
+// (computeSignalsRows, tgtBuyTipHTML, tgtSellTipHTML, fvTipHTML, scoreTipHTML,
+// convTipHTML now live in the signals-UI module.)
+
+// ---- reusable tooltip builders moved to js/01b-tooltip.js ----
+// (_tipRow / _tipHead / _tipRule now live in the tooltip module.)
+
+// ---------- Signal factor tooltips + Top Buys/Sector/Headroom widgets moved to js/03b-signals-ui.js ----------
+// (fairValueTipHTML, upsideTipHTML, pirTipHTML, peTipHTML, divyTipHTML,
+// priceTipHTML, peerTipHTML, signalTipHTML, buyStrength, sellUrgency,
+// topBuyRank, renderTopBuys/toggleTbSel/clearTbSel/updateTbSelBar,
+// renderTopSector, renderTopHeadroom now live in the signals-UI module.)
+
+// ============================================================
+// Dashboard "Upcoming Dividends" summary widget (moved from 06-features.js:
+// it renders into the Dashboard tab, not the Dividends tab).
+// ============================================================
+function renderDashDivs(pos) {
+  // Source 1: calendar dividends you're ELIGIBLE for (held before the ex-date), whose payment is upcoming
+  // OR just passed (within 30 days) but NOT yet recorded as received. Uses ex-date eligibility, not current holdings.
+  let rows = DIVCAL.filter((d) => {
+    if (!d.pay_date || eligibleSharesAtEx(d) <= 0) return false;
+    const du = daysUntil(d.pay_date);
+    if (du >= 0) return true; // upcoming
+    if (du >= -30 && !divRecorded(d)) return true; // just passed, not yet recorded
+    return false;
   });
-}
-
-// ---------- signal calculation breakdown ----------
-
-function tgtBuyTipHTML(r) {
-  const fv = fairValue(r.m);
-  const s = r.sc && r.sc.score != null ? r.sc.score : 0.5;
-  const conv = r.sc && r.sc.conviction;
-  // Derive the ACTUAL discount from the canonical targetBuy() result so the tooltip
-  // always matches the displayed target (incl. the conviction margin-of-safety).
-  const tbuy = r.tbuy != null ? r.tbuy : targetBuy(r.m, r.sc);
-  const disc = fv != null && fv > 0 && tbuy != null ? 1 - tbuy / fv : null;
-  const convExtra = conv === "Low" ? 10 : conv === "Medium" ? 4 : 0;
-  const row = _tipRow; // shared tooltip row builder (gap:18px)
-  let h = `<div style="font-weight:700;margin-bottom:6px">Target Buy \u00B7 ${escapeHtml(r.ticker)}</div>`;
-  h += row("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
-  h += row("Score", (s * 100).toFixed(0) + "%");
-  h += row(
-    'Margin of safety <span class="mini">(10% + (1\u2212score)\u00D720%' +
-      (convExtra ? " + " + convExtra + "% " + conv + " conviction" : "") +
-      ")</span>",
-    (disc != null ? (disc * 100).toFixed(1) : "\u2014") + "%",
+  // Source 2: DIV transactions you've RECORDED with a future pay date (not yet received),
+  // even if they aren't in the calendar. Dedup against calendar by ticker+amount within the window.
+  const seen = new Set(
+    rows.map((d) => d.ticker + "|" + +(+d.amount).toFixed(4)),
   );
-  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
-  h += row(
-    '<b>Target Buy</b> <span class="mini">(fair \u00D7 (1\u2212disc))</span>',
-    "<b>" + (r.tbuy != null ? money(r.tbuy) : "\u2014") + "</b>",
-  );
-  h += `<div class="mini" style="margin-top:6px">Higher score \u2192 smaller required discount \u2192 buy closer to fair value.</div>`;
-  return h;
-}
-function tgtSellTipHTML(r) {
-  const fv = fairValue(r.m);
-  const s = r.sc && r.sc.score != null ? r.sc.score : 0.5;
-  // Derive the ACTUAL premium from the canonical targetSell() result (after the
-  // 52-wk-high cap and fair-value/buy floors), so the tooltip matches the target shown.
-  const tsell = r.tsell != null ? r.tsell : targetSell(r.m, r.sc);
-  const prem = fv != null && fv > 0 && tsell != null ? tsell / fv - 1 : null;
-  const row = _tipRow; // shared tooltip row builder (gap:18px)
-  let h = `<div style="font-weight:700;margin-bottom:6px">Target Sell \u00B7 ${escapeHtml(r.ticker)}</div>`;
-  h += row("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
-  h += row("Score", (s * 100).toFixed(0) + "%");
-  h += row(
-    'Premium over fair <span class="mini">(base 12% + score\u00D728%, then capped/floored)</span>',
-    (prem != null ? (prem * 100).toFixed(1) : "\u2014") + "%",
-  );
-  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
-  h += row(
-    "<b>Target Sell</b>",
-    "<b>" + (r.tsell != null ? money(r.tsell) : "\u2014") + "</b>",
-  );
-  h += `<div class="mini" style="margin-top:6px">Floored at Buy\u00D71.18, capped ~10% above 52-wk high. Higher score \u2192 higher premium.</div>`;
-  return h;
-}
-function fvTipHTML(r) {
-  const m = r.m,
-    fv = r.fv,
-    pr = r.price;
-  const row = _tipRow; // shared tooltip row builder (gap:18px)
-  let h =
-    '<div style="font-weight:700;margin-bottom:4px">' +
-    r.ticker +
-    " \u2014 Fair Value</div>";
-  h +=
-    '<div style="color:var(--text2);font-size:11px;margin-bottom:6px">Blended intrinsic value from price-independent anchors (median-trimmed).</div>';
-  const aps = fairValueParts(m);
-  if (aps.length) {
-    aps.forEach((a) => {
-      h += row(a[0], money(a[1]) + " MAD");
-    });
-    h +=
-      '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
-  }
-  h += row(
-    "<b>Fair value</b>",
-    "<b>" + (fv != null ? money(fv) + " MAD" : "\u2014") + "</b>",
-  );
-  h += row("Current price", pr != null ? money(pr) + " MAD" : "\u2014");
-  if (fv != null && pr != null && fv > 0) {
-    const gap = (fv - pr) / pr;
-    const up = gap >= 0;
-    const label = up
-      ? "Undervalued \u2014 upside to fair"
-      : "Overvalued \u2014 above fair";
-    h += row(
-      label,
-      "<b>" + (up ? "+" : "") + (gap * 100).toFixed(1) + "%</b>",
-      up ? "pos" : "neg",
-    );
-  }
-  return h;
-}
-function scoreTipHTML(r) {
-  // reuse the factor breakdown from signalTipHTML
-  return signalTipHTML(r);
-}
-function convTipHTML(r) {
-  const sc = r.sc;
-  const _row = (l, v, cl) =>
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
-    l +
-    '</span><span class="' +
-    (cl || "") +
-    '" style="font-family:var(--mono)">' +
-    v +
-    "</span></div>";
-  let h =
-    '<div style="font-weight:700;margin-bottom:6px">Conviction \u00B7 ' +
-    escapeHtml(r.ticker) +
-    "</div>";
-  if (!sc) {
-    return (
-      h +
-      '<div class="mini" style="color:var(--muted)">Not enough data to score.</div>'
-    );
-  }
-  const lvl = sc.conviction || "\u2014";
-  const lvlCl = lvl === "High" ? "pos" : lvl === "Low" ? "neg" : "";
-  h += _row("<b>Level</b>", "<b>" + lvl + "</b>", lvlCl);
-  h +=
-    '<div class="mini" style="margin:4px 0 6px;color:var(--muted)">How much to trust this score \u2014 needs BOTH broad factor coverage AND enough core fundamentals present.</div>';
-  h += _row(
-    'Factor coverage <span class="mini">(by weight)</span>',
-    sc.wcov != null ? (sc.wcov * 100).toFixed(0) + "%" : "\u2014",
-  );
-  const nHave = (sc.depthDefs || []).filter((d) => d[1]).length,
-    nTot = (sc.depthDefs || []).length;
-  h += _row(
-    "Core data depth",
-    nHave +
-      " / " +
-      nTot +
-      (sc.dataDepth != null
-        ? " (" + (sc.dataDepth * 100).toFixed(0) + "%)"
-        : ""),
-  );
-  h +=
-    '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
-  (sc.depthDefs || []).forEach((d) => {
-    h +=
-      '<div style="display:flex;justify-content:space-between;gap:14px"><span class="mini">' +
-      d[0] +
-      '</span><span style="font-family:var(--mono);color:' +
-      (d[1] ? "var(--success)" : "var(--error)") +
-      '">' +
-      (d[1] ? "\u2713" : "\u2717") +
-      "</span></div>";
-  });
-  if (sc.convScore != null) {
-    h +=
-      '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
-    h += _row(
-      "<b>Conviction score</b>",
-      "<b>" + (sc.convScore * 100).toFixed(0) + "%</b>",
-    );
-    h +=
-      '<div class="mini" style="margin-top:4px;color:var(--muted)">Thresholds: High \u2265 80% \u00B7 Medium \u2265 55% \u00B7 else Low. Missing core inputs cap conviction even when weighted coverage looks high.</div>';
-  }
-  // \u2500\u2500 Earnings quality flags \u2500\u2500
-  if (sc && sc.eqFlags && sc.eqFlags.length) {
-    h +=
-      '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:4px;color:var(--warn);font-weight:600">\u26a0 Quality red flags</div>';
-    sc.eqFlags.forEach((f) => {
-      h += _row(f, "", "neg");
-    });
-    h +=
-      '<div class="mini" style="color:var(--muted)">These penalize the quality sub-score and may block BUY signals.</div>';
-  }
-  return h;
-}
-
-// ---- rebalance "why" tooltips ----
-// Live price vs target buy: flag entries trading materially above their ideal entry.
-const ABOVE_TGT_THRESH = 0.1; // >10% above target buy = not an ideal entry yet
-function aboveTgtPct(px, tbuy) {
-  return tbuy != null && isFinite(tbuy) && tbuy > 0 && px != null
-    ? (px - tbuy) / tbuy
-    : null;
-}
-function aboveTgtBadge(px, tbuy) {
-  const a = aboveTgtPct(px, tbuy);
-  if (a == null || a <= ABOVE_TGT_THRESH) return "";
-  return (
-    ' <span class="badge b-abovetgt" data-tip="' +
-    tipRef(
-      "Live price is " +
-        (a * 100).toFixed(0) +
-        "% above target buy (" +
-        money(tbuy) +
-        " MAD). It qualifies as undervalued vs fair value, but you'd be paying above the ideal entry \u2014 consider waiting for a dip.",
-    ) +
-    '" style="cursor:help">\u26A0 +' +
-    (a * 100).toFixed(0) +
-    "% vs tgt</span>"
-  );
-}
-function rbBuyTipHTML(x, ctx) {
-  // ctx: {capPct, secWBefore, secWAfter}
-  let h =
-    '<div style="font-weight:700;margin-bottom:6px">Why buy ' +
-    x.ticker +
-    "?</div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector</span><span style="font-family:var(--mono)">' +
-    x.cat +
-    "</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector weight now</span><span style="font-family:var(--mono)">' +
-    (ctx && ctx.secWBefore != null
-      ? (ctx.secWBefore * 100).toFixed(0) + "%"
-      : "\u2014") +
-    "</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>After this plan</span><span style="font-family:var(--mono)">' +
-    (ctx && ctx.secWAfter != null
-      ? (ctx.secWAfter * 100).toFixed(0) + "%"
-      : "\u2014") +
-    ' <span class="mini">(cap ' +
-    (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
-    "%)</span></span></div>";
-  h += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Fair value</span><span style="font-family:var(--mono)">' +
-    (x.fv != null ? money(x.fv) : "\u2014") +
-    " MAD</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Live price <span class="mini">(what you pay)</span></span><span style="font-family:var(--mono)"><b>' +
-    money(x.px) +
-    " MAD</b></span></div>";
-  if (x.tbuy != null)
-    h +=
-      '<div style="display:flex;justify-content:space-between;gap:18px"><span>Target Buy <span class="mini">(ideal entry)</span></span><span style="font-family:var(--mono);color:var(--text2)">' +
-      money(x.tbuy) +
-      " MAD</span></div>";
-  {
-    const _a = aboveTgtPct(x.px, x.tbuy);
-    if (_a != null)
-      h +=
-        '<div style="display:flex;justify-content:space-between;gap:18px"><span>vs target buy</span><span class="' +
-        (_a > ABOVE_TGT_THRESH ? "neg" : "pos") +
-        '" style="font-family:var(--mono)">' +
-        (_a >= 0 ? "+" : "") +
-        (_a * 100).toFixed(0) +
-        "%" +
-        (_a > ABOVE_TGT_THRESH ? " \u26A0" : "") +
-        "</span></div>";
-  }
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Discount to fair</span><span class="' +
-    (x.disc > 0 ? "pos" : "neg") +
-    '" style="font-family:var(--mono)">' +
-    (x.disc * 100).toFixed(0) +
-    "%</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Signal engine</span><span style="font-family:var(--mono)">' +
-    ((x.sig && x.sig.t) || "\u2014") +
-    "</span></div>";
-  // Conviction \u00D7 range-width sizing info
-  {
-    const _m = M[x.ticker];
-    const _sc = typeof factorScores === "function" ? factorScores(_m) : null;
-    const _conv = _sc ? _sc.convScore : 0.5;
-    const _kelly = _conv >= 0.8 ? 3 : _conv >= 0.55 ? 2 : 1;
-    const _vol =
-      num(_m.low) && num(_m.high) && x.px > 0
-        ? (_m.high - _m.low) / x.px
-        : null;
-    h +=
-      '<div style="display:flex;justify-content:space-between;gap:18px"><span>Conviction sizing</span><span style="font-family:var(--mono)">' +
-      _kelly +
-      ' sh/step <span class="mini">(conv ' +
-      (_conv * 100).toFixed(0) +
-      "%)</span></span></div>";
-    if (_vol != null)
-      h +=
-        '<div style="display:flex;justify-content:space-between;gap:18px"><span>Range width (52w hi\u2212lo / px)</span><span style="font-family:var(--mono)">' +
-        (_vol * 100).toFixed(0) +
-        "%</span></div>";
-    h +=
-      '<div style="display:flex;justify-content:space-between;gap:18px"><span>Qty allocated</span><span style="font-family:var(--mono)"><b>' +
-      x.qty +
-      "</b> shares</span></div>";
-  }
-  h += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-  h +=
-    '<div class="mini">Chosen because its sector is <b>under-represented</b> (below the ' +
-    (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
-    "% cap) and it trades <b>" +
-    (x.disc > 0 ? (x.disc * 100).toFixed(0) + "% below" : "above") +
-    " fair value</b>. Buying it moves your mix toward balance.</div>";
-  return h;
-}
-function rbTrimTipHTML(x, ctx) {
-  let h =
-    '<div style="font-weight:700;margin-bottom:6px">Why trim ' +
-    x.ticker +
-    "?</div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector</span><span style="font-family:var(--mono)">' +
-    x.cat +
-    "</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sector weight now</span><span class="neg" style="font-family:var(--mono)">' +
-    (ctx && ctx.secWBefore != null
-      ? (ctx.secWBefore * 100).toFixed(0) + "%"
-      : "\u2014") +
-    ' <span class="mini">(cap ' +
-    (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
-    "%)</span></span></div>";
-  h += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Fair value</span><span style="font-family:var(--mono)">' +
-    (x.fv != null ? money(x.fv) : "\u2014") +
-    " MAD</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Current price</span><span style="font-family:var(--mono)">' +
-    money(x.px) +
-    " MAD</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Discount to fair</span><span class="' +
-    (x.disc < 0 ? "neg" : "pos") +
-    '" style="font-family:var(--mono)">' +
-    (x.disc * 100).toFixed(0) +
-    "%</span></div>";
-  h +=
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>Sell qty \u2192 net</span><span style="font-family:var(--mono)">' +
-    x.qty +
-    " \u2192 " +
-    money(x.net, 0) +
-    " MAD</span></div>";
-  h += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-  h +=
-    '<div class="mini">This sector is <b>over the ' +
-    (ctx ? (ctx.capPct * 100).toFixed(0) : "\u2014") +
-    "% cap</b>, and within it this name is the <b>most richly valued</b> (" +
-    (x.disc < 0
-      ? (-x.disc * 100).toFixed(0) + "% above"
-      : (x.disc * 100).toFixed(0) + "% below") +
-    " fair). Trimming it frees cash to diversify.</div>";
-  return h;
-}
-// ---- reusable tooltip builders (every number explains itself) ----
-function _tipRow(l, v, cl) {
-  return (
-    '<div style="display:flex;justify-content:space-between;gap:18px"><span>' +
-    l +
-    '</span><span class="' +
-    (cl || "") +
-    '" style="font-family:var(--mono)">' +
-    v +
-    "</span></div>"
-  );
-}
-function _tipHead(t) {
-  return '<div style="font-weight:700;margin-bottom:6px">' + t + "</div>";
-}
-function _tipRule() {
-  return '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
-}
-
-function fairValueTipHTML(m, ticker) {
-  const fv = fairValue(m);
-  const parts = fairValueParts(m);
-  let h = _tipHead("Fair value \u00B7 " + (ticker || ""));
-  if (!parts.length) {
-    h += '<div class="mini">Not enough data \u2014 using last price.</div>';
-    return h;
-  }
-  h +=
-    '<div class="mini" style="color:var(--text2);margin-bottom:2px">Blend of ' +
-    parts.length +
-    " anchor" +
-    (parts.length === 1 ? "" : "s") +
-    " (outliers trimmed):</div>";
-  parts.forEach((pr) => {
-    h += _tipRow(pr[0], money(pr[1]));
-  });
-  h += _tipRule();
-  h += _tipRow(
-    '<b>Fair value</b> <span class="mini">(mean)</span>',
-    "<b>" + (fv != null ? money(fv) : "\u2014") + " MAD</b>",
-  );
-  return h;
-}
-function upsideTipHTML(r) {
-  const m = r.m,
-    fv = r._tb && r._tb.fv != null ? r._tb.fv : fairValue(m);
-  const up =
-    fv != null && r.price != null && r.price > 0
-      ? ((fv - r.price) / r.price) * 100
-      : null;
-  let h = _tipHead("Upside to fair value \u00B7 " + r.ticker);
-  h += _tipRow(
-    "Current price",
-    (r.price != null ? money(r.price) : "\u2014") + " MAD",
-  );
-  h += _tipRow("Fair value", (fv != null ? money(fv) : "\u2014") + " MAD");
-  h += _tipRule();
-  const parts = fairValueParts(m);
-  if (parts.length) {
-    h +=
-      '<div class="mini" style="color:var(--text2);margin-bottom:2px">Fair value = mean of:</div>';
-    parts.forEach((pr) => {
-      h += _tipRow(pr[0], money(pr[1]));
-    });
-    h += _tipRule();
-  }
-  h += _tipRow(
-    '<b>Upside</b> <span class="mini">((fair\u2212price)/price)</span>',
-    '<b class="' +
-      (up != null && up >= 0 ? "pos" : "neg") +
-      '">' +
-      (up != null ? (up >= 0 ? "+" : "") + up.toFixed(1) + "%" : "\u2014") +
-      "</b>",
-  );
-  return h;
-}
-function pirTipHTML(r) {
-  const m = r.m;
-  let h = _tipHead("Position in 52-wk range \u00B7 " + r.ticker);
-  h += _tipRow("52-wk low", (num(m.low) ? money(m.low) : "\u2014") + " MAD");
-  h += _tipRow(
-    "Current price",
-    (r.price != null ? money(r.price) : "\u2014") + " MAD",
-  );
-  h += _tipRow("52-wk high", (num(m.high) ? money(m.high) : "\u2014") + " MAD");
-  h += _tipRule();
-  h += _tipRow(
-    '<b>Position</b> <span class="mini">((px\u2212low)/(high\u2212low))</span>',
-    "<b>" + (r.pir != null ? pct(r.pir) : "\u2014") + "</b>",
-  );
-  h +=
-    '<div class="mini" style="margin-top:6px">0% = at the 52-wk low (cheap end of its band) \u00B7 100% = at the high.</div>';
-  return h;
-}
-function peTipHTML(r) {
-  const m = r.m;
-  const epsAbs = num(m.eps) && m.eps > 0;
-  const eps = epsAbs ? m.eps : num(m.pe) && m.pe > 0 ? m.price / m.pe : null;
-  let h = _tipHead("Price / Earnings \u00B7 " + r.ticker);
-  h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
-  if (eps != null)
-    h += _tipRow(
-      'EPS <span class="mini">(' +
-        (epsAbs ? "reported" : "price/PE") +
-        ")</span>",
-      money(eps) + " MAD",
-    );
-  h += _tipRule();
-  h += _tipRow(
-    "<b>P/E</b>",
-    "<b>" + (r.pe != null ? money(r.pe, 1) : "\u2014") + "</b>",
-  );
-  const pr = sectorProfile(m.cat);
-  h +=
-    '<div class="mini" style="margin-top:6px">Sector-fair P/E \u2248 ' +
-    pr.peFair +
-    ". Lower than fair = cheaper on earnings.</div>";
-  return h;
-}
-function divyTipHTML(r) {
-  const m = r.m;
-  const dpsAbs = num(m.dps) && m.dps > 0;
-  const dps = dpsAbs
-    ? m.dps
-    : num(m.divy) && m.divy > 0
-      ? m.price * m.divy
-      : null;
-  let h = _tipHead("Dividend yield \u00B7 " + r.ticker);
-  h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
-  if (dps != null)
-    h += _tipRow(
-      'Div / share <span class="mini">(price\u00D7yield)</span>',
-      money(dps) + " MAD",
-    );
-  h += _tipRule();
-  h += _tipRow(
-    "<b>Yield</b>",
-    "<b>" + (r.divy != null ? pct(r.divy) : "\u2014") + "</b>",
-  );
-  const pr = sectorProfile(m.cat);
-  h +=
-    '<div class="mini" style="margin-top:6px">Sector-fair yield \u2248 ' +
-    (pr.dyFair * 100).toFixed(1) +
-    "%. Higher = more income per MAD.</div>";
-  return h;
-}
-function priceTipHTML(r) {
-  const m = r.m;
-  let h = _tipHead("Last price \u00B7 " + r.ticker);
-  h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
-  if (num(m.low) && num(m.high)) {
-    h += _tipRow("52-wk low", money(m.low));
-    h += _tipRow("52-wk high", money(m.high));
-  }
-  return h;
-}
-
-// Reusable peer-relative valuation tooltip (shared by the Signals breakdown and Top Buys cards).
-function peerTipHTML(r) {
-  const m = r.m,
-    sc = r.sc;
-  const row = _tipRow; // shared tooltip row builder (gap:18px)
-  let h = `<div style="font-weight:700;margin-bottom:6px">Peer-relative valuation \u00B7 ${escapeHtml(r.ticker)}</div>`;
-  const pf = sc && sc.parts && sc.parts.peerrel;
-  if (!pf || pf.s == null || !pf._n) {
-    h +=
-      '<div class="mini" style="color:var(--muted)">No comparable peers with valuation data \u2014 peer signal not used for this stock.</div>';
-    return h;
-  }
-  const st = typeof sectorStats === "function" ? sectorStats() : null;
-  const cat = m.cat || "Uncategorized";
-  const key =
-    typeof sectorProfile === "function" ? sectorProfile(m.cat).key : null;
-  const ref = st
-    ? pf._basis === "category"
-      ? st.cat && st.cat[cat]
-      : st.prof && st.prof[key]
-    : null;
-  const basisLbl =
-    pf._basis === "category"
-      ? "same category (" + escapeHtml(cat) + ")"
-      : "broad sector (" + (sc.profile || key) + ")";
-  h += row("Compared against", "<b>" + basisLbl + "</b>");
-  h += row(
-    "Comparables used",
-    "<b>" +
-      pf._n +
-      "</b>" +
-      (pf._n < 4
-        ? ' <span class="mini neg">(thin \u2014 down-weighted)</span>'
-        : ""),
-  );
-  if (ref) {
-    if (ref.pe != null)
-      h += row(
-        "Peer median P/E",
-        money(ref.pe, 1) +
-          (num(m.pe) && m.pe > 0
-            ? '  <span class="mini">\u00B7 you ' + money(m.pe, 1) + "</span>"
-            : ""),
+  TXNS.filter((t) => t.action === "DIV" && daysUntil(t.date) >= 0).forEach(
+    (t) => {
+      const key = t.ticker + "|" + +(+t.price).toFixed(4);
+      // avoid duplicating a calendar row already listed for this ticker+amount
+      const dupCal = rows.some(
+        (d) =>
+          d.ticker === t.ticker &&
+          Math.abs(+d.amount - +t.price) < 1e-4 &&
+          daysBetween(d.pay_date, t.date) <= DIV_MATCH_WINDOW_DAYS,
       );
-    if (ref.pb != null)
-      h += row(
-        "Peer median P/B",
-        money(ref.pb, 2) +
-          (num(m.pb) && m.pb > 0
-            ? '  <span class="mini">\u00B7 you ' + money(m.pb, 2) + "</span>"
-            : ""),
-      );
-    if (ref.divy != null)
-      h += row(
-        "Peer median Div Y",
-        (ref.divy * 100).toFixed(1) +
-          "%" +
-          (num(m.divy) && m.divy > 0
-            ? '  <span class="mini">\u00B7 you ' +
-              (m.divy * 100).toFixed(1) +
-              "%</span>"
-            : ""),
-      );
-  }
-  const verdict =
-    pf.s >= 0.6
-      ? "cheaper than peers"
-      : pf.s <= 0.4
-        ? "pricier than peers"
-        : "in line with peers";
-  h +=
-    '<div style="border-top:1px solid var(--border);margin:6px 0;padding-top:2px"></div>';
-  h += row(
-    "<b>Peer verdict</b>",
-    '<b class="' +
-      (pf.s >= 0.6 ? "pos" : pf.s <= 0.4 ? "neg" : "") +
-      '">' +
-      (pf.s * 100).toFixed(0) +
-      "% \u00B7 " +
-      verdict +
-      "</b>",
-  );
-  h +=
-    '<div class="mini" style="margin-top:4px;color:var(--muted)">Prefers same-category peers when \u22654 exist, else the broad sector. Fewer comparables \u2192 lower weight in the score.</div>';
-  return h;
-}
-function signalTipHTML(r) {
-  const m = r.m,
-    sc = r.sc,
-    fv = fairValue(m);
-  const names = {
-    valuation: "Valuation (EV/EBITDA)",
-    safety: "Safety (Net Debt/EBITDA)",
-    quality: "Quality (ROE)",
-    growth: "Growth (PEG + EPS growth)",
-    yield: "Yield (Div %)",
-    book: "Book (P/B)",
-    fcfy: "FCF Yield (FCF/Price)",
-    timing: "Timing (Entry pos.)",
-    momentum: "Range Position (52w)",
-    peerrel: "Peer-relative (vs sector)",
-  };
-  const row = _tipRow; // shared tooltip row builder (gap:18px)
-  let h = `<div style="font-weight:700;margin-bottom:2px">${escapeHtml(r.ticker)} \u2014 ${escapeHtml(r.name || "")}</div>`;
-  h += `<div style="margin-bottom:8px"><span class="badge ${r.sig.c}">${r.sig.t}</span></div>`;
-  h += `<div style="color:var(--text2);font-size:11px;margin-bottom:2px">Factor \u00B7 <b>raw value</b> \u00B7 weight \u00B7 score \u2192 contribution</div>`;
-  if (sc && sc.parts) {
-    // Raw metric values for each factor
-    const _rawVals = {
-      valuation: m.ev != null ? m.ev.toFixed(1) + "x" : null,
-      safety: m.netdebt != null ? m.netdebt.toFixed(1) + "x" : null,
-      quality: m.roe != null ? (m.roe * 100).toFixed(1) + "%" : null,
-      growth:
-        m.peg != null
-          ? m.peg.toFixed(1) +
-            (m.epsGrowth != null
-              ? " (gr " +
-                (m.epsGrowth >= 0 ? "+" : "") +
-                (m.epsGrowth * 100).toFixed(0) +
-                "%)"
-              : "")
-          : null,
-      yield: m.divy != null ? (m.divy * 100).toFixed(2) + "%" : null,
-      book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
-      fcfy:
-        m.fcf != null && m.price != null && m.price > 0
-          ? ((m.fcf / m.price) * 100).toFixed(1) + "%"
-          : null,
-      timing: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
-      momentum: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
-      peerrel:
-        sc.parts.peerrel && sc.parts.peerrel._n
-          ? sc.parts.peerrel._n + " peers"
-          : null,
-    };
-    for (const k in sc.parts) {
-      const f = sc.parts[k];
-      // Skip factors that carry zero weight for this sector (e.g. FCF yield for
-      // financials/REITs) - they contribute nothing and would just add a noisy
-      // "0% weight -> 0%" row.
-      if (!f.w) continue;
-      const rv = _rawVals[k];
-      const rawStr = rv ? "<b>" + rv + "</b> \u00B7 " : "";
-      const s =
-        f.s == null
-          ? '<span style="color:var(--muted)">no data</span>'
-          : (f.s * 100).toFixed(0) + "%";
-      const contrib =
-        f.s == null ? "" : " \u2192 " + (f.s * f.w * 100).toFixed(0) + "%";
-      h += row(
-        names[k] || k,
-        rawStr +
-          '<span class="mini">' +
-          (f.w * 100).toFixed(0) +
-          "%</span> \u00B7 " +
-          s +
-          contrib,
-      );
-    }
-  }
-  h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px"></div>`;
-  h += row(
-    '<b>Total Score</b> <span class="mini">(\u00F7 avail. weights, correlation-adjusted)</span>',
-    "<b>" +
-      (sc && sc.score != null ? (sc.score * 100).toFixed(0) + "%" : "\u2014") +
-      "</b>",
-  );
-  h += row(
-    "Sector weighting profile",
-    "<b>" + (sc && sc.profile ? sc.profile : "\u2014") + "</b>",
-  );
-  h += row(
-    'Conviction <span class="mini">(data coverage ' +
-      (sc && sc.wcov != null ? (sc.wcov * 100).toFixed(0) + "%" : "") +
-      ")</span>",
-    "<b>" + (sc && sc.conviction ? sc.conviction : "\u2014") + "</b>",
-    sc && sc.conviction === "High"
-      ? "pos"
-      : sc && sc.conviction === "Low"
-        ? "neg"
-        : "",
-  );
-  h += `<div style="margin-top:8px"></div>`;
-  h += row(
-    'Fair value <span class="mini">(price-independent anchors)</span>',
-    (fv != null ? money(fv) : "\u2014") + " MAD",
-  );
-  {
-    const aps = fairValueParts(m);
-    if (aps.length) {
-      h += '<div class="mini" style="margin:2px 0 2px 8px;color:var(--text2)">';
-      aps.forEach((a) => {
-        h +=
-          '<div style="display:flex;justify-content:space-between;gap:14px"><span>' +
-          a[0] +
-          '</span><span style="font-family:var(--mono)">' +
-          money(a[1]) +
-          "</span></div>";
+      if (dupCal) return;
+      rows.push({
+        ticker: t.ticker,
+        issuer: (M[t.ticker] && M[t.ticker].name) || "",
+        amount: t.price,
+        pay_date: t.date,
+        ex_date: t.exDate || "",
+        _fromTxn: true,
+        _txnQty: t.qty,
+        _txnPea: t.pea,
       });
-      h += "</div>";
-    }
+    },
+  );
+  rows.sort((a, b) => (a.pay_date < b.pay_date ? -1 : 1));
+  const tb = document.querySelector("#dashDivTable tbody");
+  const empty = document.getElementById("dashDivEmpty");
+  if (!rows.length) {
+    tb.innerHTML = "";
+    empty.textContent =
+      "No upcoming dividends \u2014 none where you qualified at the ex-date and payment is still pending.";
+    return;
   }
-  // ---- (B) Peer-relative valuation detail: what we compared against, and how many peers ----
-  {
-    const pf = sc && sc.parts && sc.parts.peerrel;
-    if (pf && pf.s != null && pf._n) {
-      const st = typeof sectorStats === "function" ? sectorStats() : null;
-      const cat = m.cat || "Uncategorized";
-      const key =
-        typeof sectorProfile === "function" ? sectorProfile(m.cat).key : null;
-      const ref = st
-        ? pf._basis === "category"
-          ? st.cat && st.cat[cat]
-          : st.prof && st.prof[key]
-        : null;
-      h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600">Peer-relative valuation</div>`;
-      const basisLbl =
-        pf._basis === "category"
-          ? "same category (" + escapeHtml(cat) + ")"
-          : "broad sector (" + (sc.profile || key) + ")";
-      h += row("Compared against", "<b>" + basisLbl + "</b>");
-      h += row(
-        "Comparables used",
-        "<b>" +
-          pf._n +
-          "</b>" +
-          (pf._n < 4
-            ? ' <span class="mini neg">(thin \u2014 down-weighted)</span>'
-            : ""),
-      );
-      if (ref) {
-        if (ref.pe != null)
-          h += row(
-            "Peer median P/E",
-            money(ref.pe, 1) +
-              (num(m.pe) && m.pe > 0
-                ? '  <span class="mini">\u00B7 you ' +
-                  money(m.pe, 1) +
-                  "</span>"
-                : ""),
-          );
-        if (ref.pb != null)
-          h += row(
-            "Peer median P/B",
-            money(ref.pb, 2) +
-              (num(m.pb) && m.pb > 0
-                ? '  <span class="mini">\u00B7 you ' +
-                  money(m.pb, 2) +
-                  "</span>"
-                : ""),
-          );
-        if (ref.divy != null)
-          h += row(
-            "Peer median Div Y",
-            (ref.divy * 100).toFixed(1) +
-              "%" +
-              (num(m.divy) && m.divy > 0
-                ? '  <span class="mini">\u00B7 you ' +
-                  (m.divy * 100).toFixed(1) +
-                  "%</span>"
-                : ""),
-          );
-      }
-      const verdict =
-        pf.s >= 0.6
-          ? "cheaper than peers"
-          : pf.s <= 0.4
-            ? "pricier than peers"
-            : "in line with peers";
-      h += row(
-        "<b>Peer verdict</b>",
-        '<b class="' +
-          (pf.s >= 0.6 ? "pos" : pf.s <= 0.4 ? "neg" : "") +
+  empty.textContent = "";
+  tb.innerHTML = rows
+    .map((d) => {
+      const q = d._fromTxn ? d._txnQty : eligibleSharesAtEx(d);
+      const est = d._fromTxn
+        ? computeRow({
+            action: "DIV",
+            qty: d._txnQty,
+            price: d.amount,
+            date: d.pay_date,
+            pea: d._txnPea,
+          }).net
+        : divNetFor(d, q);
+      return `<tr><td class="l" style="color:var(--text2)">${d.ex_date || "\u2014"}</td>${(function () {
+        if (!d.ex_date)
+          return '<td class="center" style="color:var(--muted)">\u2014</td>';
+        const de = daysUntil(d.ex_date);
+        const col =
+          de < 0 ? "var(--muted)" : de <= 3 ? "var(--warn)" : "var(--text2)";
+        return (
+          '<td class="center" style="color:' +
+          col +
           '">' +
-          (pf.s * 100).toFixed(0) +
-          "% \u00B7 " +
-          verdict +
-          "</b>",
-      );
-      h +=
-        '<div class="mini" style="margin-top:4px;color:var(--muted)">Prefers same-category peers when \u22654 exist, else the broad sector. Fewer comparables \u2192 lower weight in the score.</div>';
-      h += `<div style="margin-top:8px"></div>`;
-    }
-  }
-  h += row(
-    'Target Buy <span class="mini">(fair \u2212 discount)</span>',
-    r.tbuy != null ? money(r.tbuy) : "\u2014",
-  );
-  h += row(
-    'Target Sell <span class="mini">(fair + premium)</span>',
-    r.tsell != null ? money(r.tsell) : "\u2014",
-  );
-  h += row("Current price", r.price != null ? money(r.price) : "\u2014");
-  h += row("Position in range", r.pir != null ? pct(r.pir) : "\u2014");
-  if (r.sig && r.sig.reasons && r.sig.reasons.length) {
-    h += `<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600">Why this signal</div>`;
-    h +=
-      '<ul style="margin:4px 0 0;padding-left:16px">' +
-      r.sig.reasons
-        .map((x) => '<li style="margin:2px 0">' + x + "</li>")
-        .join("") +
-      "</ul>";
-  }
-  // \u2500\u2500 Earnings quality flags \u2500\u2500
-  if (sc && sc.eqFlags && sc.eqFlags.length) {
-    h +=
-      '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px;font-weight:600;color:var(--warn)">\u26a0 Earnings quality concerns</div>';
-    h +=
-      '<ul style="margin:4px 0 0;padding-left:16px;color:var(--warn)">' +
-      sc.eqFlags
-        .map((f) => '<li style="margin:2px 0">' + escapeHtml(f) + "</li>")
-        .join("") +
-      "</ul>";
-  }
-  return h;
-}
-
-// Buy strength: how compelling the buy is (higher = act first).
-// Combines the signal tier, the score, and how far below the buy target the price sits.
-function buyStrength(r) {
-  const tier =
-    {
-      "\uD83D\uDE80 STRONG BUY": 5,
-      "\uD83D\uDCB0 BUY (Deep Value)": 4,
-      "\uD83D\uDCB8 BUY (Good Value)": 3,
-      "\u2753 BUY (Speculative)": 1,
-    }[r.sig.t] || 2;
-  const disc =
-    r.tbuy && r.price != null ? Math.max(0, (r.tbuy - r.price) / r.tbuy) : 0; // deeper discount = stronger
-  return tier * 100 + (r.score || 0) * 20 + disc * 40;
-}
-// Sell urgency: how urgent the exit is (higher = act first).
-function sellUrgency(r) {
-  const tier =
-    r.sig.c === "b-sell"
-      ? 5
-      : r.sig.t.indexOf("TRIM 50") >= 0 || r.sig.t.indexOf("Well Above") >= 0
-        ? 4
-        : 3;
-  const over =
-    r.tsell && r.price != null ? Math.max(0, (r.price - r.tsell) / r.tsell) : 0; // further above target = more urgent
-  const weak = 1 - (r.score || 0.5); // weaker quality = more urgent to sell
-  return tier * 100 + over * 50 + weak * 20;
-}
-function topBuyRank(r) {
-  // Composite conviction-weighted buy quality. All components normalised ~0..1.
-  const tier =
-    {
-      "\uD83D\uDE80 STRONG BUY": 1.0,
-      "\uD83D\uDCB0 BUY (Deep Value)": 0.85,
-      "\uD83D\uDCB8 BUY (Good Value)": 0.7,
-      "\u2753 BUY (Speculative)": 0.45,
-    }[r.sig.t] || 0.6;
-  const fv = fairValue(r.m);
-  const disc =
-    fv && r.price != null ? Math.max(0, Math.min(0.6, (fv - r.price) / fv)) : 0; // upside to fair value, capped 60%
-  const sc = r.score != null ? r.score : 0.5; // factor score 0..1
-  const convW = { High: 1.0, Medium: 0.8, Low: 0.55 }[r.conviction] || 0.7; // data coverage / confidence
-  // weighted blend then scaled by conviction (low data confidence discounts the whole idea)
-  const raw = 0.45 * tier + 0.35 * (disc / 0.6) + 0.2 * sc;
-  return { rank: raw * convW, tier, disc, sc, convW, fv };
-}
-
-function renderTopBuys() {
-  const wrap = document.getElementById("topBuysWrap");
-  if (!wrap) return;
-  const at = (document.getElementById("sigAsset") || {}).value || "stocks";
-  let rows = computeSignalsRows().filter((r) => r.sig.c === "b-buy");
-  if (at === "stocks") rows = rows.filter((r) => !(r.m && r.m.cat === "OPCVM"));
-  else if (at === "opcvm")
-    rows = rows.filter((r) => r.m && r.m.cat === "OPCVM");
-  rows.forEach((r) => {
-    r._tb = topBuyRank(r);
-  });
-  rows.sort((a, b) => b._tb.rank - a._tb.rank);
-  const top = rows.slice(0, 10);
-  window.__topBuys = top;
-  // prune stale selections
-  if (window.__tbSel) {
-    const keep = {};
-    top.forEach((r) => {
-      if (window.__tbSel[r.ticker]) keep[r.ticker] = true;
-    });
-    window.__tbSel = keep;
-  } else window.__tbSel = {};
-  if (!top.length) {
-    wrap.innerHTML =
-      '<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column"><h3 style="margin:0 0 6px">\u2B50 Top Buys</h3><div class="mini" style="color:var(--text2)">No buy signals for the current asset filter.</div></div>';
-    renderTopSector();
-    renderTopHeadroom();
-    return;
-  }
-  const row = (r, i) => {
-    const up =
-      r._tb.fv && r.price != null
-        ? ((r._tb.fv - r.price) / r.price) * 100
-        : null;
-    const upTxt =
-      up != null ? (up >= 0 ? "+" : "") + up.toFixed(0) + "%" : "\u2014";
-    const checked = window.__tbSel[r.ticker] ? "checked" : "";
-    return `<div class="tb-card" style="display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--border);border-radius:9px;background:var(--panel);margin-bottom:5px" data-tip="${escapeHtml(r.name || r.ticker)} \u2014 ${
-      (r.sig.reasons || [])
-        .filter((x) => !/^Score\s/.test(x))
-        .slice(0, 2)
-        .join(" ") || "buy signal"
-    }">
-      <input type="checkbox" class="tb-chk" data-tk="${escapeHtml(r.ticker)}" data-act="toggleTbSel" data-args="${r.ticker},$checked" data-stop="true" ${checked} style="width:16px;height:16px;flex:none;cursor:pointer">
-      <div style="font-family:var(--mono);font-weight:800;font-size:13px;color:var(--muted);width:16px;flex:none">${i + 1}</div>
-      <div style="min-width:0;flex:1;cursor:pointer" data-act="prefillPending" data-args="${r.ticker}">
-        <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.ticker)} <span class="badge ${r.sig.c}" style="font-size:9px">${r.sig.t}</span></div>
-        <div class="mini" style="color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(r.name || "")}</div>
-        ${aboveTgtBadge(r.price, r.tbuy) ? '<div style="margin-top:2px">' + aboveTgtBadge(r.price, r.tbuy) + "</div>" : ""}
-      </div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(priceTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Price</span><br><b style="font-family:var(--mono);font-size:12px">${r.price != null ? money(r.price) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${tipRef(upsideTipHTML(r))}"><span class="mini" style="color:var(--text2);white-space:nowrap">Upside</span><br><b class="${up != null && up > 0 ? "pos" : "neg"}" style="font-family:var(--mono);font-size:12px">${upTxt}</b></div>
-      <div style="text-align:right;flex:none;width:56px;cursor:help" data-tip="${r.tbuy != null ? tipRef(tgtBuyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Tgt buy</span><br><b style="font-family:var(--mono);font-size:12px">${r.tbuy != null ? money(r.tbuy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.divy != null ? "cursor:help" : ""}" data-tip="${r.divy != null ? tipRef(divyTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Div Y</span><br><b class="${r.divy > 0 ? "pos" : ""}" style="font-family:var(--mono);font-size:12px">${r.divy != null ? pct(r.divy) : "\u2014"}</b></div>
-      <div style="text-align:right;flex:none;width:56px;${r.sc && r.sc.parts && r.sc.parts.peerrel ? "cursor:help" : ""}" data-tip="${r.sc && r.sc.parts && r.sc.parts.peerrel ? tipRef(peerTipHTML(r)) : ""}"><span class="mini" style="color:var(--text2);white-space:nowrap">Rank</span><br><b style="font-family:var(--mono);font-size:12px">${(r._tb.rank * 100).toFixed(0)}</b></div>
-    </div>`;
-  };
-  wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:10px">
-      <h3 style="margin:0;white-space:nowrap">\u2B50 Top Buys <span class="mini" style="font-weight:400;color:var(--text2)">(${top.length})</span></h3>
-      <span class="mini" style="color:var(--text2);text-align:right">tick names, then Draft selected</span>
-    </div>
-    <div style="flex:1 1 auto;min-height:0;overflow:auto;margin:-2px -2px 0;padding:2px">${top.map(row).join("")}</div>
-    <div id="tbSelBar" style="display:none;align-items:center;gap:10px;margin-top:8px;padding:8px 10px;background:var(--panel2);border-radius:8px">
-      <span class="mini" id="tbSelCount" style="color:var(--text2)"></span>
-      <div style="flex:1"></div>
-      <button class="btn sec2" data-act="clearTbSel" style="font-size:11px;padding:4px 10px">Clear</button>
-      <button class="btn" data-act="openDraftSelected" style="font-size:11px;padding:4px 10px">\u2795 Draft selected</button>
-    </div>
-  </div>`;
-  updateTbSelBar();
-  renderTopSector();
-  renderTopHeadroom();
-}
-
-function toggleTbSel(tk, on) {
-  window.__tbSel = window.__tbSel || {};
-  if (on) window.__tbSel[tk] = true;
-  else delete window.__tbSel[tk];
-  updateTbSelBar();
-}
-function clearTbSel() {
-  window.__tbSel = {};
-  document.querySelectorAll(".tb-chk").forEach((c) => (c.checked = false));
-  updateTbSelBar();
-}
-function updateTbSelBar() {
-  const bar = document.getElementById("tbSelBar");
-  if (!bar) return;
-  const n = Object.keys(window.__tbSel || {}).length;
-  bar.style.display = n ? "flex" : "none";
-  const c = document.getElementById("tbSelCount");
-  if (c) c.textContent = n + " name" + (n === 1 ? "" : "s") + " selected";
-}
-
-// Sector allocation donut for the companion card (current holdings by sector)
-let CH_topSector = null,
-  CH_topCycle = null,
-  CH_topStyle = null;
-function renderTopSector() {
-  const wrap = document.getElementById("topSectorWrap");
-  if (!wrap) return;
-  const { pos } = runFIFO();
-  const held = Object.values(pos).filter((p) => p.held > 0 && p.value > 0);
-  // Donuts exclude OPCVM funds (they have no sector/cycle/style classification);
-  // OPCVM still counts in Sector Headroom below.
-  const heldStocks = held.filter((p) => !((M[p.ticker] || {}).cat === "OPCVM"));
-  // Build a value breakdown by any metadata field, sorted desc.
-  const breakdown = (field, fallback) => {
-    const by = {};
-    heldStocks.forEach((p) => {
-      const m = M[p.ticker] || {};
-      const k =
-        m[field] != null && ("" + m[field]).trim()
-          ? ("" + m[field]).trim()
-          : fallback;
-      by[k] = (by[k] || 0) + p.value;
-    });
-    const total = Object.values(by).reduce((a, b) => a + b, 0);
-    const data = Object.keys(by)
-      .map((k) => ({ name: k, y: by[k] }))
-      .sort((a, b) => b.y - a.y);
-    return { data, total };
-  };
-  const sec = breakdown("cat", "Uncategorized");
-  const cyc = breakdown("cycle", "Unclassified");
-  const sty = breakdown("style", "Unclassified");
-  const total = sec.total;
-  if (!sec.data.length) {
-    wrap.innerHTML =
-      '<div class="sec" style="padding:12px 14px;margin:0;height:100%"><h3 style="margin:0 0 6px">\uD83E\uDD67 Your Mix</h3><div class="mini" style="color:var(--text2)">No holdings yet.</div></div>';
-    return;
-  }
-  const topCat = sec.data[0],
-    conc = total > 0 ? (topCat.y / total) * 100 : 0;
-  const flag =
-    conc >= 35
-      ? '<span class="neg">\u26A0 ' +
-        topCat.name +
-        " " +
-        conc.toFixed(0) +
-        "% \u2014 concentrated</span>"
-      : conc >= 25
-        ? '<span style="color:var(--warn)">' +
-          topCat.name +
-          " " +
-          conc.toFixed(0) +
-          "% (top sector)</span>"
-        : '<span class="pos">Well spread \u2014 top ' +
-          topCat.name +
-          " " +
-          conc.toFixed(0) +
-          "%</span>";
-
-  // Compact donut column: small heading + chart div. The three sit side-by-side in a grid.
-  const donutCol = (
-    id,
-    emoji,
-    title,
-    n,
-  ) => `<div style="min-width:0;display:flex;flex-direction:column">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;margin:0 0 2px">
-        <h3 style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px">${emoji} ${title}</h3>
-        <span class="mini" style="color:var(--text2);flex:none">${n}</span>
-      </div>
-      <div id="${id}" style="height:180px"></div>
-    </div>`;
-
-  wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:8px">
-      <h3 style="margin:0;white-space:nowrap">\uD83E\uDD67 Your Mix</h3>
-      <span class="mini" style="color:var(--text2)">${money(total, 0)} MAD</span>
-    </div>
-    <div class="mini" style="margin-bottom:6px">${flag}</div>
-    <div style="flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start">
-      ${donutCol("topSectorChart", "\uD83C\uDFE6", "By Sector", sec.data.length)}
-      ${donutCol("topCycleChart", "\uD83D\uDD04", "By Cycle", cyc.data.length)}
-      ${donutCol("topStyleChart", "\uD83C\uDFA8", "By Asset Style", sty.data.length)}
-    </div>
-  </div>`;
-  const tx = themeColor("text");
-  const donut = (id, data, h) => {
-    try {
-      return Highcharts.chart(id, {
-        chart: { type: "pie", backgroundColor: "transparent", height: h },
-        title: { text: null },
-        credits: { enabled: false },
-        legend: { enabled: false },
-        tooltip: {
-          pointFormat: "<b>{point.y:,.0f} MAD</b> ({point.percentage:.1f}%)",
-        },
-        plotOptions: {
-          pie: {
-            innerSize: "56%",
-            dataLabels: {
-              enabled: true,
-              style: { color: tx, fontSize: "10px", textOutline: "none" },
-              format: "{point.name}: {point.percentage:.0f}%",
-              distance: 6,
-              connectorWidth: 1,
-            },
-          },
-        },
-        series: [{ name: "Value", data: data }],
-      });
-    } catch (e) {
-      console.error(id, e);
-      return null;
-    }
-  };
-  CH_topSector = donut("topSectorChart", sec.data, 180);
-  CH_topCycle = donut("topCycleChart", cyc.data, 180);
-  CH_topStyle = donut("topStyleChart", sty.data, 180);
-}
-
-// Sector headroom card (card 3) \u2014 current sector weight vs the concentration cap set on the Rebalance tab.
-function renderTopHeadroom() {
-  const wrap = document.getElementById("topHeadroomWrap");
-  if (!wrap) return;
-  const { pos } = runFIFO();
-  const held = Object.values(pos).filter((p) => p.held > 0 && p.value > 0);
-  const byCat = {};
-  held.forEach((p) => {
-    const cat = (M[p.ticker] && M[p.ticker].cat) || "Uncategorized";
-    byCat[cat] = (byCat[cat] || 0) + p.value;
-  });
-  const total = Object.values(byCat).reduce((a, b) => a + b, 0);
-  const data = Object.keys(byCat)
-    .map((k) => ({ name: k, y: byCat[k] }))
-    .sort((a, b) => b.y - a.y);
-  const capPct = Math.min(
-    60,
-    Math.max(
-      5,
-      parseFloat((document.getElementById("rbCap") || {}).value) || 20,
-    ),
-  );
-  const capOpcvm = Math.min(
-    80,
-    Math.max(
-      5,
-      parseFloat((document.getElementById("rbCapOpcvm") || {}).value) || 35,
-    ),
-  );
-  const capForP = (cat) => (cat === "OPCVM" ? capOpcvm : capPct);
-  if (!data.length) {
-    wrap.innerHTML =
-      '<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column"><h3 style="margin:0 0 6px">\uD83D\uDCCA Sector Headroom</h3><div class="mini" style="color:var(--text2)">No holdings yet.</div></div>';
-    return;
-  }
-  // sorted by current weight, highest first (matches the Sector Mix ordering)
-  const rowsData = data
-    .map((d) => {
-      const cap = capForP(d.name);
-      const w = total > 0 ? (d.y / total) * 100 : 0;
-      return { name: d.name, w, cap, room: cap - w };
-    })
-    .sort((a, b) => b.w - a.w); // highest current weight first
-  const overN = rowsData.filter((r) => r.w > r.cap + 1e-9).length;
-  const nearN = rowsData.filter(
-    (r) => r.w <= r.cap + 1e-9 && r.w >= r.cap * 0.8,
-  ).length;
-  const flag = overN
-    ? '<span class="neg">\u26A0 ' +
-      overN +
-      " sector" +
-      (overN === 1 ? "" : "s") +
-      " over cap</span>"
-    : nearN
-      ? '<span style="color:var(--warn)">' +
-        nearN +
-        " near cap (\u226580%)</span>"
-      : '<span class="pos">All sectors within cap</span>';
-  const hrRows = rowsData
-    .map((d) => {
-      const fill = Math.min(100, d.cap > 0 ? (d.w / d.cap) * 100 : 0);
-      const over = d.w > d.cap + 1e-9;
-      const near = !over && d.w >= d.cap * 0.8;
-      const col = over
-        ? "var(--error)"
-        : near
-          ? "var(--warn)"
-          : "var(--success)";
-      const capTag =
-        d.name === "OPCVM"
-          ? ' <span class="mini" style="color:var(--text2)">(fund cap)</span>'
+          (de < 0 ? "passed" : de + "d") +
+          "</td>"
+        );
+      })()}<td class="l">${d.pay_date}</td><td class="l">${(function () {
+        const recorded = d._fromTxn || divRecorded(d);
+        if (recorded)
+          return (
+            "<b>" +
+            d.ticker +
+            '</b> <span class="chip" style="background:rgba(38,208,124,.14);color:var(--success)" data-tip="Already recorded in Transactions">\u2713 recorded</span>'
+          );
+        return (
+          '<b><a href="#" data-act="prefillDividend" data-args="' +
+          d.ticker +
+          "," +
+          d.amount +
+          "," +
+          d.pay_date +
+          "," +
+          (d.ex_date || "") +
+          '" style="color:var(--primary2);text-decoration:none" data-tip="Add this dividend to Transactions (prefilled)">' +
+          d.ticker +
+          " \uFF0B</a></b>"
+        );
+      })()}${(function () {
+        const du = daysUntil(d.pay_date);
+        return du < 0
+          ? ' <span class="chip" style="background:rgba(245,166,35,.15);color:var(--warn)" data-tip="Payment date passed \u2014 record it?">due</span>'
           : "";
-      const roomTxt = over
-        ? "+" + (d.w - d.cap).toFixed(0) + "% over"
-        : d.room.toFixed(0) + "% room";
-      return `<div style="margin-bottom:7px" data-tip="${escapeHtml(d.name)}: ${d.w.toFixed(1)}% of portfolio vs ${d.cap.toFixed(0)}% cap \u2014 ${over ? "over the cap by " + (d.w - d.cap).toFixed(1) + " pts" : d.room.toFixed(1) + " pts of headroom before the cap"}">
-      <div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;margin-bottom:2px">
-        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(d.name)}${capTag}</span>
-        <span style="font-family:var(--mono);color:${col};flex:none">${d.w.toFixed(0)}% \u00B7 ${roomTxt}</span>
-      </div>
-      <div style="position:relative;height:7px;border-radius:5px;background:var(--panel2);overflow:hidden">
-        <div style="position:absolute;left:0;top:0;bottom:0;width:${fill}%;background:${col};border-radius:5px;transition:width .3s"></div>
-      </div>
-    </div>`;
+      })()}</td>
+      <td class="l" style="color:var(--text2)">${escapeHtml(d.issuer || "")}</td><td>${money(d.amount)}</td>
+      <td>${money(q, q % 1 ? 3 : 0)}</td><td class="nis-cell pos" style="cursor:help" data-tip="${tipRef(divEstTipHTML(d, q))}">${money(est)} <span style="color:var(--muted)">\u24D8</span></td><td class="center">${daysUntil(d.pay_date)}d</td></tr>`;
     })
     .join("");
-  wrap.innerHTML = `<div class="sec" style="padding:12px 14px;margin:0;height:100%;display:flex;flex-direction:column">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:8px">
-      <h3 style="margin:0;white-space:nowrap">\uD83D\uDCCA Sector Headroom</h3>
-      <span class="mini" style="color:var(--text2);cursor:help" data-tip="Each bar shows a sector's current share of your portfolio against the concentration cap set on the Rebalance tab. Green = room to add \u00B7 amber = getting close (\u226580% of cap) \u00B7 red = over the cap. OPCVM funds use a separate, higher cap.">vs ${capPct.toFixed(0)}% \u00B7 OPCVM ${capOpcvm.toFixed(0)}% \u24D8</span>
-    </div>
-    <div class="mini" style="margin-bottom:6px">${flag}</div>
-    <div style="flex:1;min-height:0;overflow:auto">${hrRows}</div>
-    <div class="mini" style="color:var(--text2);margin-top:6px;text-align:right"><a href="#" data-act="gotoTab" data-args="rebalance" style="color:var(--info)">Adjust cap \u2192</a></div>
-  </div>`;
-}
-
-function openDraftSelected() {
-  const sel = Object.keys(window.__tbSel || {});
-  const top = window.__topBuys || [];
-  const picks = top.filter((r) => sel.includes(r.ticker));
-  if (!picks.length) {
-    toast("Tick at least one name first.", "warn");
-    return;
-  }
-  let ov = document.getElementById("draftSelOverlay");
-  if (!ov) {
-    ov = document.createElement("div");
-    ov.id = "draftSelOverlay";
-    ov.style.cssText =
-      "position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px";
-    ov.onclick = (e) => {
-      if (e.target === ov) closeDraftSelected();
-    };
-    document.body.appendChild(ov);
-  }
-  const rowH = picks
-    .map((r) => {
-      const px = r.price != null && isFinite(r.price) ? r.price : null; // LIVE price = what you actually pay
-      const tb = r.tbuy != null && isFinite(r.tbuy) ? r.tbuy : null; // target buy = ideal entry (reference only)
-      return `<tr data-tk="${escapeHtml(r.ticker)}" data-px="${px || ""}">
-      <td class="l"><b>${escapeHtml(r.ticker)}</b> <span class="mini" style="color:var(--text2)">${escapeHtml(r.name || "")}</span></td>
-      <td style="text-align:right;font-family:var(--mono)"><b>${px != null ? money(px) : "\u2014"}</b></td>
-      <td style="text-align:right;font-family:var(--mono);color:var(--text2)">${tb != null ? money(tb) : "\u2014"}</td>
-      <td style="text-align:right"><input type="number" min="0" step="100" class="ds-amt" value="10000" style="width:100px;text-align:right" data-act="recalcDraftSel" data-on="input"></td>
-      <td style="text-align:right;font-family:var(--mono)" class="ds-qty">\u2014</td>
-      <td style="text-align:right;font-family:var(--mono)" class="ds-cost">\u2014</td>
-    </tr>`;
-    })
-    .join("");
-  ov.innerHTML = `<div class="sec" style="max-width:640px;width:100%;max-height:85vh;overflow:auto;margin:0;padding:16px 18px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-      <h2 style="margin:0">\u2795 Draft selected buys <span class="mini" style="font-weight:400">\u2014 ${picks.length} name${picks.length === 1 ? "" : "s"}</span></h2>
-      <button class="btn sec2" data-act="closeDraftSelected" style="padding:2px 10px" aria-label="Close" title="Close">\u2715</button>
-    </div>
-    <div class="mini" style="color:var(--text2);margin-bottom:10px">Enter how much to buy for each (MAD). Quantity is computed at the live market price (what you pay), rounded down. Edit or set 0 to skip a name.</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <span class="mini" style="color:var(--text2)">Set all to</span>
-      <input type="number" min="0" step="500" id="dsAll" value="10000" style="width:110px;text-align:right">
-      <button class="btn sec2" data-act="applyDraftAll" style="font-size:11px;padding:4px 10px">Apply to all</button>
-    </div>
-    <table><thead><tr>
-      <th scope="col" class="l">Name</th><th scope="col" style="text-align:right" data-tip="Live market price \u2014 what you actually pay now">Live px</th><th scope="col" style="text-align:right" data-tip="Target buy (ideal entry below fair value) \u2014 reference only">Tgt buy</th><th scope="col" style="text-align:right">Amount MAD</th><th scope="col" style="text-align:right">Qty</th><th scope="col" style="text-align:right">Est. cost</th>
-    </tr></thead><tbody id="dsBody">${rowH}</tbody>
-    <tfoot><tr style="border-top:2px solid var(--border);font-weight:700">
-      <td class="l">Total</td><td></td><td></td><td></td><td style="text-align:right" id="dsQtyTot">\u2014</td><td style="text-align:right;font-family:var(--mono)" id="dsCostTot">\u2014</td>
-    </tr></tfoot></table>
-    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
-      <button class="btn sec2" data-act="closeDraftSelected">Cancel</button>
-      <button class="btn" data-act="commitDraftSelected">Push to Pending</button>
-    </div>
-  </div>`;
-  recalcDraftSel();
-}
-function applyDraftAll() {
-  const v = document.getElementById("dsAll").value;
-  document
-    .querySelectorAll("#dsBody .ds-amt")
-    .forEach((inp) => (inp.value = v));
-  recalcDraftSel();
-}
-function recalcDraftSel() {
-  let qTot = 0,
-    cTot = 0;
-  document.querySelectorAll("#dsBody tr").forEach((tr) => {
-    const px = parseFloat(tr.getAttribute("data-px"));
-    const amt = parseFloat(tr.querySelector(".ds-amt").value);
-    const _fund = isOpcvmTk(tr.getAttribute("data-tk"));
-    let qty = 0,
-      cost = 0;
-    if (isFinite(px) && px > 0 && isFinite(amt) && amt > 0) {
-      qty = buyableQty(px, amt, _fund);
-      cost = qty * px;
-    }
-    tr.querySelector(".ds-qty").textContent =
-      qty > 0 ? money(qty, _fund && qty % 1 ? 4 : 0) : "\u2014";
-    tr.querySelector(".ds-cost").textContent =
-      cost > 0 ? money(cost, 0) : "\u2014";
-    qTot += qty;
-    cTot += cost;
-  });
-  document.getElementById("dsQtyTot").textContent =
-    qTot > 0 ? money(qTot, qTot % 1 ? 2 : 0) : "\u2014";
-  document.getElementById("dsCostTot").textContent =
-    cTot > 0 ? money(cTot, 0) + " MAD" : "\u2014";
-}
-function commitDraftSelected() {
-  const today = new Date().toISOString().slice(0, 10);
-  let added = 0;
-  document.querySelectorAll("#dsBody tr").forEach((tr) => {
-    const tk = tr.getAttribute("data-tk");
-    const px = parseFloat(tr.getAttribute("data-px"));
-    const amt = parseFloat(tr.querySelector(".ds-amt").value);
-    if (!(isFinite(px) && px > 0 && isFinite(amt) && amt > 0)) return;
-    const m = M[tk];
-    const isOpcvm = !!(m && m.cat === "OPCVM");
-    const qty = buyableQty(px, amt, isOpcvm);
-    if (qty <= 0) return;
-    PENDING.push({
-      date: today,
-      ticker: tk,
-      action: "BUY",
-      qty: qty,
-      price: px,
-      pea: true,
-      opcvm: isOpcvm,
-      broker: "attijari",
-    });
-    added++;
-  });
-  if (!added) {
-    toast(
-      "Nothing to draft \u2014 set an amount for at least one name.",
-      "warn",
-    );
-    return;
-  }
-  savePending();
-  closeDraftSelected();
-  window.__tbSel = {};
-  gotoTab("pending");
-  if (typeof renderPending === "function") renderPending();
-  const hint = document.getElementById("pendHint");
-  if (hint) {
-    hint.style.color = "var(--info)";
-    hint.textContent =
-      "Drafted " +
-      added +
-      " pending buy" +
-      (added === 1 ? "" : "s") +
-      " from your Top Buys selection. Review quantities before confirming.";
-  }
-}
-function closeDraftSelected() {
-  const ov = document.getElementById("draftSelOverlay");
-  if (ov) ov.remove();
 }
