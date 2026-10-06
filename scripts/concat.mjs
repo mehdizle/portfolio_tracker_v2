@@ -27,6 +27,7 @@ const files = [
   "05-rebalance.js",
   "06-transactions.js",
   "06b-import.js",
+  "06g-opcvm-import.js",
   "06c-backup.js",
   "06d-pending.js",
   "06e-dividends.js",

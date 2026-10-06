@@ -197,13 +197,14 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   06-transactions.js       the transactions ledger table + its fee/tax tooltips,
                            and the shared Add-Transaction/Add-Pending form logic
                            (live total calc, OPCVM kind-badge detection)
-  06b-import.js            TradingView/OPCVM/CSV import, calendar smart-merge, fee panel
+  06b-import.js            TradingView/CSV import, ASFIM fund match, calendar smart-merge, fee panel
   06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, value-over-time chart
   06d-pending.js           pending orders (Order IDs), indicators, range bar,
                            draft-selected-buys flow
   06e-dividends.js         dividend feature: estimate math, income dashboard,
                            calendar grid, multi-year forecast table
   06f-theme.js             light/dark theme tokens + #themeToggle (extracted from 06b-import)
+  06g-opcvm-import.js      OPCVM performance-file import (native xlsx reader; extracted from 06b-import)
   07-expenses.js           monthly expenses + savings pots (car/other planners)
   08-salary.js             salary calc, stock categories (import/export), cash ledger
   09b-market-session.js    Casablanca Stock Exchange live session-phase widget
@@ -229,8 +230,8 @@ rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
 by `scripts/concat.mjs`, in the fixed order declared by its `files` array
-(currently 20 files: the numbered `01`–`09` modules plus their lettered splits -
-`01b`/`01c`, `02b`, `03b`, `06b`–`06f`, `09b`/`09c` - each one a single, cohesive
+(currently 21 files: the numbered `01`–`09` modules plus their lettered splits -
+`01b`/`01c`, `02b`, `03b`, `06b`–`06g`, `09b`/`09c` - each one a single, cohesive
 concern). **Edit the numbered source files, never the generated bundle**, and
 if you add/rename/remove a `js/*.js` file, update `concat.mjs`'s `files` array
 and `test/connections.test.js`'s file lists to match.
