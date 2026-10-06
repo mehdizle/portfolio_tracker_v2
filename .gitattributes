@@ -1,0 +1,12 @@
+# Normalize line endings to LF for all text files so the repo stays consistent
+# regardless of contributor OS (fixes the CRLF drift seen in some js/ files).
+* text=auto eol=lf
+
+# Binary assets - never touch
+*.svg text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary

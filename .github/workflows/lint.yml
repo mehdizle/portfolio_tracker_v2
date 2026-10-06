@@ -1,0 +1,43 @@
+name: Lint & format check
+
+# Runs ESLint + Prettier-check on PRs and manual dispatch. This is a QUALITY
+# gate, separate from ci.yml (test + build) and deploy.yml. ESLint errors fail
+# the job; warnings don't (the UI layer intentionally carries some warn-level
+# findings today). Prettier runs in --check mode: it reports formatting drift
+# without rewriting files in CI.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          # Same rationale as ci.yml/deploy.yml: v7 auto-caching needs a
+          # committed lockfile and would otherwise fail the job.
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: ESLint (errors fail the build; warnings are allowed)
+        run: npm run lint
+
+      - name: Prettier formatting check (report only)
+        run: npm run format:check
+        continue-on-error: true

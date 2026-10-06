@@ -1,0 +1,9 @@
+# Generated / vendored / data - never format these
+node_modules/
+dist/
+coverage/
+src/app-core.generated.js
+public/
+package-lock.json
+*.min.js
+*.min.css
