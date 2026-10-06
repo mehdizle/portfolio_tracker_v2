@@ -36,20 +36,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Same self-healing install as deploy.yml: prefer strict npm ci; on a
-          # missing/out-of-sync lockfile, regenerate it FROM SCRATCH (delete +
-          # npm install). Deleting first avoids npm's "Cannot read properties of
-          # null (reading 'edgesOut')" crash that happens when npm install runs
-          # over a stale lock it can't reconcile.
-          if [ -f package-lock.json ]; then
-            npm ci || {
-              echo "npm ci failed (lockfile out of sync) - regenerating lockfile from scratch";
-              rm -f package-lock.json;
-              npm install;
-            }
-          else
-            npm install
-          fi
+          # --legacy-peer-deps works around a known npm/arborist bug
+          # (https://github.com/npm/cli/issues/8261) that crashes with "Cannot
+          # read properties of null (reading 'edgesOut')" while resolving
+          # Vite 8.3.0's many OPTIONAL peerDependencies - even on a fresh
+          # install with no lockfile. None of those optional peers are used
+          # here, so skipping strict peer resolution is safe. See deploy.yml
+          # for the full note.
+          npm install --legacy-peer-deps
 
       - name: Run tests (financial core)
         run: npm test

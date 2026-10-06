@@ -44,30 +44,23 @@ jobs:
           # fighting the lockfile-must-already-exist requirement.
           package-manager-cache: false
 
-      - name: Install dependencies (self-healing lockfile)
+      - name: Install dependencies
         run: |
-          # Prefer the fast, strict `npm ci`. But `npm ci` FAILS by design when
-          # package.json and package-lock.json disagree (e.g. after a manual
-          # version bump, or an added `overrides` block). In that case fall back
-          # to a FRESH install.
+          # Vite 8.3.0 declares a dozen OPTIONAL peerDependencies (sass, less,
+          # terser, @vitejs/devtools, etc. - none of which this project uses).
+          # Current npm (arborist) has a known bug resolving peer sets for
+          # graphs like this: it crashes with "Cannot read properties of null
+          # (reading 'edgesOut')" inside #loadPeerSet, even on a completely
+          # fresh `npm install` with NO lockfile at all (confirmed - this is
+          # not a stale-lockfile issue). See https://github.com/npm/cli/issues/8261.
           #
-          # IMPORTANT: when the fallback runs we DELETE the lockfile first and
-          # let `npm install` rebuild it from scratch. Running `npm install`
-          # *over* a stale/out-of-sync lock can crash npm's resolver with
-          # "Cannot read properties of null (reading 'edgesOut')" (it can't
-          # reconcile the old graph with new constraints). A clean regenerate
-          # avoids that and always produces a valid lockfile matching
-          # package.json. The "Commit refreshed lockfile" step then persists it
-          # so the next run's fast `npm ci` path is back in sync.
-          if [ -f package-lock.json ]; then
-            npm ci || {
-              echo "npm ci failed (lockfile out of sync) - regenerating lockfile from scratch";
-              rm -f package-lock.json;
-              npm install;
-            }
-          else
-            npm install
-          fi
+          # --legacy-peer-deps makes npm skip that modern peer-resolution path
+          # entirely (pre-npm-7 behavior). Since none of Vite's optional peers
+          # are declared here, there's nothing to conflict on, so this is safe.
+          # Using plain `npm install` (not `npm ci`) since there's no committed
+          # lockfile right now; this also regenerates one every run, which the
+          # next step commits back.
+          npm install --legacy-peer-deps
 
       - name: Commit refreshed lockfile (if changed)
         continue-on-error: true
