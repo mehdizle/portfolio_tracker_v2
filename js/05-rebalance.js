@@ -761,7 +761,6 @@ function renderRebalance() {
 
   const pct0 = (x) => (x * 100).toFixed(0) + "%";
   const pct1 = (x) => (x * 100).toFixed(1) + "%";
-  const sleeve = R.sleeve || R.totalNow + R.cash;
   const pins = loadRbPinsRaw(); // { TICKER: pct } for the pin badges/buttons
 
   // Sell row: compact account label (e.g. "PEA 8 / Reg 2") from the lot plan.
@@ -1686,14 +1685,6 @@ window.showCompanyDetail = function (tk) {
   const pir = typeof posInRange === "function" ? posInRange(m) : null;
   const prof =
     typeof sectorProfile === "function" ? sectorProfile(m.cat) : null;
-  const row = (l, v, cl) =>
-    '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>' +
-    l +
-    '</span><span class="' +
-    (cl || "") +
-    '" style="font-family:var(--mono)">' +
-    v +
-    "</span></div>";
   const sec = (title, body) =>
     '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"><div style="font-weight:700;margin-bottom:8px;font-size:13px">' +
     title +

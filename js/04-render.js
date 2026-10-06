@@ -1498,12 +1498,8 @@ function renderDashDivs(pos) {
   });
   // Source 2: DIV transactions you've RECORDED with a future pay date (not yet received),
   // even if they aren't in the calendar. Dedup against calendar by ticker+amount within the window.
-  const seen = new Set(
-    rows.map((d) => d.ticker + "|" + +(+d.amount).toFixed(4)),
-  );
   TXNS.filter((t) => t.action === "DIV" && daysUntil(t.date) >= 0).forEach(
     (t) => {
-      const key = t.ticker + "|" + +(+t.price).toFixed(4);
       // avoid duplicating a calendar row already listed for this ticker+amount
       const dupCal = rows.some(
         (d) =>
