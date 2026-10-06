@@ -60,14 +60,15 @@ function buildBundleSource() {
 
 // Use the REAL <body> from index.html so every element the (defensive but
 // element-touching) boot path looks up actually exists. We strip <script> tags
-// (Highcharts CDN etc. - not needed; the bundle only calls Highcharts lazily)
-// and inject the markup into the jsdom document.
+// (Highcharts CDN etc. - not needed; the bundle only calls Highcharts lazily).
+// Strip via proper DOM PARSING, not a regex: a regex HTML filter is both
+// defeatable and flagged by CodeQL (js/bad-tag-filter) - parsing the document
+// and removing <script> nodes is correct and alert-free.
 function realBodyHtml() {
   const html = readFileSync(join(root, "index.html"), "utf8");
-  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  let body = m ? m[1] : "";
-  body = body.replace(/<script[\s\S]*?<\/script>/gi, ""); // drop script tags
-  return body;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("script").forEach((s) => s.remove());
+  return doc.body ? doc.body.innerHTML : "";
 }
 
 const BODY_HTML = realBodyHtml();
