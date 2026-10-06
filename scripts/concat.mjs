@@ -22,6 +22,7 @@ const files = [
   "02-compute.js",
   "03-signals.js",
   "04-render.js",
+  "06f-theme.js",
   "03b-signals-ui.js",
   "05-rebalance.js",
   "06-transactions.js",
