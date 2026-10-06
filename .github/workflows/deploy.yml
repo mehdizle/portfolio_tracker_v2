@@ -35,14 +35,14 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-          # NOTE: deliberately NOT using `cache: npm` here. That option hard-
-          # requires a committed lockfile matching its glob (package-lock.json/
-          # npm-shrinkwrap.json/yarn.lock) to exist BEFORE this step runs, and
-          # fails the job immediately ("Dependencies lock file is not found")
-          # if none does - which happens on the very run that's regenerating a
-          # deleted/corrupt lockfile. Since this repo's install is small/fast,
-          # skip npm's built-in cache rather than fight that chicken-and-egg
-          # requirement.
+          # setup-node v7 added a NEW input, `package-manager-cache`, that
+          # defaults to true REGARDLESS of whether the old `cache:` input is
+          # set. When true it still requires a committed lockfile (same
+          # "Dependencies lock file is not found" crash we were trying to
+          # avoid by just omitting `cache: npm`). Explicitly disable it - this
+          # repo's install is small/fast enough that caching isn't worth
+          # fighting the lockfile-must-already-exist requirement.
+          package-manager-cache: false
 
       - name: Install dependencies (self-healing lockfile)
         run: |

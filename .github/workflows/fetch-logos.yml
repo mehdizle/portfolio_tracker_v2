@@ -31,6 +31,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
+          # setup-node v7's `package-manager-cache` input defaults to TRUE and
+          # requires a committed lockfile ("Dependencies lock file is not
+          # found" otherwise) regardless of the older `cache:` input. This repo
+          # has no committed lockfile, so disable it explicitly.
+          package-manager-cache: false
 
       - name: Refresh logos -> public/logos/CSEMA/
         run: node scripts/fetch-logos.mjs
