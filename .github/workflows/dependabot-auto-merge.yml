@@ -4,11 +4,15 @@ name: Dependabot auto-merge
 # "auto-merge" so the PR merges ITSELF once all required checks pass (the CI
 # workflow in ci.yml: test + build). Nothing merges while tests are red.
 #
-# SAFETY: auto-merge is enabled ONLY for patch and minor bumps. MAJOR version
-# bumps (e.g. a future Vite 9 / Vitest 6) are left for you to review and merge
-# by hand, because a major can carry breaking changes that a green test suite
-# won't necessarily catch. Today's vite 8.3.0->8.3.1 and vitest 5.0.1->5.0.2 are
-# patch bumps, so they would auto-merge.
+# SAFETY: auto-merge covers:
+#   - patch & minor bumps for ANY ecosystem (npm + github-actions)
+#   - MAJOR bumps for GITHUB-ACTIONS only (e.g. dependabot/fetch-metadata 2->3,
+#     actions/checkout 7->8). Action majors are low-risk here: they're small,
+#     CI exercises them directly on the PR, and a bad one just fails a workflow
+#     run rather than shipping broken app code.
+# MAJOR bumps for npm (e.g. a future Vite 9 / Vitest 6) are STILL left for
+# manual review, because an npm major can carry breaking changes to the build
+# that a green test suite won't necessarily catch.
 #
 # NOTE: this fires on Dependabot's PRs only. GitHub runs Dependabot events with a
 # read-only token by default, so we grant the minimal write scopes here.
@@ -28,7 +32,7 @@ jobs:
         id: meta
         uses: dependabot/fetch-metadata@v2
 
-      - name: Enable auto-merge for patch & minor updates
+      - name: Enable auto-merge for patch & minor updates (any ecosystem)
         if: >-
           ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' ||
               steps.meta.outputs.update-type == 'version-update:semver-minor' }}
@@ -37,11 +41,27 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Leave a note on major updates (manual review)
-        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-major' }}
+      - name: Enable auto-merge for GitHub Actions MAJOR updates
+        # Actions majors are low-risk (small, CI-exercised, no app-code blast
+        # radius), so merge them automatically too - but ONLY for the
+        # github-actions ecosystem, never npm.
+        if: >-
+          ${{ steps.meta.outputs.update-type == 'version-update:semver-major' &&
+              steps.meta.outputs.package-ecosystem == 'github_actions' }}
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Leave a note on npm MAJOR updates (manual review)
+        # npm majors still require a human: a green test suite can miss a
+        # breaking build/runtime change in a major Vite/Vitest bump.
+        if: >-
+          ${{ steps.meta.outputs.update-type == 'version-update:semver-major' &&
+              steps.meta.outputs.package-ecosystem != 'github_actions' }}
         run: |
           gh pr comment "$PR_URL" --body \
-            "This is a **major** version bump (${{ steps.meta.outputs.dependency-names }}). Auto-merge is intentionally disabled for majors - please review the changelog and merge manually once CI is green."
+            "This is a **major** npm version bump (${{ steps.meta.outputs.dependency-names }}). Auto-merge is intentionally disabled for npm majors - please review the changelog and merge manually once CI is green."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
