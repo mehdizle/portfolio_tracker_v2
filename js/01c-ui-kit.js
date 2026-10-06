@@ -198,11 +198,62 @@ function appFillDialog(o, isDiv, moneyFn) {
   });
 }
 
-// ---------- Modal backdrop / close delegation (static modals in index.html) ----------
+// ---------- Modal backdrop / close delegation + accessibility ----------
 // - [data-modal-backdrop]: clicking the backdrop itself (not its contents) hides it.
 // - [data-modal-close="id"]: a button that hides the modal with that id.
-// (Moved out of 09-boot.js so all modal behavior lives beside the modal builders.)
+// Accessibility layer (applies to ALL static modals centrally):
+//   - Escape closes the top-most open modal.
+//   - On open, focus moves into the modal (first focusable element, or the
+//     modal itself); on close, focus returns to the element that was focused
+//     before (usually the button that opened it).
+//   - Tab is kept inside the open modal (focus trap).
+//   - role="dialog" + aria-modal are set when a modal opens.
+// The modals are shown/hidden by setting style.display elsewhere; we observe
+// that so this works no matter who opens them.
 (function () {
+  const FOCUSABLE =
+    'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  // Remember what had focus before each modal opened, so we can restore it.
+  const _priorFocus = new WeakMap();
+
+  const isOpen = (m) =>
+    m && m.style && m.style.display !== "none" && m.offsetParent !== null;
+
+  const openModals = () =>
+    Array.prototype.filter.call(
+      document.querySelectorAll("[data-modal-backdrop]"),
+      (m) => m.style.display !== "none",
+    );
+
+  const focusablesIn = (m) =>
+    Array.prototype.filter.call(
+      m.querySelectorAll(FOCUSABLE),
+      (el) => el.offsetParent !== null,
+    );
+
+  function onOpen(m) {
+    try {
+      m.setAttribute("role", "dialog");
+      m.setAttribute("aria-modal", "true");
+      _priorFocus.set(m, document.activeElement);
+      const f = focusablesIn(m);
+      (f[0] || m).focus({ preventScroll: true });
+    } catch (e) {}
+  }
+
+  function closeModal(m) {
+    if (!m) return;
+    m.style.display = "none";
+    // Restore focus to the opener.
+    try {
+      const prev = _priorFocus.get(m);
+      if (prev && typeof prev.focus === "function")
+        prev.focus({ preventScroll: true });
+      _priorFocus.delete(m);
+    } catch (e) {}
+  }
+
+  // Click: backdrop or close-button hides the modal (with focus restore).
   document.addEventListener("click", function (e) {
     const bd = e.target && e.target.closest ? e.target : null;
     if (
@@ -211,7 +262,7 @@ function appFillDialog(o, isDiv, moneyFn) {
       bd.hasAttribute("data-modal-backdrop") &&
       e.target === bd
     ) {
-      bd.style.display = "none";
+      closeModal(bd);
       return;
     }
     const closer =
@@ -220,10 +271,53 @@ function appFillDialog(o, isDiv, moneyFn) {
         : null;
     if (closer) {
       const id = closer.getAttribute("data-modal-close");
-      const m = document.getElementById(id);
-      if (m) m.style.display = "none";
+      closeModal(document.getElementById(id));
     }
   });
+
+  // Escape closes the top-most open modal; Tab is trapped inside it.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" && e.key !== "Tab") return;
+    const open = openModals();
+    if (!open.length) return;
+    const m = open[open.length - 1]; // top-most
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeModal(m);
+      return;
+    }
+    // Tab: keep focus within the modal.
+    const f = focusablesIn(m);
+    if (!f.length) return;
+    const first = f[0];
+    const last = f[f.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus({ preventScroll: true });
+    } else if (!m.contains(active)) {
+      e.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  });
+
+  // Detect modals being shown (style.display flips away from "none") so we can
+  // run onOpen focus handling regardless of which code opened them.
+  Array.prototype.forEach.call(
+    document.querySelectorAll("[data-modal-backdrop]"),
+    (m) => {
+      let wasOpen = isOpen(m);
+      const mo = new MutationObserver(() => {
+        const nowOpen = m.style.display !== "none";
+        if (nowOpen && !wasOpen) onOpen(m);
+        wasOpen = nowOpen;
+      });
+      mo.observe(m, { attributes: true, attributeFilter: ["style"] });
+    },
+  );
 })();
 
 // ---------- Ticker badge (monogram fallback + optional real logo) ----------
