@@ -52,13 +52,21 @@ describe("backup-crypto: encrypt envelope shape", () => {
       expect(typeof env[k]).toBe("string");
       expect(env[k].length).toBeGreaterThan(0);
     }
-    // The envelope must NOT leak recognisable payload plaintext. (Note the
-    // envelope legitimately carries its own _app tag, so we probe for values
-    // that exist ONLY inside the encrypted payload, never in the envelope.)
-    const blob = JSON.stringify(env);
+    // The envelope must NOT leak recognisable payload plaintext in its
+    // STRUCTURAL (non-ciphertext) fields. We exclude salt/iv/ct from this probe
+    // on purpose: those are random base64 blobs, and a short plaintext token
+    // (e.g. "BUY") can appear in random base64 BY CHANCE - asserting its
+    // absence there made this test intermittently fail. The real guarantee is
+    // that no plaintext lands OUTSIDE the ciphertext, so probe the envelope with
+    // the opaque random fields removed.
+    const { salt, iv, ct, ...structural } = env;
+    const blob = JSON.stringify(structural);
     expect(blob).not.toContain("Attijariwafa"); // a master name
     expect(blob).not.toContain("BUY"); // a txn action
     expect(blob).not.toContain("12345.67"); // the cash figure
+    // and the ciphertext itself must be non-empty base64 (already asserted
+    // above) - its opaque contents are validated by the round-trip/decrypt
+    // tests, not by substring probing random bytes.
     // round-trippable as a .json file
     expect(() => JSON.parse(JSON.stringify(env))).not.toThrow();
   });
