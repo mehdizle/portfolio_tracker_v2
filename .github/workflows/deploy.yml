@@ -22,14 +22,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Keep the token wired into the local git config and check out the
+          # branch (not a detached HEAD) so the "Commit refreshed lockfile" step
+          # can push back to main. Without this, the bot commit can silently
+          # fail to push and the lockfile never lands - which is what makes
+          # Dependabot's npm updater keep erroring.
+          persist-credentials: true
+          ref: ${{ github.ref_name }}
 
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: 22
-          # setup-node's npm cache tolerates a missing lockfile (it just skips
-          # caching on the first run), so we can always enable it.
-          cache: npm
+          # NOTE: deliberately NOT using `cache: npm` here. That option hard-
+          # requires a committed lockfile matching its glob (package-lock.json/
+          # npm-shrinkwrap.json/yarn.lock) to exist BEFORE this step runs, and
+          # fails the job immediately ("Dependencies lock file is not found")
+          # if none does - which happens on the very run that's regenerating a
+          # deleted/corrupt lockfile. Since this repo's install is small/fast,
+          # skip npm's built-in cache rather than fight that chicken-and-egg
+          # requirement.
 
       - name: Install dependencies (self-healing lockfile)
         run: |
@@ -66,7 +79,16 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add package-lock.json
             git commit -m "chore: update package-lock.json to match package.json" || echo "nothing to commit"
-            git push || echo "push skipped"
+            # Push explicitly to the current branch. If this FAILS (e.g. branch
+            # protection blocks the bot), surface it loudly in the run summary so
+            # it's obvious why Dependabot's npm updater is still erroring - rather
+            # than hiding behind a silent "push skipped".
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "- lockfile: committed + pushed to ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning title=Lockfile push failed::Could not push the regenerated package-lock.json to ${GITHUB_REF_NAME}. This is usually branch protection blocking the github-actions bot. Allow the bot to bypass protection, or commit a lockfile manually, or Dependabot's npm updater will keep failing."
+              echo "- lockfile: regenerated but PUSH FAILED (branch protection?) - Dependabot npm updates will keep failing" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "lockfile unchanged - nothing to commit"
           fi

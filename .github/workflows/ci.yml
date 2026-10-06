@@ -28,7 +28,12 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+          # NOT using `cache: npm`: it hard-requires a committed lockfile to
+          # exist before this step runs and fails the job ("Dependencies lock
+          # file is not found") if none does - which is exactly the state this
+          # repo was in while regenerating a deleted lockfile. Skip it; the
+          # install here is small/fast enough that caching isn't worth the
+          # chicken-and-egg requirement. See deploy.yml for the same note.
 
       - name: Install dependencies
         run: |
