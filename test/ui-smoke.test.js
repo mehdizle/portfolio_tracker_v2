@@ -26,21 +26,34 @@ const root = join(__dirname, "..");
 // NOT delete it between tests - the cached import won't re-run to recreate it.
 await import("../src/core-bridge.js");
 
-// Build the concatenated UI bundle source the same way scripts/concat.mjs does.
+// Build the concatenated UI bundle source the same way scripts/concat.mjs does
+// - including the EXPOSE block it appends INSIDE the IIFE to publish bare
+// inline-handler functions to window. Mirroring that block is what makes the
+// "handlers published to window" assertion meaningful.
 function buildBundleSource() {
   const concat = readFileSync(join(root, "scripts", "concat.mjs"), "utf8");
-  const files = [...concat.matchAll(/"([^"]+\.js)"/g)]
-    .map((m) => m[1])
-    .filter((f) => /^\d/.test(f)); // the numbered js/*.js entries
+  // The numbered js/*.js entries from the `files` array.
+  const filesBlock = concat.match(/const files = \[(.*?)\];/s)[1];
+  const files = [...filesBlock.matchAll(/"([^"]+\.js)"/g)].map((m) => m[1]);
   const parts = files.map((f) => readFileSync(join(root, "js", f), "utf8"));
+  // The EXPOSE list -> the same `if (typeof X === "function") window.X = X;`
+  // block concat.mjs emits inside the IIFE.
+  const exposeBlock = concat.match(/const EXPOSE = \[(.*?)\];/s)[1];
+  const expose = [...exposeBlock.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  const exposeSrc = expose
+    .map((n) => `if (typeof ${n} === "function") window.${n} = ${n};`)
+    .join("\n");
   // __APP_VERSION__ is a build-time define; __core is a global the bundle reads
   // as a BARE identifier, so alias it from globalThis at the top of the eval'd
-  // scope. Wrap in the same IIFE the real build uses.
+  // scope. Wrap in the same IIFE the real build uses, with the expose block
+  // appended inside it exactly like scripts/concat.mjs.
   return (
     "const __APP_VERSION__ = 'test';\n" +
     "const __core = globalThis.__core;\n" +
     "(function(){\n" +
     parts.join("\n") +
+    "\n" +
+    exposeSrc +
     "\n})();\n"
   );
 }
