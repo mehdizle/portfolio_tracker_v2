@@ -32,11 +32,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Same self-healing install as deploy.yml: prefer strict npm ci, fall
-          # back to npm install when the lockfile is missing/out of sync.
+          # Same self-healing install as deploy.yml: prefer strict npm ci; on a
+          # missing/out-of-sync lockfile, regenerate it FROM SCRATCH (delete +
+          # npm install). Deleting first avoids npm's "Cannot read properties of
+          # null (reading 'edgesOut')" crash that happens when npm install runs
+          # over a stale lock it can't reconcile.
           if [ -f package-lock.json ]; then
             npm ci || {
-              echo "npm ci failed (lockfile out of sync) - using npm install";
+              echo "npm ci failed (lockfile out of sync) - regenerating lockfile from scratch";
+              rm -f package-lock.json;
               npm install;
             }
           else

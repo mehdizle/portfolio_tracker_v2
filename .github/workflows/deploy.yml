@@ -35,13 +35,21 @@ jobs:
         run: |
           # Prefer the fast, strict `npm ci`. But `npm ci` FAILS by design when
           # package.json and package-lock.json disagree (e.g. after a manual
-          # version bump like vitest 4 -> 5). In that case - or when no lockfile
-          # exists yet - fall back to `npm install`, which regenerates the lock
-          # to match package.json. This makes dependency bumps self-heal instead
-          # of hard-failing the build.
+          # version bump, or an added `overrides` block). In that case fall back
+          # to a FRESH install.
+          #
+          # IMPORTANT: when the fallback runs we DELETE the lockfile first and
+          # let `npm install` rebuild it from scratch. Running `npm install`
+          # *over* a stale/out-of-sync lock can crash npm's resolver with
+          # "Cannot read properties of null (reading 'edgesOut')" (it can't
+          # reconcile the old graph with new constraints). A clean regenerate
+          # avoids that and always produces a valid lockfile matching
+          # package.json. The "Commit refreshed lockfile" step then persists it
+          # so the next run's fast `npm ci` path is back in sync.
           if [ -f package-lock.json ]; then
             npm ci || {
-              echo "npm ci failed (lockfile out of sync) - regenerating with npm install";
+              echo "npm ci failed (lockfile out of sync) - regenerating lockfile from scratch";
+              rm -f package-lock.json;
               npm install;
             }
           else
