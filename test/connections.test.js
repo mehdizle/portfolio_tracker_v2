@@ -165,7 +165,8 @@ describe("connection manifest: internal consistency", () => {
 // (csvHeader / txnToCsvRow), never a hand-typed column list. This is the class
 // of bug where the template silently omitted a newly-added field ("orderid").
 describe("no schema drift: CSV-emitting code binds to the schema", () => {
-  const IMPORT_JS = read("js/06b-import.js");
+  const IMPORT_JS = read("js/06b-import.js"); // dividend-calendar + txn templates
+  const CSV_JS = read("js/06l-csv-import.js"); // transaction CSV import/export (extracted)
 
   // Extract a click-handler body by brace-matching from a "<id>").onclick"
   // marker (robust to formatting - no fixed char window that can truncate).
@@ -210,7 +211,7 @@ describe("no schema drift: CSV-emitting code binds to the schema", () => {
   });
 
   it("CSV export is generated from the schema (csvHeader + txnToCsvRow)", () => {
-    const body = handlerBody(IMPORT_JS, 'exportCsv").onclick');
+    const body = handlerBody(CSV_JS, 'exportCsv").onclick');
     expect(body, "exportCsv handler not found").toBeTruthy();
     expect(/csvHeader\(\)/.test(body)).toBe(true);
     expect(/txnToCsvRow\(/.test(body)).toBe(true);
@@ -246,6 +247,7 @@ describe("no schema drift: UI source contains no hardcoded transaction CSV heade
     "js/06i-fee-panel.js",
     "js/06j-positions-edit.js",
     "js/06k-price-import.js",
+    "js/06l-csv-import.js",
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
@@ -323,6 +325,7 @@ describe("no unescaped user-data in HTML template literals", () => {
     "js/06i-fee-panel.js",
     "js/06j-positions-edit.js",
     "js/06k-price-import.js",
+    "js/06l-csv-import.js",
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
@@ -387,6 +390,7 @@ describe("renderKPIs is always called with both arguments", () => {
     "js/06i-fee-panel.js",
     "js/06j-positions-edit.js",
     "js/06k-price-import.js",
+    "js/06l-csv-import.js",
     "js/07-expenses.js",
     "js/08-salary.js",
     "js/09b-market-session.js",
