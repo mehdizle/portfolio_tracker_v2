@@ -325,7 +325,7 @@
           detail: corruptKeys.length ? { quarantined: corruptKeys } : "none",
         };
 
-        // 5b. FIFO oversold (sold more than ever held — ledger error)
+        // 5b. FIFO oversold (sold more than ever held - ledger error)
         const oversold = Object.keys(pos)
           .filter((k) => (pos[k] && pos[k].oversold) > 0)
           .map((k) => ({ key: k, oversold: pos[k].oversold }));
