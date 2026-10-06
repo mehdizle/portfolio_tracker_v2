@@ -60,7 +60,12 @@ export default [
       // to "error" later. (src/core stays strict - see its block below.)
       "no-unused-vars": [
         "warn",
-        { args: "none", vars: "local", ignoreRestSiblings: true },
+        {
+          args: "none",
+          vars: "local",
+          ignoreRestSiblings: true,
+          caughtErrors: "none", // `catch (_e)` / `catch (e)` unused is fine
+        },
       ],
       "no-empty": ["warn", { allowEmptyCatch: true }], // empty catch is a known pattern here
       eqeqeq: ["warn", "smart"],
@@ -79,10 +84,19 @@ export default [
       "no-misleading-character-class": "warn",
       "no-sparse-arrays": "warn",
       "no-async-promise-executor": "warn",
+      // New in ESLint v10 recommended; fires on `let x = null` later reassigned
+      // before use (harmless style, common in the signals code). Warn for now.
+      "no-useless-assignment": "warn",
     },
   },
 
-  // ---- tested core: real ES modules (strict) ----
+  // ---- tested core: real ES modules ----
+  // Stricter than the UI (these are clean modules with real imports/exports and
+  // 267 passing tests), but ESLint v10's recommended set added NEW error-level
+  // rules (no-useless-assignment, preserve-caught-error) that this pre-existing
+  // code predates. Keep the first pass non-disruptive by warning on those
+  // (and on unused vars / caught-but-unused `_e`) rather than failing CI, same
+  // policy as the UI block. These can be promoted to "error" in a cleanup PR.
   {
     files: ["src/**/*.js"],
     languageOptions: {
@@ -91,8 +105,17 @@ export default [
       globals: { ...globals.browser, __core: "readonly" },
     },
     rules: {
-      "no-unused-vars": ["warn", { args: "none", ignoreRestSiblings: true }],
+      "no-unused-vars": [
+        "warn",
+        {
+          args: "none",
+          ignoreRestSiblings: true,
+          caughtErrors: "none", // allow `catch (_e)` with unused binding
+        },
+      ],
       eqeqeq: ["warn", "smart"],
+      "no-useless-assignment": "warn",
+      "preserve-caught-error": "warn",
     },
   },
 
