@@ -31,6 +31,7 @@ const files = [
   "06h-fund-match.js",
   "06i-fee-panel.js",
   "06j-positions-edit.js",
+  "06k-price-import.js",
   "06c-backup.js",
   "06d-pending.js",
   "06e-dividends.js",
