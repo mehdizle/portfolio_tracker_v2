@@ -2,6 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Content-Security-Policy: defense-in-depth for a finance app with many
+         innerHTML sinks. The app has NO inline <script> and NO on*= handlers
+         (it uses data-act delegation), so script-src can stay strict - no
+         'unsafe-inline' for scripts, which is the strongest XSS mitigation.
+         - script-src: self (Vite bundle) + jsDelivr (Highcharts CDN)
+         - style-src:  'unsafe-inline' is required (325 inline style= attributes
+                       + Highcharts injects inline styles); styles can't execute
+                       code, so this is low-risk.
+         - img-src:    self + data: (inline SVG favicon + logos)
+         - connect-src: self (same-origin public/*.json) + the ASFIM OPCVM
+                       fund-search API (js/06b-import.js: https://fundshare.asfim.ma).
+         - object/frame/base locked down; forms can't post off-site. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://fundshare.asfim.ma; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Portfolio Tracker - Casablanca (MAD)</title>
     <meta
