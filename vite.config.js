@@ -24,6 +24,12 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     minify: "oxc", // Vite 8 default (Rolldown + Oxc). Mangling is safe (see note in src/main.js).
+    // Disable the module-preload POLYFILL so Vite doesn't emit a small INLINE
+    // <script> in index.html. That inline script would be blocked by our strict
+    // Content-Security-Policy (script-src has no 'unsafe-inline'). The app's
+    // single entry + modern browser target (ES2022) means native module preload
+    // is fine without the polyfill. Keeps the CSP strong AND the app working.
+    modulePreload: { polyfill: false },
     rolldownOptions: {
       output: {
         entryFileNames: "assets/app.[hash].js",
