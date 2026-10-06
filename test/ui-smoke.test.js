@@ -5,16 +5,14 @@
 // Everything else under test/ exercises the pure src/core modules. The UI
 // (js/*.js, concatenated into one shared-scope IIFE) had ZERO automated tests,
 // so a refactor there could white-screen the app and CI wouldn't notice. These
-// smoke tests close that gap at the highest-value level: they LOAD the real
-// concatenated bundle into a jsdom DOM (with __core wired exactly like
-// production via core-bridge.js) and assert that it boots, wires its handlers,
-// and survives real + corrupt data without throwing.
+// smoke tests close that gap at the highest-value level: they load the REAL
+// index.html body + the REAL concatenated bundle into jsdom (with __core wired
+// exactly like production via core-bridge.js) and assert the app boots, wires
+// its handlers, and survives real + corrupt data without throwing.
 //
-// They are intentionally LENIENT (boot-doesn't-throw + handler wiring), not
-// snapshot assertions, so they're robust to harmless markup/output changes but
-// still catch the real regression class: "something broke the boot path".
-// (render() itself is private to the IIFE and not reachable from here, so we
-// assert on observable boot results rather than calling it directly.)
+// Lenient by design (boot-doesn't-throw + handler wiring), not snapshot
+// assertions - robust to harmless output changes, but still catches the real
+// regression class: "something broke the boot path".
 import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -23,6 +21,11 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 
+// core-bridge sets globalThis.__core. Import it ONCE at module load (ES module
+// imports are cached/singleton), so __core is populated for every test. We must
+// NOT delete it between tests - the cached import won't re-run to recreate it.
+await import("../src/core-bridge.js");
+
 // Build the concatenated UI bundle source the same way scripts/concat.mjs does.
 function buildBundleSource() {
   const concat = readFileSync(join(root, "scripts", "concat.mjs"), "utf8");
@@ -30,59 +33,59 @@ function buildBundleSource() {
     .map((m) => m[1])
     .filter((f) => /^\d/.test(f)); // the numbered js/*.js entries
   const parts = files.map((f) => readFileSync(join(root, "js", f), "utf8"));
-  // Wrap in the same IIFE the real build uses. __APP_VERSION__ is a build-time
-  // define; provide it here so the bundle's version read doesn't ReferenceError.
+  // __APP_VERSION__ is a build-time define; __core is a global the bundle reads
+  // as a BARE identifier, so alias it from globalThis at the top of the eval'd
+  // scope. Wrap in the same IIFE the real build uses.
   return (
-    "const __APP_VERSION__ = 'test';\n(function(){\n" +
+    "const __APP_VERSION__ = 'test';\n" +
+    "const __core = globalThis.__core;\n" +
+    "(function(){\n" +
     parts.join("\n") +
     "\n})();\n"
   );
 }
 
-// Minimal but representative DOM: enough containers that the defensive boot
-// path (which guards missing elements) has somewhere to write.
-const DOM_SKELETON = `
-  <div id="toastHost"></div>
-  <div class="tab" data-view="dashboard"></div>
-  <div class="view" id="dashboard"></div>
-  <div class="view" id="rebalance"></div>
-  <div id="kpiRow"></div>
-  <table id="positionsTable"><tbody></tbody></table>
-  <div id="rbResult"></div>
-`;
+// Use the REAL <body> from index.html so every element the (defensive but
+// element-touching) boot path looks up actually exists. We strip <script> tags
+// (Highcharts CDN etc. - not needed; the bundle only calls Highcharts lazily)
+// and inject the markup into the jsdom document.
+function realBodyHtml() {
+  const html = readFileSync(join(root, "index.html"), "utf8");
+  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  let body = m ? m[1] : "";
+  body = body.replace(/<script[\s\S]*?<\/script>/gi, ""); // drop script tags
+  return body;
+}
 
-async function loadApp() {
-  // Wire __core exactly like production (core-bridge sets globalThis.__core).
-  await import("../src/core-bridge.js");
-  document.body.innerHTML = DOM_SKELETON;
+const BODY_HTML = realBodyHtml();
+
+function loadApp() {
+  document.body.innerHTML = BODY_HTML;
   const src = buildBundleSource();
   // Indirect eval runs the bundle in global scope, mirroring how the real
-  // <script> bundle executes (its `window`/`document`/`localStorage`/`__core`
-  // are the jsdom test globals).
-  // eslint-disable-next-line no-eval
+  // <script> bundle executes against window/document/localStorage.
   (0, eval)(src);
-  return globalThis;
 }
 
 describe("UI smoke: boot resilience", () => {
   beforeEach(() => {
     localStorage.clear();
     document.body.innerHTML = "";
-    delete globalThis.__core;
+    // NOTE: deliberately do NOT delete globalThis.__core (see import note above).
   });
 
-  it("evaluates the concatenated bundle without throwing (app boots)", async () => {
-    await expect(loadApp()).resolves.toBeDefined();
+  it("evaluates the concatenated bundle without throwing (app boots)", () => {
+    expect(() => loadApp()).not.toThrow();
   });
 
-  it("publishes inline-handler targets to window (data-act dispatch)", async () => {
-    await loadApp();
+  it("publishes inline-handler targets to window (data-act dispatch)", () => {
+    loadApp();
     // A representative sample of the EXPOSE list from concat.mjs.
     expect(typeof window.gotoTab).toBe("function");
     expect(typeof window.editCashRow).toBe("function");
   });
 
-  it("boots with a SEEDED portfolio without throwing (load + restore + wiring)", async () => {
+  it("boots with a SEEDED portfolio without throwing (load + restore + wiring)", () => {
     localStorage.setItem(
       "casa_portfolio_txns_v1",
       JSON.stringify([
@@ -109,18 +112,18 @@ describe("UI smoke: boot resilience", () => {
         },
       }),
     );
-    await expect(loadApp()).resolves.toBeDefined();
-    // __core must be wired; the seeded txn must be FIFO-processable through the
-    // core the UI delegates to (proves core bridge + seed are coherent).
+    expect(() => loadApp()).not.toThrow();
+    // __core must be wired for the UI to delegate its math.
     expect(globalThis.__core).toBeTruthy();
     expect(typeof globalThis.__core.fifo.runFIFO).toBe("function");
   });
 
-  it("survives corrupt localStorage without throwing (resilience)", async () => {
-    // The app's loaders are corruption-safe (safeParseLS quarantines bad data).
-    // Feed garbage and confirm boot still doesn't throw.
+  it("survives corrupt localStorage without throwing (resilience)", () => {
+    // The app's loaders are corruption-safe (safeParseLS quarantines bad data),
+    // so boot should NOT throw even on garbage. (It logs a corruption warning;
+    // that's expected and not a failure.)
     localStorage.setItem("casa_portfolio_txns_v1", "{ not valid json ]");
     localStorage.setItem("casa_master_v1", "garbage");
-    await expect(loadApp()).resolves.toBeDefined();
+    expect(() => loadApp()).not.toThrow();
   });
 });

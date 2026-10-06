@@ -127,6 +127,7 @@ export default [
       sourceType: "module",
       globals: {
         ...globals.node,
+        ...globals.browser, // jsdom-env tests use document/window/localStorage
         describe: "readonly",
         it: "readonly",
         test: "readonly",
