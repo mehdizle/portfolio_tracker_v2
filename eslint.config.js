@@ -151,5 +151,13 @@ export default [
       sourceType: "module",
       globals: { ...globals.node },
     },
+    rules: {
+      // `catch (_e)` with an unused binding is used throughout the fetch
+      // scripts; don't fail on it (consistent with the rest of the config).
+      "no-unused-vars": [
+        "warn",
+        { args: "none", caughtErrors: "none", ignoreRestSiblings: true },
+      ],
+    },
   },
 ];
