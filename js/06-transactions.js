@@ -317,6 +317,96 @@ if (_rbBtn)
       toast("Rebalance error: " + e.message, "err");
     }
   };
+
+// ---------- rebalance settings modal (gear) ----------
+// The advanced inputs live in #rbSettingsModal; only Cash + Max buys stay inline.
+// Opening/closing uses the generic data-modal-backdrop/data-modal-close plumbing
+// (01c-ui-kit.js). Here we (a) open it from the gear, (b) persist every setting
+// the moment it changes (so it survives reloads and rides the backup), and
+// (c) wire Done/Reset. All ids are unchanged, so computeRebalance() + the
+// existing load/save keep working as-is.
+{
+  const _gear = document.getElementById("rbSettingsBtn");
+  const _modal = document.getElementById("rbSettingsModal");
+  // Every advanced setting that lives in the modal (ids unchanged from before).
+  const _rbSettingIds = [
+    "rbCap",
+    "rbCapOpcvm",
+    "rbValueTilt",
+    "rbBuyOnly",
+    "rbTrims",
+    "rbOpcvm",
+    "rbPending",
+    "rbRiskAdj",
+    "rbReserve",
+    "rbMinAttract",
+    "rbTrimWinners",
+    "rbTrimTol",
+    "rbDca",
+  ];
+  // Default value/checked for each, for "Reset to defaults".
+  const _rbDefaults = {
+    rbCap: 20,
+    rbCapOpcvm: 35,
+    rbValueTilt: 0,
+    rbBuyOnly: true,
+    rbTrims: true,
+    rbOpcvm: false,
+    rbPending: false,
+    rbRiskAdj: true,
+    rbReserve: 0,
+    rbMinAttract: 0,
+    rbTrimWinners: false,
+    rbTrimTol: 25,
+    rbDca: true,
+  };
+  if (_gear && _modal) {
+    _gear.onclick = () => {
+      _modal.style.display = "flex";
+    };
+    // Persist on any change inside the modal so settings stick immediately
+    // (previously they were only saved when you hit Compute). The value-tilt
+    // slider already has its own live listener above; change covers the rest.
+    _rbSettingIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("change", () => {
+        try {
+          saveRbSettings();
+        } catch (e) {}
+      });
+    });
+    const _done = document.getElementById("rbSettingsDone");
+    if (_done)
+      _done.onclick = () => {
+        try {
+          saveRbSettings();
+        } catch (e) {}
+        _modal.style.display = "none";
+      };
+    const _reset = document.getElementById("rbSettingsReset");
+    if (_reset)
+      _reset.onclick = () => {
+        Object.keys(_rbDefaults).forEach((id) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          const d = _rbDefaults[id];
+          if (el.type === "checkbox") el.checked = !!d;
+          else el.value = d;
+        });
+        // Refresh the slider's live label after reset.
+        const _lbl = document.getElementById("rbValueTiltVal");
+        const _vt2 = document.getElementById("rbValueTilt");
+        if (_lbl && _vt2 && typeof _rbTiltLabel === "function")
+          _lbl.textContent = _rbTiltLabel(_vt2.value);
+        try {
+          saveRbSettings();
+        } catch (e) {}
+        if (typeof toast === "function")
+          toast("Rebalance settings reset to defaults.", "ok");
+      };
+  }
+}
 document.querySelectorAll(".tab[data-view]").forEach(
   (b) =>
     (b.onclick = () => {

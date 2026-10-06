@@ -2871,63 +2871,6 @@
                 step="500"
                 style="width: 140px"
             /></label>
-            <label
-              data-tip="Max % of your post-investment portfolio any single sector should occupy."
-              >Sector cap %<input
-                type="number"
-                id="rbCap"
-                value="20"
-                min="5"
-                max="60"
-                step="1"
-                style="width: 90px"
-            /></label>
-            <label
-              data-tip="Separate, higher cap for OPCVM funds combined. Funds are already-diversified baskets, so they're allowed a larger share than a single equity sector."
-              >OPCVM cap %<input
-                type="number"
-                id="rbCapOpcvm"
-                value="35"
-                min="5"
-                max="80"
-                step="1"
-                style="width: 90px"
-            /></label>
-            <label
-              style="
-                display: flex;
-                flex-direction: column;
-                gap: 4px;
-                align-self: flex-end;
-              "
-              data-tip="Bias the buy ranking between Diversification (keep sectors balanced; sector caps are hard) and Value (let strongly undervalued names be bought past a full sector cap - up to 1.5&#xD7; the cap at the far-right - and let valuation + signal quality lead the ranking). Left = today's diversification-led behaviour; right = value-led. Trims still run first. Saved with your backup."
-              >Value vs Diversification
-              <span
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-                  height: 32px;
-                "
-                ><input
-                  type="range"
-                  id="rbValueTilt"
-                  value="0"
-                  min="0"
-                  max="100"
-                  step="5"
-                  style="width: 130px; margin: 0"
-                /><span
-                  id="rbValueTiltVal"
-                  style="
-                    font-weight: 600;
-                    color: var(--primary2);
-                    white-space: nowrap;
-                  "
-                  >0 - Diversification</span
-                ></span
-              ></label
-            >
             <label data-tip="How many buy suggestions to spread the cash across"
               >Max buys<input
                 type="number"
@@ -2938,103 +2881,19 @@
                 step="1"
                 style="width: 80px"
             /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Only suggest names flagged Buy by the signal engine"
-              >Buy-signal only<input
-                type="checkbox"
-                id="rbBuyOnly"
-                checked
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Also suggest trimming overweight / overvalued holdings"
-              >Suggest trims<input
-                type="checkbox"
-                id="rbTrims"
-                checked
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Include OPCVM funds as BUY candidates too (to fill an underweight up to the OPCVM cap). When off, funds can only be trimmed, never bought."
-              >OPCVMs<input
-                type="checkbox"
-                id="rbOpcvm"
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Fold your pending BUY/SELL orders into the current holdings before computing: sector weights and buy suggestions reflect where your portfolio will be once those orders execute."
-              >Account for pending<input
-                type="checkbox"
-                id="rbPending"
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Risk-adjust each name's target weight by its volatility (from the daily price history): a more volatile name gets a smaller target for the same attractiveness. On by default. Turn off to size on attractiveness alone."
-              >Risk-adjust<input
-                type="checkbox"
-                id="rbRiskAdj"
-                checked
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              data-tip="Hold back this % of the investable total as cash on purpose (waiting for opportunities). 0 = invest the whole sleeve subject to caps and the attractiveness bar."
-              >Cash reserve %<input
-                type="number"
-                id="rbReserve"
-                value="0"
-                min="0"
-                max="95"
-                step="5"
-                style="width: 90px"
-            /></label>
-            <label
-              data-tip="A name must reach this attractiveness score (quality x value x conviction, risk-adjusted) before cash is deployed into it. Below the bar, cash is left idle to wait for a better entry. 0 = deploy freely toward the model."
-              >Min attractiveness<input
-                type="number"
-                id="rbMinAttract"
-                value="0"
-                min="0"
-                max="3"
-                step="0.1"
-                style="width: 90px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Also trim holdings that have grown ABOVE their model target (not just Sell-rated / overvalued ones). Off by default = let winners run. Sell-rated and above-fair-value names are always flagged regardless."
-              >Trim winners<input
-                type="checkbox"
-                id="rbTrimWinners"
-                style="width: 18px; height: 18px"
-            /></label>
-            <label
-              data-tip="How far a holding may drift above its target before 'Trim winners' acts, as a % of the target weight (e.g. 25 = only trim once it's 25% over target). Avoids churning on small drifts. Only used when 'Trim winners' is on."
-              >Trim band %<input
-                type="number"
-                id="rbTrimTol"
-                value="25"
-                min="0"
-                max="100"
-                step="5"
-                style="width: 90px"
-            /></label>
-            <label
-              style="display: flex; align-items: center; gap: 6px"
-              data-tip="Average down: give a held name that's below your average cost (and still Buy/Hold-rated with decent quality) a boost in the buy ranking, so you add to sound positions that are temporarily down. On by default; turn off to size buys purely on the model target."
-              >Average down<input
-                type="checkbox"
-                id="rbDca"
-                checked
-                style="width: 18px; height: 18px"
-            /></label>
+            <button
+              class="btn sec2"
+              id="rbSettingsBtn"
+              type="button"
+              data-tip="Open advanced rebalance settings (caps, value tilt, trims, risk, etc.). Your choices are saved automatically and travel with your backup."
+              aria-label="Rebalance settings"
+            >
+              &#x2699;&#xFE0F; Settings
+            </button>
             <button
               class="btn"
               id="rbRun"
-              data-tip="Run the model with the settings above: scores every eligible name, water-fills target weights within the caps, diffs targets against your actual holdings, and lists the buys/sells (with fees and tax lots) that close the gap."
+              data-tip="Run the model with your settings: scores every eligible name, water-fills target weights within the caps, diffs targets against your actual holdings, and lists the buys/sells (with fees and tax lots) that close the gap."
             >
               Compute plan
             </button>
@@ -3046,6 +2905,370 @@
           ></div>
         </div>
         <div id="rbResult"></div>
+      </div>
+
+      <!-- REBALANCE SETTINGS MODAL (reuses the generic data-modal-backdrop / data-modal-close plumbing) -->
+      <div
+        id="rbSettingsModal"
+        data-modal-backdrop
+        style="
+          display: none;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 56;
+          align-items: center;
+          justify-content: center;
+        "
+      >
+        <div
+          style="
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 22px;
+            max-width: 620px;
+            width: 92%;
+            max-height: 88vh;
+            overflow-y: auto;
+          "
+        >
+          <div
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 4px;
+            "
+          >
+            <h3 style="margin: 0">&#x2699;&#xFE0F; Rebalance settings</h3>
+            <button
+              class="btn sec2"
+              data-modal-close="rbSettingsModal"
+              style="padding: 4px 10px"
+              aria-label="Close"
+              title="Close"
+            >
+              &#x2715;
+            </button>
+          </div>
+          <div class="mini" style="color: var(--text2); margin-bottom: 16px">
+            These apply every time you compute a plan. They&#x2019;re saved
+            automatically and included in your backup &#x2014; restore a backup
+            and they come back with it.
+          </div>
+
+          <!-- GROUP: How aggressively to invest -->
+          <div
+            style="
+              font-weight: 700;
+              margin: 4px 0 8px;
+              padding-bottom: 4px;
+              border-bottom: 1px solid var(--border);
+            "
+          >
+            How to invest the cash
+          </div>
+          <div
+            class="form-row"
+            style="gap: 16px; flex-wrap: wrap; margin-bottom: 18px"
+          >
+            <label
+              style="
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                flex: 1 1 260px;
+              "
+              data-tip="Bias the buy ranking between Diversification (keep sectors balanced; sector caps are hard) and Value (let strongly undervalued names be bought past a full sector cap - up to 1.5&#xD7; the cap at the far-right - and let valuation + signal quality lead the ranking). Left = diversification-led; right = value-led. Trims still run first."
+            >
+              <span>Picking style: balance vs. bargains</span>
+              <span style="display: flex; align-items: center; gap: 8px"
+                ><input
+                  type="range"
+                  id="rbValueTilt"
+                  value="0"
+                  min="0"
+                  max="100"
+                  step="5"
+                  style="flex: 1; margin: 0"
+                /><span
+                  id="rbValueTiltVal"
+                  style="
+                    font-weight: 600;
+                    color: var(--primary2);
+                    white-space: nowrap;
+                  "
+                  >0 - Diversification</span
+                ></span
+              >
+              <span class="mini" style="color: var(--text2)"
+                >Left keeps your sectors balanced; right lets cheap,
+                high-quality names win even if it tilts a sector heavier.</span
+              >
+            </label>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Only suggest names flagged Buy by the signal engine"
+              ><input
+                type="checkbox"
+                id="rbBuyOnly"
+                checked
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Only buy names the signals rate as a Buy
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; skip Hold/Wait-rated names when deploying cash</span
+                ></span
+              ></label
+            >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Average down: give a held name that's below your average cost (and still Buy/Hold-rated with decent quality) a boost in the buy ranking, so you add to sound positions that are temporarily down. On by default; turn off to size buys purely on the model target."
+              ><input
+                type="checkbox"
+                id="rbDca"
+                checked
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Add more to sound names that are down
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; &#x201C;average down&#x201D; on quality holdings
+                  below your cost</span
+                ></span
+              ></label
+            >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Risk-adjust each name's target weight by its volatility (from the daily price history): a more volatile name gets a smaller target for the same attractiveness. On by default. Turn off to size on attractiveness alone."
+              ><input
+                type="checkbox"
+                id="rbRiskAdj"
+                checked
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Give choppier (more volatile) names a smaller slice
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; sizes safer names larger for the same score</span
+                ></span
+              ></label
+            >
+          </div>
+
+          <!-- GROUP: Limits -->
+          <div
+            style="
+              font-weight: 700;
+              margin: 4px 0 8px;
+              padding-bottom: 4px;
+              border-bottom: 1px solid var(--border);
+            "
+          >
+            Limits &amp; safety
+          </div>
+          <div
+            class="form-row"
+            style="gap: 16px; flex-wrap: wrap; margin-bottom: 18px"
+          >
+            <label
+              data-tip="Max % of your post-investment portfolio any single sector should occupy."
+              >Most in one sector (%)<input
+                type="number"
+                id="rbCap"
+                value="20"
+                min="5"
+                max="60"
+                step="1"
+                style="width: 90px"
+            /></label>
+            <label
+              data-tip="Separate, higher cap for OPCVM funds combined. Funds are already-diversified baskets, so they're allowed a larger share than a single equity sector."
+              >Most in funds combined (%)<input
+                type="number"
+                id="rbCapOpcvm"
+                value="35"
+                min="5"
+                max="80"
+                step="1"
+                style="width: 90px"
+            /></label>
+            <label
+              data-tip="Hold back this % of the investable total as cash on purpose (waiting for opportunities). 0 = invest the whole sleeve subject to caps and the attractiveness bar."
+              >Keep as cash (%)<input
+                type="number"
+                id="rbReserve"
+                value="0"
+                min="0"
+                max="95"
+                step="5"
+                style="width: 90px"
+            /></label>
+            <label
+              data-tip="A name must reach this attractiveness score (quality x value x conviction, risk-adjusted) before cash is deployed into it. Below the bar, cash is left idle to wait for a better entry. 0 = deploy freely toward the model."
+              >Only buy if score above<input
+                type="number"
+                id="rbMinAttract"
+                value="0"
+                min="0"
+                max="3"
+                step="0.1"
+                style="width: 90px"
+            /></label>
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Include OPCVM funds as BUY candidates too (to fill an underweight up to the OPCVM cap). When off, funds can only be trimmed, never bought."
+              ><input
+                type="checkbox"
+                id="rbOpcvm"
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Allow buying OPCVM funds
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; off = funds can only be trimmed, never bought</span
+                ></span
+              ></label
+            >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Fold your pending BUY/SELL orders into the current holdings before computing: sector weights and buy suggestions reflect where your portfolio will be once those orders execute."
+              ><input
+                type="checkbox"
+                id="rbPending"
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Count my pending orders as already done
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; plan from where the portfolio will be after they
+                  execute</span
+                ></span
+              ></label
+            >
+          </div>
+
+          <!-- GROUP: Selling / trimming -->
+          <div
+            style="
+              font-weight: 700;
+              margin: 4px 0 8px;
+              padding-bottom: 4px;
+              border-bottom: 1px solid var(--border);
+            "
+          >
+            Selling &amp; trimming
+          </div>
+          <div class="form-row" style="gap: 16px; flex-wrap: wrap">
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Also suggest trimming overweight / overvalued holdings"
+              ><input
+                type="checkbox"
+                id="rbTrims"
+                checked
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Suggest sells to fund the buys
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; trim overweight / overvalued holdings and recycle
+                  the proceeds</span
+                ></span
+              ></label
+            >
+            <label
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex: 1 1 100%;
+              "
+              data-tip="Also trim holdings that have grown ABOVE their model target (not just Sell-rated / overvalued ones). Off by default = let winners run. Sell-rated and above-fair-value names are always flagged regardless."
+              ><input
+                type="checkbox"
+                id="rbTrimWinners"
+                style="width: 18px; height: 18px"
+              />
+              <span
+                >Also trim winners that grew too big
+                <span class="mini" style="color: var(--text2)"
+                  >&#x2014; off = let winners run; sell-rated names are always
+                  flagged anyway</span
+                ></span
+              ></label
+            >
+            <label
+              data-tip="How far a holding may drift above its target before 'Trim winners' acts, as a % of the target weight (e.g. 25 = only trim once it's 25% over target). Avoids churning on small drifts. Only used when 'Trim winners' is on."
+              >Trim a winner once it&#x2019;s over target by (%)<input
+                type="number"
+                id="rbTrimTol"
+                value="25"
+                min="0"
+                max="100"
+                step="5"
+                style="width: 90px"
+            /></label>
+          </div>
+
+          <div
+            style="
+              display: flex;
+              justify-content: flex-end;
+              gap: 10px;
+              margin-top: 20px;
+            "
+          >
+            <button
+              class="btn sec2"
+              id="rbSettingsReset"
+              type="button"
+              data-tip="Reset every advanced setting back to its default."
+            >
+              Reset to defaults
+            </button>
+            <button
+              class="btn"
+              id="rbSettingsDone"
+              type="button"
+              data-tip="Save and close. Click Compute plan to apply."
+            >
+              Done
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- DATA -->
