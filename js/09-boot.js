@@ -14,7 +14,7 @@
     list.addEventListener("keydown", function (e) {
       const i = tabs.indexOf(document.activeElement);
       if (i < 0) return;
-      let j = -1;
+      let j;
       if (e.key === "ArrowRight" || e.key === "ArrowDown")
         j = (i + 1) % tabs.length;
       else if (e.key === "ArrowLeft" || e.key === "ArrowUp")

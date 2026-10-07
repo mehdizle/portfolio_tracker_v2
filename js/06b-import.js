@@ -21,7 +21,6 @@ try {
 
 // ---------- fees explainer values + dividend-tax-by-year editor ----------
 function renderDivTax() {
-  const el = (id) => document.getElementById(id);
   const yrs = Object.keys(DIVTAX)
     .map(Number)
     .sort((a, b) => a - b);
@@ -398,7 +397,7 @@ function issuerNorm(s) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // strip accents
     .replace(/[\u2019\u2018\u02bc`']/g, " ") // apostrophes -> space
-    .replace(/[\u2010-\u2015\-]/g, " ") // dashes -> space
+    .replace(/[\u2010-\u2015-]/g, " ") // dashes -> space
     .replace(/[.,]/g, " ")
     .replace(/\b(S\s*A\s*R\s*L|S\s*A\s*S|S\s*A|SCA|SPA)\b/g, " ") // legal suffixes
     .replace(/\s+/g, " ")
@@ -650,7 +649,7 @@ function calImport() {
       "Paste calendar rows first.";
     return;
   }
-  const { out: out2, bad, unmatched } = parseCalendar(raw);
+  const { out: out2, unmatched } = parseCalendar(raw);
   const uniqUnmatched = [...new Set(unmatched)];
   if (!out2.length && !uniqUnmatched.length) {
     document.getElementById("calResult").innerHTML =

@@ -748,7 +748,6 @@ function eRenderBillWarn() {
   const el = document.getElementById("e_billWarn");
   if (!el) return;
   const s = E_STATE;
-  const tot = s.bills.reduce((a, b) => a + eBillAmt(b), 0);
   const untagged = s.bills.filter((b) => b.by !== "MD" && b.by !== "BT");
   const untaggedAmt = untagged.reduce((a, b) => a + eBillAmt(b), 0);
   if (untaggedAmt < 1) {
@@ -772,7 +771,6 @@ function eRenderCatDonut() {
   const leg = document.getElementById("e_catLegend");
   if (!el || typeof Highcharts === "undefined") return;
   const s = E_STATE;
-  const c = eThemeColors();
   const data = E_BILL_CATS.map((cat) => {
     const amt = s.bills
       .filter((b) => (b.cat || "living") === cat.key)
@@ -1866,10 +1864,7 @@ function eRenderLog() {
     let body = "";
     const carPlanMonths = eCarPlanMonths();
     const otherPlanMonths = eOtherPlanMonths();
-    const nowYM = (() => {
-      const d = new Date();
-      return d.getFullYear() * 100 + (d.getMonth() + 1);
-    })();
+
     // Trailing average of this bucket's non-zero amounts (for anomaly flags)
     const bkVals = rows.map((x) => +x.r[bk.key] || 0).filter((v) => v !== 0);
     const bkAvg = bkVals.length
@@ -1898,7 +1893,6 @@ function eRenderLog() {
         v < 0 ? "var(--error)" : v > 0 ? "var(--success)" : "var(--text2)";
       const mm = /^(\d{4})-(\d{2})$/.exec(r.month || "");
       const moNum = mm ? +mm[2] : 0;
-      const ym = mm ? +mm[1] * 100 + +mm[2] : 0;
       // Both Car and Other are plan-driven. Lock the amount + note when this
       // month is targeted by the bucket's planner AND is NOT realized yet
       // (matches eApplyCarPlan/eApplyOtherPlan, which recompute every
@@ -2307,8 +2301,6 @@ function eForwardRows() {
   const s = E_STATE;
   const c = eCompute();
   const now = new Date();
-  const cur =
-    now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
   // planned savings per month = sum of all bucket columns for that month's log row
   const planByMonth = {};
   s.log.forEach((r) => {
@@ -2534,7 +2526,6 @@ document.addEventListener("click", (ev) => {
     const n = eApplyCarPlan();
     const note = document.getElementById("e_carPlanNote");
     if (note) {
-      const prev = note.innerHTML;
       note.innerHTML = `\u2713 applied to ${n} future month${n === 1 ? "" : "s"}`;
       setTimeout(() => eRenderCarPlan(), 2200);
     }

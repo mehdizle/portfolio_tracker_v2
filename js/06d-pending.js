@@ -959,8 +959,8 @@ function pendingRangeBar(o, barW, compact) {
   // value + target buy/sell let you judge whether the order price is GOOD, not
   // just where it sits in the 52-wk range. OPCVM funds have no fair value -> the
   // helpers return null and we simply draw no zones/FV tick for them.
-  let fvX = null,
-    fv = null,
+  let fvX;
+  let fv = null,
     tb = null,
     ts = null;
   try {
@@ -1058,8 +1058,6 @@ function pendingUnitPxTipHTML(o) {
       '<div class="mini" style="color:var(--muted);margin-top:4px">52-wk range not available \u2014 refresh prices from TradingView.</div>';
     return h;
   }
-  // Position in range [0,1]; can be outside [0,1] for out-of-range prices
-  const pos = Math.max(-0.05, Math.min(1.05, (px - lo) / (hi - lo)));
   const livePosRaw = live != null ? (live - lo) / (hi - lo) : null;
   const livePos =
     livePosRaw != null ? Math.max(0, Math.min(1, livePosRaw)) : null;

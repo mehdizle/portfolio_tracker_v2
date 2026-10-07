@@ -193,7 +193,7 @@
         const ci = colOf(rMatch[1]);
         const tMatch = /t="([^"]*)"/.exec(attrs);
         const t = tMatch ? tMatch[1] : null;
-        let val = null;
+        let val;
         if (t === "inlineStr") {
           const im = /<t[^>]*>([\s\S]*?)<\/t>/.exec(inner);
           val = im ? decodeXml(im[1]) : "";

@@ -75,7 +75,7 @@ function parseTV(raw) {
         // divy, pe, pb, peg, dps all now come from the 2nd metrics line
         // New layout: main line = [Price, Chg%, Vol, 52wLow, 52wHigh, MktCap, Sector]
         const _sector =
-          c.length >= 7 && c[6] && !/^[\d.,\s%+\-]+$/.test(c[6])
+          c.length >= 7 && c[6] && !/^[\d.,\s%+-]+$/.test(c[6])
             ? c[6].trim()
             : null;
         const rec = {
@@ -104,7 +104,6 @@ function parseTV(raw) {
               _pb2 = cleanNum(sc[1]),
               _peg2 = cleanNum(sc[2]);
             const _epsGr = cleanNum(sc[3]); // EPS growth % (e.g. +75.70 from "+75.70%")
-            const _ni = cleanNum(sc[4]); // Net Income (informational)
             const _rev = cleanNum(sc[5]); // Revenue (TTM)
             const _divy2 = cleanNum(sc[6]); // Div yield % (e.g. 1.31 from "1.31%")
             const _dps2 = cleanNum(sc[7]); // DPS
@@ -268,7 +267,7 @@ document.getElementById("clearTV").onclick = () => {
   // progress/outcome. Returns true on a successful apply.
   async function fetchAndApply(report) {
     report("busy", "\u2026 loading latest prices");
-    let doc = null;
+    let doc;
     try {
       const r = await fetch("prices.json", { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);

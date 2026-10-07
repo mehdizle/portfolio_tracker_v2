@@ -9,18 +9,14 @@ import {
 } from "../src/core/money.js";
 import {
   peaStockFees,
-  peaDivFees,
   calcBrokerFees,
   opcvmFee,
   opcvmSurcharge,
-  feeRate,
-  fixedFee,
 } from "../src/core/fees.js";
 import { divRate, capitalGainsTax, dividendTax } from "../src/core/tax.js";
 import {
   computeRow,
   runFIFO,
-  txnBroker,
   annotateOrderCourtage,
 } from "../src/core/fifo.js";
 import {

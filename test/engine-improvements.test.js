@@ -17,7 +17,7 @@ import { describe, it, expect } from "vitest";
 // (js/05-rebalance.js) delegate to via __core. So these tests exercise the SAME
 // code the app runs - a regression in the engine math now fails CI (previously
 // they tested verbatim copies that could silently drift from the engine).
-import { num, soft, growthScore, fcfyScore } from "../src/core/signal-math.js";
+import { num, growthScore, fcfyScore } from "../src/core/signal-math.js";
 
 describe("Spec A: FCF-yield factor", () => {
   it("higher FCF yield scores higher (default sector bounds 0.07/0.0)", () => {
