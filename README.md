@@ -208,7 +208,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   06-transactions.js       the transactions ledger table + its fee/tax tooltips,
                            and the shared Add-Transaction/Add-Pending form logic
                            (live total calc, OPCVM kind-badge detection)
-  06b-import.js            dividend calendar smart-merge + issuer matcher, fee-tax year editor, txn-edit state
+  06b-import.js            fee-tax (DIVTAX) year editor, txn-edit state, downloadable templates
   06c-backup.js            backup/restore (APP_LS_KEYS), auto-dividends, value-over-time chart
   06d-pending.js           pending orders (Order IDs), indicators, range bar,
                            draft-selected-buys flow
@@ -221,6 +221,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   06j-positions-edit.js    positions edit: price/hide-closed/group-by-sector + window handlers (extracted from 06b-import)
   06k-price-import.js      TradingView paste + "Fetch latest" prices.json import (extracted from 06b-import)
   06l-csv-import.js        transaction CSV import/export (schema-driven; extracted from 06b-import)
+  06m-divcal-import.js     dividend-calendar smart-merge import + issuer matcher/resolver (extracted from 06b-import)
   07-expenses.js           monthly expenses + savings pots (car/other planners)
   08-salary.js             salary calc, stock categories (import/export), cash ledger
   09b-market-session.js    Casablanca Stock Exchange live session-phase widget
@@ -252,8 +253,8 @@ rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
 by `scripts/concat.mjs`, in the fixed order declared by its `files` array
-(currently 26 files: the numbered `01`–`09` modules plus their lettered splits -
-`01b`/`01c`, `02b`, `03b`, `06b`–`06l`, `09b`/`09c` - each one a single, cohesive
+(currently 27 files: the numbered `01`–`09` modules plus their lettered splits -
+`01b`/`01c`, `02b`, `03b`, `06b`–`06m`, `09b`/`09c` - each one a single, cohesive
 concern). **Edit the numbered source files, never the generated bundle**, and
 if you add/rename/remove a `js/*.js` file, update `concat.mjs`'s `files` array
 and `test/connections.test.js`'s file lists to match.

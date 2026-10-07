@@ -165,7 +165,8 @@ describe("connection manifest: internal consistency", () => {
 // (csvHeader / txnToCsvRow), never a hand-typed column list. This is the class
 // of bug where the template silently omitted a newly-added field ("orderid").
 describe("no schema drift: CSV-emitting code binds to the schema", () => {
-  const IMPORT_JS = read("js/06b-import.js"); // dividend-calendar + txn templates
+  const IMPORT_JS = read("js/06b-import.js"); // txn template (+ txn-edit/divtax state)
+  const DIVCAL_JS = read("js/06m-divcal-import.js"); // dividend-calendar template (extracted)
   const CSV_JS = read("js/06l-csv-import.js"); // transaction CSV import/export (extracted)
 
   // Extract a click-handler body by brace-matching from a "<id>").onclick"
@@ -202,7 +203,7 @@ describe("no schema drift: CSV-emitting code binds to the schema", () => {
   });
 
   it("the dividend-calendar template header comes from the schema (calTemplateHeader)", () => {
-    const body = handlerBody(IMPORT_JS, 'dlCalTemplate").onclick');
+    const body = handlerBody(DIVCAL_JS, 'dlCalTemplate").onclick');
     expect(body, "dlCalTemplate handler not found").toBeTruthy();
     expect(
       /calTemplateHeader\(\)/.test(body),
@@ -238,6 +239,7 @@ describe("no schema drift: UI source contains no hardcoded transaction CSV heade
     "js/05-rebalance.js",
     "js/06-transactions.js",
     "js/06b-import.js",
+    "js/06m-divcal-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
     "js/06e-dividends.js",
@@ -316,6 +318,7 @@ describe("no unescaped user-data in HTML template literals", () => {
     "js/05-rebalance.js",
     "js/06-transactions.js",
     "js/06b-import.js",
+    "js/06m-divcal-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
     "js/06e-dividends.js",
@@ -381,6 +384,7 @@ describe("renderKPIs is always called with both arguments", () => {
     "js/05-rebalance.js",
     "js/06-transactions.js",
     "js/06b-import.js",
+    "js/06m-divcal-import.js",
     "js/06c-backup.js",
     "js/06d-pending.js",
     "js/06e-dividends.js",
