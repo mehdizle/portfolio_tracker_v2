@@ -63,7 +63,11 @@ export async function encryptBackup(plainObj, passphrase) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await _deriveKey(passphrase, salt);
   const plaintext = _enc().encode(JSON.stringify(plainObj));
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    plaintext,
+  );
   return {
     _type: ENVELOPE_TYPE,
     _v: 1,
@@ -93,7 +97,7 @@ export async function decryptBackup(envelope, passphrase) {
       _unb64(envelope.ct),
     );
   } catch (e) {
-    throw new Error("Wrong password or corrupted backup.");
+    throw new Error("Wrong password or corrupted backup.", { cause: e });
   }
   return JSON.parse(_dec().decode(ptBuf));
 }

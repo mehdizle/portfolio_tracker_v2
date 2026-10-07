@@ -140,7 +140,11 @@ export default [
       },
     },
     rules: {
-      "no-unused-vars": "warn",
+      // `ignoreRestSiblings` lets a test deliberately destructure fields purely
+      // to strip them from a `...rest` (e.g. backup-crypto peels the opaque
+      // salt/iv/ct off the envelope so it can assert no plaintext leaks into the
+      // structural remainder) without tripping unused-var warnings.
+      "no-unused-vars": ["warn", { ignoreRestSiblings: true }],
     },
   },
 

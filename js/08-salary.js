@@ -679,20 +679,14 @@ function renderCash() {
   if (!body || !summary) return;
 
   // Compute running balance from user cash movements (deposits/withdrawals/fees)
-  let bal = 0,
-    totalDeposits = 0,
-    totalWithdrawals = 0,
-    totalFees = 0;
+  let bal = 0;
   const rows = movements.map((m, i) => {
     const sign = m.type === "deposit" ? 1 : -1;
     const amt = Math.abs(m.amount) * sign;
     const _future = m.date > _today;
     if (!_future) {
-      // Only past/today movements accrue the current balance and the totals.
+      // Only past/today movements accrue the current balance.
       bal += amt;
-      if (m.type === "deposit") totalDeposits += Math.abs(m.amount);
-      else if (m.type === "withdrawal") totalWithdrawals += Math.abs(m.amount);
-      else if (m.type === "fee") totalFees += Math.abs(m.amount);
     }
     return {
       ...m,
@@ -761,7 +755,7 @@ function renderCash() {
   });
 
   // Pending orders estimated cost (using computeRow for accurate fee-inclusive amount)
-  let pending = [];
+  let pending;
   try {
     pending = JSON.parse(localStorage.getItem("casa_pending_v1") || "[]");
     if (!Array.isArray(pending)) pending = [];

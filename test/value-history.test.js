@@ -123,7 +123,6 @@ describe("buildValueSeries", () => {
 });
 
 describe("valueVsBenchmark (rebased %)", () => {
-  const txns = [tx("2026-01-02", "ATW", "BUY", 10)];
   const h = hist([
     row("2026-01-02", { ATW: 100 }, 10000, 1000),
     row("2026-01-03", { ATW: 120 }, 11000, 1050),

@@ -66,7 +66,6 @@ function ttcTipHTML(t, e) {
           ")</span>",
         "\u2212" + money(e.fees),
       );
-      const yr2 = new Date(t.date).getFullYear();
       h += row(
         "TPCVM cap-gains tax " +
           (t.pea

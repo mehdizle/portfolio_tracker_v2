@@ -276,8 +276,7 @@ function peerRelScore(m) {
   const key = sectorProfile(m.cat).key;
   const cStat = st.cat[cat],
     pStat = st.prof[key];
-  let s = null,
-    basis = null;
+  let s, basis;
   if (cStat && cStat.n >= 4) {
     s = cStat;
     basis = "category";
@@ -735,8 +734,7 @@ function divSafety(m) {
   const incomeSector = pr.key === "reit" || pr.key === "defensive";
   const hi = incomeSector ? 1.1 : 0.9; // >100-110% (REIT) or >90% = stretched
   const danger = incomeSector ? 1.3 : 1.05; // clearly funding div beyond earnings
-  let level = "ok",
-    note = "";
+  let level, note;
   if (ratio > danger) {
     level = "danger";
     note =

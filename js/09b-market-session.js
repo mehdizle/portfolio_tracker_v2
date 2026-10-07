@@ -23,7 +23,6 @@
   const MS = (typeof __core !== "undefined" && __core.marketSession) || null;
   if (!MS) return; // core not loaded (e.g. isolated context) - skip the widget
   const GROUPS = MS.MARKET_GROUPS;
-  const toMins = MS.toMins;
   const fmtRange = MS.fmtRange;
   const classifyPhases = MS.classifyPhases;
   const overallLabel = (now, isWeekend) =>
@@ -139,7 +138,7 @@
     // "next" hint
     const nowRow = rows.find((r) => r.state === "now");
     const nextRow = rows.find((r) => r.state === "upcoming");
-    let hint = "";
+    let hint;
     if (!marketOpenToday) hint = "Market closed today (weekend).";
     else if (nowRow) {
       const minsLeft = nowRow.point ? 0 : nowRow.eMin - now.mins;
