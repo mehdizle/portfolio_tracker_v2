@@ -20,8 +20,19 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   pure ES modules under `src/core/`, unit-tested with Vitest and gated in CI.
 - **Integer-cents precision** — money is rounded to whole centimes at defined
   boundaries, eliminating floating-point drift.
-- **CI test gate** — GitHub Actions runs the full test suite; a failing test
-  blocks the build/deploy, so a financial-core regression can't reach production.
+- **CI: tests + lint + security scan** — every PR runs the full Vitest suite
+  (`ci.yml`), ESLint + Prettier (`lint.yml`), and CodeQL; the push-to-main
+  `deploy.yml` runs tests **before** build/deploy, so a financial-core regression
+  can't reach production. (`main` is intentionally **not** a protected branch:
+  on a personal repo the scheduled data bots must push to `main`, which a
+  required-check gate would block — so the gate is advisory via visible PR
+  checks rather than enforced.)
+- **Lint + format** — ESLint (flat config, scope-aware: `src/core` strict as ES
+  modules, the shared-scope `js/*.js` UI linted with `no-undef` off) and Prettier,
+  both wired into CI. `npm run lint` / `npm run format`.
+- **Content-Security-Policy** — a strict CSP meta tag (`script-src` self +
+  jsDelivr, no `unsafe-inline` for scripts) hardens the many `innerHTML` sinks;
+  works because the app uses `data-act` delegation, not inline handlers.
 - **Optional encrypted backups** — AES-GCM (WebCrypto) with a password;
   plaintext stays the default.
 - **Delegated event handling** — no inline `onclick`/`onerror`. Elements declare
@@ -218,10 +229,16 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
 test/                      Vitest suite (see "Tests" below)
   fixtures/synthetic.json  synthetic transactions/master/config for tests
 .github/
-  workflows/deploy.yml       test -> build -> deploy to GitHub Pages (self-healing lockfile)
-  workflows/fetch-prices.yml weekday cron: fetch prices -> commit public JSON -> trigger deploy
-  workflows/fetch-logos.yml  monthly cron: fetch ticker logos -> commit SVGs -> trigger deploy
-  dependabot.yml             grouped weekly dependency PRs (npm + GitHub Actions)
+  workflows/deploy.yml                push to main: test -> build -> deploy to Pages (self-healing lockfile)
+  workflows/ci.yml                    PR verification: test + build (no deploy)
+  workflows/lint.yml                  PR: ESLint (errors fail) + Prettier check (report-only)
+  workflows/dependabot-auto-merge.yml auto-merges green patch/minor + GitHub-Actions-major Dependabot PRs
+  workflows/fetch-prices.yml          weekday cron: fetch prices -> commit public JSON -> trigger deploy
+  workflows/fetch-logos.yml           monthly cron: fetch ticker logos -> commit SVGs -> trigger deploy
+  dependabot.yml                      grouped weekly dependency PRs (npm + GitHub Actions)
+eslint.config.js             ESLint flat config (scope-aware: core strict, UI shared-scope)
+.prettierrc.json             Prettier formatting rules
+.editorconfig / .gitattributes  editor defaults + LF normalization
 ```
 
 ### The core vs. UI split (why it's safe)
@@ -300,6 +317,9 @@ portfolio-model.test.js      rebalance engine: volatility (weekly-fund spacing),
                              planning, DCA, cash-idle, tax-lot trim order,
                              skipped-reasons, projected-portfolio readout
 backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
+ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
+                             throwing, publishes data-act handlers to window, survives
+                             seeded + corrupt localStorage (first automated UI-layer coverage)
 ```
 
 ---
@@ -311,21 +331,28 @@ You do **not** need Node locally — GitHub Actions builds and tests everything.
 1. Edit a `js/0X-*.js` (UI) or `src/core/*.js` (math) file.
 2. If you changed a `js/` file, regenerate the bundle (`npm run concat`) — or
    just let CI do it; the `build` step runs `concat` before Vite.
-3. Commit / push to `main`.
-4. Actions runs **tests first**; if they pass it builds and deploys to Pages.
-   Watch the Actions tab, then hard-refresh (Ctrl+Shift+R).
+3. Commit / push to `main` (or open a PR — `ci.yml` + `lint.yml` + CodeQL run on
+   PRs so you can see green before merging).
+4. On push to `main`, Actions runs **tests first**; if they pass it builds and
+   deploys to Pages. Watch the Actions tab, then hard-refresh (Ctrl+Shift+R).
 
 ### Dependencies & the self-healing lockfile
 
 Dependencies are minimal: the app ships **zero runtime npm dependencies** (vanilla
 JS + Highcharts via CDN). Dev tooling: **Vite** (build) and **Vitest** (tests).
 
-- To bump a version, edit `package.json` and push. The CI install step runs
-  `npm ci` (fast/strict) and, if the committed `package-lock.json` is out of sync
-  with `package.json`, **falls back to `npm install` and commits the refreshed
-  lockfile back**. So a version bump self-heals instead of failing the build.
-- **Dependabot** opens one grouped PR per week for npm and one for GitHub Actions
-  (majors included). CI runs on each PR, so you only merge if it stays green.
+- The CI install step runs `npm install --legacy-peer-deps` (which also works
+  around a current npm/arborist peer-resolution crash on Vite's optional peers)
+  and, if that regenerated `package-lock.json`, **commits the refreshed lockfile
+  back to `main`**. So a version bump self-heals instead of failing the build.
+  CI itself never depends on the committed lockfile being fresh — it regenerates
+  each run; the committed copy exists mainly so Dependabot's npm updater works.
+- Dev tooling now also includes **ESLint**, **Prettier**, and **jsdom** (for the
+  UI smoke tests), alongside Vite and Vitest.
+- **Dependabot** opens one grouped PR per week for npm and one for GitHub Actions.
+  `dependabot-auto-merge.yml` auto-merges them once CI is green — patch/minor for
+  any ecosystem, and **major** bumps for GitHub Actions only (npm majors wait for
+  manual review).
 
 ### Pinned versions
 
@@ -345,8 +372,10 @@ JS + Highcharts via CDN). Dev tooling: **Vite** (build) and **Vitest** (tests).
 
 ```
 npm install
-npm test           # run the financial-core test suite (Vitest)
+npm test           # run the test suite (Vitest): core + UI smoke
 npm run test:watch
+npm run lint       # ESLint (errors fail CI; warnings allowed)
+npm run format     # Prettier --write (or format:check to report only)
 npm run dev        # concat + Vite dev server
 npm run build      # concat + production build into dist/
 ```
