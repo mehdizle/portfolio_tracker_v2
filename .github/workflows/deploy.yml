@@ -22,6 +22,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Keep the token in git config + check out the branch (not detached
+          # HEAD) so the lockfile commit-back step can push to main.
+          persist-credentials: true
+          ref: ${{ github.ref_name }}
 
       - name: Set up Node
         uses: actions/setup-node@v7
@@ -57,24 +62,24 @@ jobs:
       - name: Commit refreshed lockfile (if changed)
         continue-on-error: true
         run: |
-          # NOTE: `main` is a PROTECTED branch (required status check: verify).
-          # That means the github-actions bot CANNOT push a commit straight to
-          # main - required checks haven't run on such a commit, so GitHub
-          # rejects it. The old auto-push-back therefore always failed under
-          # protection and only produced noise. We no longer try to push here.
-          #
-          # The committed package-lock.json is kept current the proper way now:
-          # Dependabot opens npm update PRs (which run `verify` and merge via the
-          # normal gated flow), and a human can refresh it with a local
-          # `npm install` + PR after changing devDependencies. CI itself never
-          # depends on the committed lockfile being fresh - the install step
-          # regenerates it each run via `npm install --legacy-peer-deps`.
-          #
-          # We still REPORT drift so it's visible when package.json has changed
-          # but the committed lockfile hasn't caught up yet.
+          # If `npm install` regenerated the lockfile (e.g. package.json changed),
+          # commit it back to main so the committed lockfile stays accurate for
+          # Dependabot's npm updater. `main` is NOT a protected branch (a user
+          # repo can't exempt the Actions bot from a required-check gate, and the
+          # scheduled data workflows must push data to main), so this direct push
+          # works. CI itself doesn't depend on the committed lockfile - the
+          # install step regenerates it each run via `npm install --legacy-peer-deps`.
           if [ -n "$(git status --porcelain package-lock.json)" ]; then
-            echo "::notice title=Lockfile drift::The committed package-lock.json differs from a fresh install (package.json likely changed). Refresh it via a local 'npm install' + PR, or let Dependabot update it. CI is unaffected."
-            echo "- lockfile: DRIFTED from package.json - refresh via PR (CI still OK; Dependabot/local npm install)" >> "$GITHUB_STEP_SUMMARY"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: update package-lock.json to match package.json" || echo "nothing to commit"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "- lockfile: committed + pushed to ${GITHUB_REF_NAME}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning title=Lockfile push failed::Could not push the regenerated package-lock.json. Refresh it via a local 'npm install' + PR if Dependabot errors."
+              echo "- lockfile: regenerated but push failed" >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "- lockfile: in sync with package.json" >> "$GITHUB_STEP_SUMMARY"
           fi
