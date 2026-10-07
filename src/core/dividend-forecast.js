@@ -1,8 +1,9 @@
 // ================= DIVIDEND FORECAST (reference estimate) =================
 // Pure, DOM-free forecast built from the multi-year dividend calendar (DIVCAL).
 //
-// This is a REFERENCE estimate, not a guarantee. With only 2-3 years of history
-// the projection is a rough guide. The math is deliberately transparent.
+// This is a REFERENCE estimate, not a guarantee. With only 1-2 years of history
+// the projection is a rough guide; a deeper calendar smooths it (see LEVEL_WINDOW
+// below). The math is deliberately transparent.
 //
 // SLOT MODEL (handles tickers that pay MORE THAN ONCE a year):
 //   A ticker that historically paid, say, in June and December is treated as
@@ -14,10 +15,12 @@
 //     1. Drop exceptional/one-off events (they never recur -> never forecast).
 //     2. Cluster the ordinary events by pay-MONTH into slots (nearby months
 //        merge; the slot's month is the modal month of its members).
-//     3. For each slot, build a per-year amount series and project next year:
+//     3. For each slot, build a per-year amount series (up to LEVEL_WINDOW
+//        years) and project next year:
 //          - method "flat":  only one year -> repeat that amount.
-//          - method "trend": >=2 years -> apply the compound annual growth
-//            rate from the first to the last year (robust to a single
+//          - method "trend": >=2 years -> a RECENCY-WEIGHTED level (see
+//            weightedLevel) nudged by the compound annual growth rate from
+//            the first to the last year in the window (robust to a single
 //            mid-window spike), clamped to a sane band.
 //     4. The ticker's annual projected DPS = sum of its slots' projections.
 //
@@ -29,10 +32,18 @@
 
 // Forecast is a LEVEL + gentle trend, not a raw growth extrapolation. Dividends
 // are noisy year to year (a one-off-looking spike or dip shouldn't dominate), so
-// we anchor to the trailing AVERAGE of recent years and nudge it by a small,
-// tightly-clamped trend. This keeps projections realistic on 2-3 data points.
+// we anchor to a RECENCY-WEIGHTED trailing average of recent years and nudge it
+// by a small, tightly-clamped trend. This keeps projections realistic on thin
+// data while letting a deep calendar smooth out noise without going stale.
 const TREND_CAP = 0.1; // clamp the annualized trend nudge to +/-10%.
-const LEVEL_WINDOW = 3; // years used for the trailing-average level.
+// LEVEL_WINDOW years feed the level, newest weighted most heavily (linear
+// weights 1..LEVEL_WINDOW, oldest->newest) rather than a flat average. A
+// 5-year-old data point (weight 1/15 of the total) barely moves the number, so
+// a deep history smooths noise without dragging the projection toward a stale
+// level after a genuine step-change (e.g. a payout policy change 2 years ago).
+// A ticker with only 1-2 years of data is barely affected by the extra weight -
+// it still projects from whatever it has.
+const LEVEL_WINDOW = 5; // years used for the recency-weighted level.
 // Consistency (the reliability chip) is measured over as much REAL history as
 // the ticker has, capped here, rather than a fixed 3-year window. With a deep
 // calendar this lets a long-unbroken payer read as far more dependable than a
@@ -166,6 +177,22 @@ function clusterSlots(events, refYear) {
     .sort((a, b) => a.month - b.month);
 }
 
+// Recency-weighted average of a {year, amt} series (ascending by year). Weight
+// = position in the series (1 for the oldest, N for the newest), so the most
+// recent year counts the most and the influence of each prior year decays
+// linearly. Falls back to a plain average when there's only one point.
+function weightedLevel(series) {
+  if (!series.length) return 0;
+  let sum = 0,
+    den = 0;
+  series.forEach((x, i) => {
+    const w = i + 1; // 1..N, oldest->newest
+    sum += x.amt * w;
+    den += w;
+  });
+  return den ? sum / den : 0;
+}
+
 // Project one slot forward. Returns { month, byYear, years, baseYear, baseAmt,
 // growth, method, projectedAmt }.
 function projectSlot(slot, refYear) {
@@ -185,8 +212,9 @@ function projectSlot(slot, refYear) {
   const windowYears = years.slice(-LEVEL_WINDOW);
   const series = windowYears.map((y) => ({ year: y, amt: byYear[y] }));
 
-  // Level = trailing average across the window. Trend = gentle clamped nudge.
-  const level = series.reduce((s, x) => s + x.amt, 0) / (series.length || 1);
+  // Level = recency-weighted average across the window (see weightedLevel).
+  // Trend = gentle clamped nudge, still measured first->last of the window.
+  const level = weightedLevel(series);
   const growth = gentleTrend(series);
   const method = series.length >= 2 ? "trend" : "flat";
   const projectedAmt = Math.round(level * (1 + growth) * 10000) / 10000;

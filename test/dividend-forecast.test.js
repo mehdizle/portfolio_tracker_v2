@@ -31,15 +31,58 @@ describe("buildForecast", () => {
   });
 
   it("uses a level + gentle trend across multiple years", () => {
-    // 2024=20, 2025=22. Level = avg(20,22) = 21. Trend = +10%/yr (at the cap).
-    // Projection = 21 * 1.10 = 23.1 (NOT a raw 22*1.1 extrapolation).
+    // 2024=20, 2025=22. Level = recency-weighted avg, weights 1,2 (newest
+    // counts most): (20*1 + 22*2) / 3 = 21.3333. Trend = +10%/yr (at the cap).
+    // Projection = 21.3333 * 1.10 = 23.4667 (NOT a raw 22*1.1 extrapolation).
     const fc = buildForecast([ev("ATW", 2024, 20), ev("ATW", 2025, 22)], 2026);
     const r = fc.rows.find((x) => x.ticker === "ATW");
     expect(r.method).toBe("trend");
     expect(r.slots).toHaveLength(1);
-    expect(r.slots[0].level).toBeCloseTo(21, 4);
+    expect(r.slots[0].level).toBeCloseTo(21.3333, 3);
     expect(r.slots[0].growth).toBeCloseTo(0.1, 5);
-    expect(r.projectedDps).toBeCloseTo(23.1, 4);
+    expect(r.projectedDps).toBeCloseTo(23.4667, 3);
+  });
+
+  it("weights recent years more than older ones in the level (5-year window)", () => {
+    // 5 flat years at 10, then a step-change to 20 in the most recent year.
+    // A plain 5-year average would read (10*4+20)/5 = 12; the recency-weighted
+    // level (weights 1..5) pulls much closer to the new, real level:
+    // (10*1+10*2+10*3+10*4+20*5)/15 = (10+20+30+40+100)/15 = 200/15 = 13.333.
+    const fc = buildForecast(
+      [
+        ev("STEP", 2021, 10),
+        ev("STEP", 2022, 10),
+        ev("STEP", 2023, 10),
+        ev("STEP", 2024, 10),
+        ev("STEP", 2025, 20),
+      ],
+      2025,
+    );
+    const r = fc.rows.find((x) => x.ticker === "STEP");
+    expect(r.slots[0].level).toBeCloseTo(13.3333, 3);
+  });
+
+  it("lets a 6th year of history fall out of the level window (LEVEL_WINDOW=5)", () => {
+    // A very old, very different year (2020=1) must NOT affect the level once
+    // there are more than 5 years of history - only the trailing 5 years count.
+    const fc = buildForecast(
+      [
+        ev("OLD6", 2020, 1), // dropped: outside the 5-year window
+        ev("OLD6", 2021, 10),
+        ev("OLD6", 2022, 10),
+        ev("OLD6", 2023, 10),
+        ev("OLD6", 2024, 10),
+        ev("OLD6", 2025, 10),
+      ],
+      2025,
+    );
+    const r = fc.rows.find((x) => x.ticker === "OLD6");
+    // All years are recorded on the row (years is the full history, used for
+    // display/consistency)...
+    expect(r.slots[0].years).toEqual([2020, 2021, 2022, 2023, 2024, 2025]);
+    // ...but the LEVEL only draws from the trailing 5-year window, so the
+    // 2020=1 outlier must have zero effect: level must be exactly 10.
+    expect(r.slots[0].level).toBeCloseTo(10, 4);
   });
 
   it("excludes exceptional (one-off) dividends from the forecast", () => {
@@ -61,7 +104,8 @@ describe("buildForecast", () => {
 
   it("includes the current year as the freshest data point", () => {
     // 2024=20, 2025=22, 2026=24. The current year IS the most recent signal and
-    // must be used (not discarded). Level = avg(20,22,24) = 22, base = 2026.
+    // must be used (not discarded), and counts the most under the
+    // recency-weighted level: (20*1+22*2+24*3)/6 = 22.6667. base = 2026.
     const fc = buildForecast(
       [ev("ATW", 2024, 20), ev("ATW", 2025, 22), ev("ATW", 2026, 24)],
       2026,
@@ -69,7 +113,7 @@ describe("buildForecast", () => {
     const r = fc.rows.find((x) => x.ticker === "ATW");
     expect(r.baseYear).toBe(2026);
     expect(r.baseDps).toBe(24);
-    expect(r.slots[0].level).toBeCloseTo(22, 4);
+    expect(r.slots[0].level).toBeCloseTo(22.6667, 3);
   });
 
   it("computes consistency over the trailing window", () => {
@@ -83,25 +127,30 @@ describe("buildForecast", () => {
   });
 
   it("clamps the trend so thin/noisy data can't explode", () => {
-    // 1 -> 10 would be +900%/yr; clamped to +10%. Level = avg(1,10) = 5.5,
-    // so projection = 5.5 * 1.10 = 6.05 (not a runaway 15).
+    // 1 -> 10 would be +900%/yr; clamped to +10%. Recency-weighted level
+    // (weights 1,2) = (1*1 + 10*2)/3 = 7, so projection = 7 * 1.10 = 7.7
+    // (not a runaway 15, and still well short of a raw extrapolation).
     const fc = buildForecast([ev("ATW", 2024, 1), ev("ATW", 2025, 10)], 2026);
     const r = fc.rows.find((x) => x.ticker === "ATW");
     expect(r.slots[0].growth).toBeCloseTo(0.1, 5);
-    expect(r.slots[0].level).toBeCloseTo(5.5, 4);
-    expect(r.projectedDps).toBeCloseTo(6.05, 4);
+    expect(r.slots[0].level).toBeCloseTo(7, 4);
+    expect(r.projectedDps).toBeCloseTo(7.7, 4);
   });
 
   it("does not overshoot on a spike-then-revert pattern (TMA regression)", () => {
     // Real case: 56 -> 113 -> 89.57. The old geometric method projected ~169.5.
-    // Level+gentle-trend keeps it near the recent level (~94.8), not 169.
+    // Level (recency-weighted, weights 1,2,3) + gentle-trend keeps it well
+    // short of that: level = (56*1+113*2+89.57*3)/6 = 91.785, trend capped at
+    // +10% -> projection ~= 100.96. Still far below the 169.5 runaway this
+    // guards against, even though weighting the recent spike/revert pulls the
+    // number a bit higher than the old flat-average level (~86.2 -> ~94.8).
     const fc = buildForecast(
       [ev("TMA", 2024, 56), ev("TMA", 2025, 113), ev("TMA", 2026, 89.57)],
       2026,
     );
     const r = fc.rows.find((x) => x.ticker === "TMA");
     expect(r.projectedDps).toBeGreaterThan(85);
-    expect(r.projectedDps).toBeLessThan(100);
+    expect(r.projectedDps).toBeLessThan(110);
   });
 
   it("infers expected pay month from history (modal month)", () => {
@@ -235,10 +284,13 @@ describe("multiple payments per year (slots)", () => {
     ];
     const fc = buildForecast(cal, 2026);
     const r = fc.rows.find((x) => x.ticker === "BCP");
-    // June slot 5,6: level 5.5, trend +20%->cap +10% => 5.5*1.1 = 6.05
-    // Dec  slot 7,8: level 7.5, trend +14%->cap +10% => 7.5*1.1 = 8.25
-    const expected = 5.5 * 1.1 + 7.5 * 1.1; // = 14.30
-    expect(r.projectedDps).toBeCloseTo(expected, 2);
+    // June slot 5,6: recency-weighted level (5*1+6*2)/3 = 5.6667,
+    //   trend +20%->cap +10% => 5.6667*1.1 = 6.2333
+    // Dec  slot 7,8: recency-weighted level (7*1+8*2)/3 = 7.6667,
+    //   trend +14%->cap +10% => 7.6667*1.1 = 8.4333
+    const juneProj = ((5 * 1 + 6 * 2) / 3) * 1.1;
+    const decProj = ((7 * 1 + 8 * 2) / 3) * 1.1;
+    expect(r.projectedDps).toBeCloseTo(juneProj + decProj, 2); // = 14.6667
   });
 
   it("emits one forecast event per slot for next year, months preserved", () => {
