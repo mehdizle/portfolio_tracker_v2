@@ -53,13 +53,11 @@ export default [
       // Cross-file shared-scope references make these unworkable per-file.
       "no-undef": "off",
       "no-redeclare": "off", // same symbol can appear across concatenated files
-      // FIRST-PASS POLICY for the UI layer: surface findings as WARNINGS, not
-      // errors, so adopting the linter doesn't turn CI red on 22k lines of
-      // working legacy code. The lint CI job only fails on ERRORS, so this lets
-      // us see the backlog and burn it down incrementally, then promote rules
-      // to "error" later. (src/core stays strict - see its block below.)
+      // The first-pass backlog is now at ZERO (see PR #30), so these rules are
+      // promoted from "warn" to "error": CI fails on any NEW violation rather
+      // than letting a fresh backlog accumulate. Options are unchanged.
       "no-unused-vars": [
-        "warn",
+        "error",
         {
           args: "none",
           vars: "local",
@@ -67,36 +65,31 @@ export default [
           caughtErrors: "none", // `catch (_e)` / `catch (e)` unused is fine
         },
       ],
-      "no-empty": ["warn", { allowEmptyCatch: true }], // empty catch is a known pattern here
-      eqeqeq: ["warn", "smart"],
+      "no-empty": ["error", { allowEmptyCatch: true }], // empty catch is a known pattern here
+      eqeqeq: ["error", "smart"],
       "no-var": "off", // legacy style in parts of the UI; not worth churning now
       "prefer-const": "off",
-      // Downgrade the recommended rules that can legitimately appear in
-      // loose-but-correct UI code from error -> warn, so the first run is
-      // informational rather than a hard failure:
-      "no-cond-assign": "warn",
-      "no-constant-condition": "warn",
-      "no-useless-escape": "warn",
-      "no-prototype-builtins": "warn",
-      "no-control-regex": "warn",
-      "no-fallthrough": "warn",
-      "no-irregular-whitespace": "warn",
-      "no-misleading-character-class": "warn",
-      "no-sparse-arrays": "warn",
-      "no-async-promise-executor": "warn",
-      // New in ESLint v10 recommended; fires on `let x = null` later reassigned
-      // before use (harmless style, common in the signals code). Warn for now.
-      "no-useless-assignment": "warn",
+      // Promoted to error -> all currently clean across js/*.js:
+      "no-cond-assign": "error",
+      "no-constant-condition": "error",
+      "no-useless-escape": "error",
+      "no-prototype-builtins": "error",
+      "no-control-regex": "error",
+      "no-fallthrough": "error",
+      "no-irregular-whitespace": "error",
+      "no-misleading-character-class": "error",
+      "no-sparse-arrays": "error",
+      "no-async-promise-executor": "error",
+      // Fires on `let x = null` reassigned before use. Backlog cleared, so error.
+      "no-useless-assignment": "error",
     },
   },
 
   // ---- tested core: real ES modules ----
-  // Stricter than the UI (these are clean modules with real imports/exports and
-  // 267 passing tests), but ESLint v10's recommended set added NEW error-level
-  // rules (no-useless-assignment, preserve-caught-error) that this pre-existing
-  // code predates. Keep the first pass non-disruptive by warning on those
-  // (and on unused vars / caught-but-unused `_e`) rather than failing CI, same
-  // policy as the UI block. These can be promoted to "error" in a cleanup PR.
+  // Clean modules with real imports/exports and a full test suite. The two
+  // ESLint v10 rules this pre-existing code tripped (no-useless-assignment,
+  // preserve-caught-error) were cleared in PR #30, so the whole block is now
+  // strict (error): the tested core must stay lint-clean.
   {
     files: ["src/**/*.js"],
     languageOptions: {
@@ -106,16 +99,16 @@ export default [
     },
     rules: {
       "no-unused-vars": [
-        "warn",
+        "error",
         {
           args: "none",
           ignoreRestSiblings: true,
           caughtErrors: "none", // allow `catch (_e)` with unused binding
         },
       ],
-      eqeqeq: ["warn", "smart"],
-      "no-useless-assignment": "warn",
-      "preserve-caught-error": "warn",
+      eqeqeq: ["error", "smart"],
+      "no-useless-assignment": "error",
+      "preserve-caught-error": "error",
     },
   },
 
@@ -143,8 +136,9 @@ export default [
       // `ignoreRestSiblings` lets a test deliberately destructure fields purely
       // to strip them from a `...rest` (e.g. backup-crypto peels the opaque
       // salt/iv/ct off the envelope so it can assert no plaintext leaks into the
-      // structural remainder) without tripping unused-var warnings.
-      "no-unused-vars": ["warn", { ignoreRestSiblings: true }],
+      // structural remainder) without tripping unused-var errors. Promoted to
+      // error now the backlog is clear (PR #30).
+      "no-unused-vars": ["error", { ignoreRestSiblings: true }],
     },
   },
 
@@ -159,8 +153,10 @@ export default [
     rules: {
       // `catch (_e)` with an unused binding is used throughout the fetch
       // scripts; don't fail on it (consistent with the rest of the config).
+      // Promoted to error (backlog clear, PR #30); caughtErrors:"none" keeps the
+      // intentional unused catch bindings allowed.
       "no-unused-vars": [
-        "warn",
+        "error",
         { args: "none", caughtErrors: "none", ignoreRestSiblings: true },
       ],
     },
