@@ -122,8 +122,12 @@ The Dividends tab is the most feature-rich area.
   - **Payment slots**: events are grouped by their ordinal position in the year
     (1st, 2nd, … payment), so a quarterly/semi-annual payer keeps each payment
     at its own month instead of collapsing into one blob.
-  - **Level + gentle trend**: each slot projects the trailing-year average nudged
-    by a trend clamped to ±10%/yr — robust to a one-off spike or dip on thin data.
+  - **Level + gentle trend**: each slot projects a recency-weighted average of
+    up to 5 recent years (the newest year counts the most, decaying linearly
+    further back — a 5-year-old data point barely moves the number) nudged by
+    a trend clamped to ±10%/yr — robust to a one-off spike or dip on thin data,
+    while a deep calendar smooths noise without lagging behind a real,
+    recent step-change.
   - **Only Ordinary dividends** feed the forecast (Exceptional = one-off).
   - **Current-year gap-fill**: for a past-paying ticker with no announced payment
     yet this year, the still-upcoming payments are forecast; already-passed or

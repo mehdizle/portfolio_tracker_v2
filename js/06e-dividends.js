@@ -1100,11 +1100,11 @@ function renderDivForecast(pos) {
       // PROJ./SH tooltip: how the projection was built, per payment slot.
       const projTip = (() => {
         let h = `<div style="font-weight:700;margin-bottom:6px">Projected per share \u00B7 ${escapeHtml(r.ticker)} \u00B7 ${_fcYr}</div>`;
-        h += `<div class="mini" style="margin-bottom:6px">Level = average of recent years; trend = gentle nudge (max \u00B110%/yr).</div>`;
+        h += `<div class="mini" style="margin-bottom:6px">Level = recency-weighted average of up to 5 recent years (newest counts most); trend = gentle nudge (max \u00B110%/yr).</div>`;
         for (const s of r.slots || []) {
           if (r.paymentsPerYear > 1)
             h += `<div style="font-weight:600;margin-top:4px">${MONTHS[s.month] || "\u2014"} payment</div>`;
-          h += _tr("Level (recent avg)", money(s.level) + " MAD");
+          h += _tr("Level (weighted avg)", money(s.level) + " MAD");
           h += _tr(
             "Trend",
             (s.growth >= 0 ? "+" : "") + (s.growth * 100).toFixed(1) + "%",
