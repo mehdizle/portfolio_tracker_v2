@@ -29,7 +29,9 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   checks rather than enforced.)
 - **Lint + format** — ESLint (flat config, scope-aware: `src/core` strict as ES
   modules, the shared-scope `js/*.js` UI linted with `no-undef` off) and Prettier,
-  both wired into CI. `npm run lint` / `npm run format`.
+  both wired into CI. The first-pass warning backlog has been cleared to **zero**,
+  so every rule is now **error-level** — CI's lint job fails on any new violation.
+  `npm run lint` / `npm run format`.
 - **Content-Security-Policy** — a strict CSP meta tag (`script-src` self +
   jsDelivr, no `unsafe-inline` for scripts) hardens the many `innerHTML` sinks;
   works because the app uses `data-act` delegation, not inline handlers.
@@ -232,7 +234,7 @@ test/                      Vitest suite (see "Tests" below)
 .github/
   workflows/deploy.yml                push to main: test -> build -> deploy to Pages (self-healing lockfile)
   workflows/ci.yml                    PR verification: test + build (no deploy)
-  workflows/lint.yml                  PR: ESLint (errors fail) + Prettier check (report-only)
+  workflows/lint.yml                  PR: ESLint (all rules error-level, fail on any) + Prettier check (report-only)
   workflows/dependabot-auto-merge.yml auto-merges green patch/minor + GitHub-Actions-major Dependabot PRs
   workflows/fetch-prices.yml          weekday cron: fetch prices -> commit public JSON -> trigger deploy
   workflows/fetch-logos.yml           monthly cron: fetch ticker logos -> commit SVGs -> trigger deploy
@@ -375,7 +377,7 @@ JS + Highcharts via CDN). Dev tooling: **Vite** (build) and **Vitest** (tests).
 npm install
 npm test           # run the test suite (Vitest): core + UI smoke
 npm run test:watch
-npm run lint       # ESLint (errors fail CI; warnings allowed)
+npm run lint       # ESLint (all rules error-level; any violation fails CI)
 npm run format     # Prettier --write (or format:check to report only)
 npm run dev        # concat + Vite dev server
 npm run build      # concat + production build into dist/
