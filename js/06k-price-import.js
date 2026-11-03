@@ -29,6 +29,14 @@ function cleanNum(s) {
   // thousands: "1,260" -> 1260 ; but decimals use "." in this feed
   if (/,\d{3}(\D|$)/.test(x)) x = x.replace(/,/g, "");
   else x = x.replace(/,/g, ".");
+  // TradingView abbreviates large values ("47.70 B", "850.2 M"). parseFloat
+  // alone stops at the letter and silently returns 47.7 for 47.7 billion, so
+  // expand a trailing K/M/B/T suffix explicitly.
+  const sfx = /^([+-]?\d*\.?\d+)([KMBT])$/.exec(x);
+  if (sfx) {
+    const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[sfx[2]];
+    return parseFloat(sfx[1]) * mult;
+  }
   const v = parseFloat(x);
   return isNaN(v) ? null : v;
 }
@@ -107,8 +115,7 @@ function parseTV(raw) {
             const _rev = cleanNum(sc[5]); // Revenue (TTM)
             const _divy2 = cleanNum(sc[6]); // Div yield % (e.g. 1.31 from "1.31%")
             const _dps2 = cleanNum(sc[7]); // DPS
-            const _ev2 = cleanNum(sc[8]),
-              _nd2 = cleanNum(sc[9]);
+            const _ev2 = cleanNum(sc[8]); // [9] Debt/EBITDA deliberately unused - see below
             const _roe2 = cleanNum(sc[10]); // ROE %
             const _eps2 = cleanNum(sc[11]),
               _bvps2 = cleanNum(sc[12]);
@@ -121,7 +128,11 @@ function parseTV(raw) {
             if (_divy2 != null) rec.divy = _divy2 / 100; // store as decimal
             if (_dps2 != null) rec.dps = _dps2;
             if (_ev2 != null) rec.ev = _ev2;
-            if (_nd2 != null) rec.netdebt = _nd2;
+            // [9] is the screener's GROSS "Debt/EBITDA" column. netdebt means
+            // NET debt / EBITDA (debt minus cash) everywhere it's scored or
+            // labelled, and the daily fetch supplies that true net figure - so
+            // the paste must not overwrite it with the gross ratio (cash-rich
+            // names would read as leveraged again).
             if (_roe2 != null) rec.roe = _roe2 / 100;
             if (_eps2 != null) rec.eps = _eps2;
             if (_bvps2 != null) rec.bvps = _bvps2;

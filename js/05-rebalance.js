@@ -1405,11 +1405,13 @@ function _cdKeyMetrics(m, pir, trow) {
     const _t =
       m.netdebt != null
         ? "Net Debt/EBITDA = Total debt minus cash, divided by operating profit. Measures how many years it would take to pay off all debt from earnings alone.\n\n" +
-          (_c === "pos"
-            ? "\u2705 Green (<1.5): Low leverage \u2014 the company could clear its debt in under 1.5 years. Safe balance sheet, low risk of distress."
-            : _c === "neg"
-              ? "\u274c Red (>4): Heavy leverage \u2014 4+ years of earnings just to service debt. Vulnerable to rate hikes, margin compression, or downturns. Higher bankruptcy risk."
-              : "\u2796 Neutral (1.5\u20134): Moderate leverage. Manageable but keep an eye on interest-rate sensitivity and cash-flow stability.")
+          (m.netdebt <= 0
+            ? "\u2705 Green (\u22640): Net cash \u2014 the company holds more cash than debt. Strongest possible balance sheet on this measure."
+            : _c === "pos"
+              ? "\u2705 Green (<1.5): Low leverage \u2014 the company could clear its debt in under 1.5 years. Safe balance sheet, low risk of distress."
+              : _c === "neg"
+                ? "\u274c Red (>4): Heavy leverage \u2014 4+ years of earnings just to service debt. Vulnerable to rate hikes, margin compression, or downturns. Higher bankruptcy risk."
+                : "\u2796 Neutral (1.5\u20134): Moderate leverage. Manageable but keep an eye on interest-rate sensitivity and cash-flow stability.")
         : "";
     m1 += trow(
       "Net Debt/EBITDA",
@@ -1756,7 +1758,7 @@ window.showCompanyDetail = function (tk) {
   if (sc && sc.parts) {
     const names = {
       valuation: "Valuation (EV/EBITDA)",
-      safety: "Safety (Net Debt)",
+      safety: "Safety (Net Debt/EBITDA)",
       quality: "Quality (ROE)",
       growth: "Growth (PEG + EPS growth)",
       yield: "Yield (Div %)",

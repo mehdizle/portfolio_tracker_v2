@@ -20,7 +20,7 @@
 // falls back to manual paste if the file is missing/stale/unreadable.
 
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -117,17 +117,23 @@ const FIELD_MAP = [
   { key: "low", tv: "price_52_week_low" },
   { key: "high", tv: "price_52_week_high" },
   { key: "pe", tv: "price_earnings_ttm" },
-  { key: "pb", tv: "price_book_ratio" },
+  // P/B on the SAME (latest-quarter) book value as bvps below, so P/B and the
+  // Graham anchor (eps x bvps) agree. price_book_ratio uses the older
+  // fiscal-year book and drifted >10% from price/bvps on 12 of 73 tickers
+  // (e.g. VCN 0.49 vs 2.38). Falls back to it only when the fq value is absent.
+  { key: "pb", tv: "price_book_fq", fallback: "price_book_ratio" },
   { key: "peg", tv: "price_earnings_growth_ttm" },
   { key: "divy", tv: "dividends_yield_current", scale100: true },
   { key: "ev", tv: "enterprise_value_ebitda_ttm" },
-  { key: "netdebt", tv: "total_debt_to_ebitda_fq" },
+  // netdebt is DERIVED in toRecords (net_debt / ebitda) - see DERIVED_COLUMNS.
   { key: "roe", tv: "return_on_equity", scale100: true },
   { key: "eps", tv: "earnings_per_share_basic_ttm" },
   { key: "bvps", tv: "book_value_per_share_fq" },
   { key: "dps", tv: "dps_common_stock_prim_issue_fy" },
   { key: "fcf", tv: "free_cash_flow_per_share_ttm" },
-  { key: "revenue", tv: "total_revenue" },
+  // TTM revenue, matching the app's "Revenue (TTM)" label and the TTM P/E/EPS.
+  // total_revenue is the last FISCAL YEAR; used only when TTM is absent.
+  { key: "revenue", tv: "total_revenue_ttm", fallback: "total_revenue" },
   // Shares outstanding - needed to turn the TOTAL revenue above into a per-share
   // figure in the UI (Revenue/Sh). total_shares_outstanding has full coverage on
   // the Morocco screener (revenue_per_share_ttm is spotty), so we store shares
@@ -140,8 +146,26 @@ const FIELD_MAP = [
   },
 ];
 
-// `name` first (the symbol/company), then every mapped TV field in order.
-const COLUMNS = ["name", ...FIELD_MAP.map((f) => f.tv)];
+// Raw inputs for derived metrics (fetched, not stored as-is).
+// netdebt = NET debt / EBITDA (x), what every label, flag and the quality gate
+// assume ("total debt minus cash"). The scanner has no net ratio field, and
+// total_debt_to_ebitda_fq is GROSS debt / EBITDA (verified == total_debt /
+// ebitda on all 50 covered tickers), which overstated leverage for cash-rich
+// names (e.g. MSA 0.47 gross vs -0.32 net). Only computed when EBITDA > 0 - a
+// leverage multiple on negative earnings is meaningless.
+const DERIVED_COLUMNS = ["net_debt", "ebitda"];
+
+// `name` first (the symbol/company), then every mapped TV field (+ fallbacks)
+// and the derived-metric inputs, de-duplicated.
+const COLUMNS = [
+  ...new Set([
+    "name",
+    ...FIELD_MAP.flatMap((f) => (f.fallback ? [f.tv, f.fallback] : [f.tv])),
+    ...DERIVED_COLUMNS,
+  ]),
+];
+
+const usable = (v) => v != null && !(typeof v === "number" && !isFinite(v));
 
 async function fetchScan() {
   const body = {
@@ -181,10 +205,15 @@ function toRecords(payload) {
     const rec = { ticker };
     for (const f of FIELD_MAP) {
       let v = d[idx[f.tv]];
-      if (v == null || (typeof v === "number" && !isFinite(v))) continue; // skip null/NaN
+      if (!usable(v) && f.fallback) v = d[idx[f.fallback]];
+      if (!usable(v)) continue; // skip null/NaN
       if (typeof v === "number" && f.scale100) v = v / 100;
       rec[f.key] = v;
     }
+    const netDebt = d[idx.net_debt],
+      ebitda = d[idx.ebitda];
+    if (typeof netDebt === "number" && isFinite(netDebt) && ebitda > 0)
+      rec.netdebt = netDebt / ebitda;
     // Only keep a record if it has at least a price (nothing else is useful
     // without it, and it keeps the file tight).
     if (rec.price != null) out.push(rec);
@@ -588,4 +617,13 @@ async function main() {
   );
 }
 
-main();
+// Exported for tests (test/fetch-prices.test.js) - pure, no network.
+export { FIELD_MAP, COLUMNS, toRecords };
+
+// Run only when executed directly (`node scripts/fetch-prices.mjs`, as the
+// workflow does) - importing the module from a test must not hit the network.
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  main();

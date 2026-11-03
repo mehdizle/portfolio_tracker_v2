@@ -277,6 +277,12 @@ the app open or paste anything.
    Actions tab. It runs `scripts/fetch-prices.mjs`, which POSTs to TradingView's
    public scanner — the same request the `tradingview-screener` library makes,
    no auth, no scraping, and no browser CORS wall because it runs in CI.
+   Field choices are deliberate (and locked by `test/tv-fields.test.js`): the
+   **52-week** low/high (`price_52_week_*`, not the all-time `Low.All`/`High.All`),
+   **net** debt/EBITDA derived as `net_debt / ebitda` (the scanner's
+   `total_debt_to_ebitda_fq` is gross debt; omitted when EBITDA ≤ 0),
+   P/B on **latest-quarter** book so it agrees with BVPS, and **TTM** revenue.
+   Yield, ROE and EPS growth are stored as decimals.
 2. **Commit two public files.** The script writes `public/prices.json` (the
    latest snapshot) and appends one dated row to `public/price-history.json`
    (every ticker's close + the MASI and MASI-20 levels, one row per trading day,
@@ -324,6 +330,9 @@ portfolio-model.test.js      rebalance engine: volatility (weekly-fund spacing),
                              planning, DCA, cash-idle, tax-lot trim order,
                              skipped-reasons, projected-portfolio readout
 backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
+tv-fields.test.js            TradingView metric meaning/units on both paths: 52-wk (not all-time)
+                             range, NET debt/EBITDA (derived), latest-quarter P/B, TTM revenue,
+                             %->decimal scaling, paste K/M/B suffixes
 ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
                              throwing, publishes data-act handlers to window, survives
                              seeded + corrupt localStorage (first automated UI-layer coverage)
