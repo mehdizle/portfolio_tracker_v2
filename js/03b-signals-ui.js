@@ -338,9 +338,13 @@ function divyTipHTML(r) {
       : null;
   let h = _tipHead("Dividend yield \u00B7 " + r.ticker);
   h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
+  // Only call it "price x yield" when it was actually derived that way; a
+  // reported DPS (last fiscal year) is shown as such.
   if (dps != null)
     h += _tipRow(
-      'Div / share <span class="mini">(price\u00D7yield)</span>',
+      'Div / share <span class="mini">(' +
+        (dpsAbs ? "reported, last FY" : "price\u00D7yield") +
+        ")</span>",
       money(dps) + " MAD",
     );
   h += _tipRule();
