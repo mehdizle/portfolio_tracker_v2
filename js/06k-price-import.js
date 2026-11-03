@@ -136,7 +136,10 @@ function parseTV(raw) {
             if (_roe2 != null) rec.roe = _roe2 / 100;
             if (_eps2 != null) rec.eps = _eps2;
             if (_bvps2 != null) rec.bvps = _bvps2;
-            if (_fcf2 != null) rec.fcf = _fcf2;
+            if (_fcf2 != null) {
+              rec.fcf = _fcf2;
+              rec.fcfFy = 0; // the screener's FCF/Share column is TTM
+            }
             break;
           }
           s++;

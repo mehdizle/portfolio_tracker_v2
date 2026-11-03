@@ -39,6 +39,7 @@ export const TV_METRICS = [
   { key: "bvps" },
   { key: "dps" },
   { key: "fcf" },
+  { key: "fcfFy" }, // 1 = fcf is the last-fiscal-year fallback, 0 = TTM
   { key: "revenue" },
   { key: "shares" }, // total shares outstanding (for Revenue/Sh = revenue/shares)
   { key: "epsGrowth", scaledInParser: true }, // % -> decimal

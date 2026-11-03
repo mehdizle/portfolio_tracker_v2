@@ -73,6 +73,22 @@ describe("fetch-prices: field mapping", () => {
     expect(r.ev).toBe(4.96);
   });
 
+  it("takes TTM FCF/share when present, else the last fiscal year, and tags the period", () => {
+    const ttm = one({
+      free_cash_flow_per_share_ttm: 2.0,
+      free_cash_flow_per_share_fy: 5.0,
+    });
+    expect(ttm.fcf).toBe(2.0);
+    expect(ttm.fcfFy).toBe(0);
+    const fy = one({ free_cash_flow_per_share_fy: 5.0 });
+    expect(fy.fcf).toBe(5.0);
+    expect(fy.fcfFy).toBe(1);
+    // No FCF at all -> neither key (so a stored value isn't clobbered).
+    const none = one({});
+    expect(none.fcf).toBeUndefined();
+    expect(none.fcfFy).toBeUndefined();
+  });
+
   it("maps the SOT listing to the SSOT master ticker and drops price-less rows", () => {
     expect(one({}, "SOT").ticker).toBe("SSOT");
     expect(
@@ -113,5 +129,53 @@ describe("manual paste: number parsing + field parity", () => {
 
   it("never writes the screener's GROSS Debt/EBITDA column into netdebt", () => {
     expect(/rec\.netdebt\s*=/.test(PASTE_SRC)).toBe(false);
+  });
+});
+
+// earningsQuality + sectorProfile + SECTOR_PROFILES are self-contained in the
+// shared-scope signals file; lift them out by brace-matching and evaluate them
+// together (no other dependencies).
+const SIGNALS_SRC = readFileSync(
+  new URL("../js/03-signals.js", import.meta.url),
+  "utf8",
+);
+function grab(src, marker) {
+  const at = src.indexOf(marker);
+  if (at < 0) throw new Error(marker + " not found in 03-signals.js");
+  let depth = 0;
+  for (let i = src.indexOf("{", at); i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}" && --depth === 0) return src.slice(at, i + 1);
+  }
+  throw new Error("unbalanced braces after " + marker);
+}
+const earningsQuality = new Function(
+  grab(SIGNALS_SRC, "const SECTOR_PROFILES = {") +
+    ";\n" +
+    grab(SIGNALS_SRC, "function sectorProfile(") +
+    "\n" +
+    grab(SIGNALS_SRC, "function earningsQuality(") +
+    "\nreturn earningsQuality;",
+)();
+const fcfFlag = (m) => earningsQuality(m).flags.some((f) => /FCF/.test(f));
+
+describe("FCF earnings-quality flag is sector-gated", () => {
+  // Weak cash conversion: FCF/EPS = 10% (would flag for an industrial).
+  const weak = { fcf: 1, eps: 10 };
+
+  it("flags weak FCF conversion for an operating company", () => {
+    expect(fcfFlag({ ...weak, cat: "Building Materials" })).toBe(true);
+    expect(fcfFlag({ fcf: -1, eps: 10, cat: "Telecom" })).toBe(true);
+  });
+
+  it("never flags banks, insurers or REITs (FCF isn't meaningful there)", () => {
+    expect(fcfFlag({ ...weak, cat: "Banks" })).toBe(false);
+    expect(fcfFlag({ fcf: -1.15, eps: 30.6, cat: "Banks" })).toBe(false); // CIH-like
+    expect(fcfFlag({ ...weak, cat: "Insurance" })).toBe(false);
+    expect(fcfFlag({ ...weak, cat: "Real Estate" })).toBe(false);
+  });
+
+  it("does not flag healthy conversion", () => {
+    expect(fcfFlag({ fcf: 9, eps: 10, cat: "Building Materials" })).toBe(false);
   });
 });

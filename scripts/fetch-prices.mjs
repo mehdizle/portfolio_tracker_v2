@@ -130,7 +130,16 @@ const FIELD_MAP = [
   { key: "eps", tv: "earnings_per_share_basic_ttm" },
   { key: "bvps", tv: "book_value_per_share_fq" },
   { key: "dps", tv: "dps_common_stock_prim_issue_fy" },
-  { key: "fcf", tv: "free_cash_flow_per_share_ttm" },
+  // FCF per share: TTM when the scanner has it (34/75 tickers - many Casablanca
+  // names report semi-annually and get no TTM figure), else the last FISCAL
+  // YEAR (62/75; same vintage as dps). No better TTM source exists: operating
+  // cash flow / capex TTM cover the same 36 names, the quarterly field is
+  // empty. fcfFy (set in toRecords) tells the UI which period it is.
+  {
+    key: "fcf",
+    tv: "free_cash_flow_per_share_ttm",
+    fallback: "free_cash_flow_per_share_fy",
+  },
   // TTM revenue, matching the app's "Revenue (TTM)" label and the TTM P/E/EPS.
   // total_revenue is the last FISCAL YEAR; used only when TTM is absent.
   { key: "revenue", tv: "total_revenue_ttm", fallback: "total_revenue" },
@@ -210,6 +219,11 @@ function toRecords(payload) {
       if (typeof v === "number" && f.scale100) v = v / 100;
       rec[f.key] = v;
     }
+    // Period of the fcf value: 1 = last-FY fallback, 0 = TTM. Always written
+    // alongside fcf (as a number, so applyTvRec's NaN guard keeps it) so a
+    // stale "FY" tag can't outlive the day TTM becomes available.
+    if (rec.fcf != null)
+      rec.fcfFy = usable(d[idx.free_cash_flow_per_share_ttm]) ? 0 : 1;
     const netDebt = d[idx.net_debt],
       ebitda = d[idx.ebitda];
     if (typeof netDebt === "number" && isFinite(netDebt) && ebitda > 0)
