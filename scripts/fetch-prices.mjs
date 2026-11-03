@@ -110,8 +110,12 @@ const TV_TICKER_ALIAS = { SOT: "SSOT" };
 // screener). `scale100: true` converts a percentage to a decimal (3% -> 0.03).
 const FIELD_MAP = [
   { key: "price", tv: "close" },
-  { key: "low", tv: "Low.All" },
-  { key: "high", tv: "High.All" },
+  // 52-WEEK range. NOT "Low.All"/"High.All" - on the scanner those are the
+  // ALL-TIME low/high (e.g. IAM: all-time 75.55-162.50 vs 52-wk 83.00-119.50),
+  // which silently skewed range-position, the mid52 fair-value anchor and the
+  // 52-wk-high sell-target cap.
+  { key: "low", tv: "price_52_week_low" },
+  { key: "high", tv: "price_52_week_high" },
   { key: "pe", tv: "price_earnings_ttm" },
   { key: "pb", tv: "price_book_ratio" },
   { key: "peg", tv: "price_earnings_growth_ttm" },
