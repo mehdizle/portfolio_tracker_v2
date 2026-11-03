@@ -496,7 +496,9 @@ function signalTipHTML(r) {
       book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
       fcfy:
         m.fcf != null && m.price != null && m.price > 0
-          ? ((m.fcf / m.price) * 100).toFixed(1) + "%"
+          ? ((m.fcf / m.price) * 100).toFixed(1) +
+            "%" +
+            (m.fcfFy ? " (last FY)" : "")
           : null,
       timing: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,
       momentum: sc.pir != null ? (sc.pir * 100).toFixed(0) + "%" : null,

@@ -822,7 +822,10 @@ function earningsQuality(m) {
       );
   }
   // 5) FCF vs EPS divergence \u2014 earnings without cash backing (accruals red flag)
-  if (_n(m.fcf) && _n(m.eps) && m.eps > 0) {
+  // Skipped where FCF isn't a meaningful measure (banks/insurers/REITs: deposit,
+  // loan and property flows run through operating cash). Same switch the FCF
+  // factor and fair-value anchor already use: the sector's fcfy weight is 0.
+  if (_n(m.fcf) && _n(m.eps) && m.eps > 0 && sectorProfile(m.cat).fcfy > 0) {
     const fcfRatio = m.fcf / m.eps;
     if (fcfRatio < 0)
       flags.push(

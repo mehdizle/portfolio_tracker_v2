@@ -282,6 +282,10 @@ the app open or paste anything.
    **net** debt/EBITDA derived as `net_debt / ebitda` (the scanner's
    `total_debt_to_ebitda_fq` is gross debt; omitted when EBITDA ≤ 0),
    P/B on **latest-quarter** book so it agrees with BVPS, and **TTM** revenue.
+   FCF per share is **TTM when published, else the last fiscal year** (many
+   Casablanca names report semi-annually and get no TTM figure); FY values are
+   tagged and shown as "(last FY)". FCF is ignored for banks, insurers and REITs,
+   where it isn't a meaningful measure.
    Yield, ROE and EPS growth are stored as decimals.
 2. **Commit two public files.** The script writes `public/prices.json` (the
    latest snapshot) and appends one dated row to `public/price-history.json`
@@ -332,7 +336,8 @@ portfolio-model.test.js      rebalance engine: volatility (weekly-fund spacing),
 backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
 tv-fields.test.js            TradingView metric meaning/units on both paths: 52-wk (not all-time)
                              range, NET debt/EBITDA (derived), latest-quarter P/B, TTM revenue,
-                             %->decimal scaling, paste K/M/B suffixes
+                             %->decimal scaling, paste K/M/B suffixes, TTM->FY FCF fallback,
+                             FCF red flag skipped for banks/insurers/REITs
 ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
                              throwing, publishes data-act handlers to window, survives
                              seeded + corrupt localStorage (first automated UI-layer coverage)

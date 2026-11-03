@@ -1489,8 +1489,11 @@ function _cdKeyMetrics(m, pir, trow) {
   );
   m1 += '<div style="border-top:1px solid var(--border);margin:6px 0"></div>';
   {
+    // FCF isn't meaningful for banks/insurers/REITs (sector fcfy weight 0):
+    // it's excluded from scoring there, so don't colour it either.
+    const _fcfUsed = sectorProfile(m.cat).fcfy > 0;
     const _fcfCl =
-      m.fcf != null
+      m.fcf != null && _fcfUsed
         ? m.fcf > 0
           ? m.eps != null && m.eps > 0 && m.fcf / m.eps > 0.7
             ? "pos"
@@ -1500,10 +1503,16 @@ function _cdKeyMetrics(m, pir, trow) {
           : "neg"
         : "";
     m1 += trow(
-      "FCF/Share",
+      "FCF/Share" + (m.fcf != null && m.fcfFy ? " (last FY)" : ""),
       m.fcf != null ? money(m.fcf) + " MAD" : "\u2014",
       _fcfCl,
-      "FCF (Free Cash Flow Per Share) = Operating cash flow minus capital expenditures, per share. The actual cash the business generates after reinvesting.\n\nGreen: FCF > 70% of EPS \u2014 strong cash conversion, earnings are real.\nRed: FCF < 40% of EPS or negative \u2014 earnings may be inflated by accounting (accruals) rather than actual cash generation.\n\nFCF is the truest measure of shareholder value \u2014 dividends and buybacks come from FCF, not reported EPS.",
+      "FCF (Free Cash Flow Per Share) = Operating cash flow minus capital expenditures, per share. The actual cash the business generates after reinvesting.\n\nGreen: FCF > 70% of EPS \u2014 strong cash conversion, earnings are real.\nRed: FCF < 40% of EPS or negative \u2014 earnings may be inflated by accounting (accruals) rather than actual cash generation.\n\nFCF is the truest measure of shareholder value \u2014 dividends and buybacks come from FCF, not reported EPS." +
+        (m.fcf != null && m.fcfFy
+          ? "\n\nPeriod: last full fiscal year (no trailing-12-month figure is published for this company)."
+          : "") +
+        (_fcfUsed
+          ? ""
+          : "\n\nNot used for this sector: for banks, insurers and REITs, operating cash flow mixes in deposit, loan and property flows, so FCF says little about earnings quality. Excluded from the score."),
     );
   }
   {
@@ -1777,7 +1786,9 @@ window.showCompanyDetail = function (tk) {
       book: m.pb != null ? m.pb.toFixed(2) + "x" : null,
       fcfy:
         m.fcf != null && m.price != null && m.price > 0
-          ? ((m.fcf / m.price) * 100).toFixed(1) + "%"
+          ? ((m.fcf / m.price) * 100).toFixed(1) +
+            "%" +
+            (m.fcfFy ? " (last FY)" : "")
           : null,
       timing: pir != null ? (pir * 100).toFixed(0) + "%" : null,
       momentum: pir != null ? (pir * 100).toFixed(0) + "%" : null,
