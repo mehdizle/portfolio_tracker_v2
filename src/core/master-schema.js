@@ -108,6 +108,88 @@ export function applyTvRec(M, tk, rec) {
 }
 
 /**
+ * Onboard a ticker from a prices.json record: create M[tk] if it doesn't exist
+ * (e.g. a new IPO the user just bought), then apply the record's metrics.
+ * A new record gets the TradingView company name and NO category (cat/cycle/
+ * style null -> "Uncategorized"): TradingView's sector taxonomy doesn't map
+ * cleanly onto the app's categories, so the user is asked instead; tvSector is
+ * kept as a hint. An existing record only gains a name/hint it lacks - its
+ * categories are never touched. Returns true if a record was created.
+ */
+export function onboardTvRec(M, tk, rec) {
+  if (!tk || !rec) return false;
+  const company =
+    typeof rec.company === "string" && rec.company.trim()
+      ? rec.company.trim()
+      : null;
+  let created = false;
+  if (!M[tk]) {
+    M[tk] = { name: company || tk, cat: null, cycle: null, style: null };
+    created = true;
+  } else if (!M[tk].name && company) {
+    M[tk].name = company;
+  }
+  if (typeof rec.tvSector === "string" && rec.tvSector && !M[tk].tvSector)
+    M[tk].tvSector = rec.tvSector;
+  applyTvRec(M, tk, rec);
+  // A trade/order price used as a stand-in (set by the add forms) has now been
+  // replaced by the feed's market price - it's a normal record from here on.
+  if (isNum(rec.price)) delete M[tk]._seedPrice;
+  return created;
+}
+
+/**
+ * Fill-only refresh: copy record metrics onto M[tk] ONLY where M[tk] has no
+ * value yet. Never overwrites anything (manual price edits, older fetched
+ * values), so it's safe to run automatically - it just lets a new listing
+ * complete itself as TradingView publishes more data. fcfFy (the FCF period
+ * tag) is only filled together with fcf so the tag always matches the value.
+ * Returns the number of fields filled.
+ */
+export function fillTvGaps(M, tk, rec) {
+  const target = M[tk];
+  if (!target || !rec) return 0;
+  let n = 0;
+  for (const f of TV_METRICS) {
+    if (f.key === "fcfFy") continue;
+    const k = f.store || f.key;
+    if (!isNum(target[k]) && isNum(rec[f.key])) {
+      target[k] = rec[f.key];
+      n++;
+      if (f.key === "fcf" && isNum(rec.fcfFy)) target.fcfFy = rec.fcfFy;
+    }
+  }
+  return n;
+}
+
+/**
+ * Data-completeness report for one STOCK master record (pure). Returns a list
+ * of short issue codes; [] = complete. Used by the in-app data-health check so
+ * a new listing (IPO) that's missing pieces is visible instead of silent.
+ *   noRecord / noPrice   -> can't be valued (hard error)
+ *   seedPrice            -> valued at the trade price, no market price yet
+ *   noCategory / noCycle / noStyle -> categories not set (manual step)
+ *   noRange              -> no 52-week low/high yet
+ *   noFundamentals       -> none of P/E, P/B, EPS, BVPS, yield, DPS
+ *   notInFeed            -> absent from the latest daily price file
+ */
+export function stockDataIssues(m, inFeed) {
+  if (!m) return ["noRecord"];
+  const out = [];
+  if (!isNum(m.price)) out.push("noPrice");
+  else if (m._seedPrice) out.push("seedPrice"); // still valued at the trade price
+  const cat = String(m.cat || "").trim();
+  if (!cat || cat.toUpperCase() === "STOCK") out.push("noCategory");
+  if (!m.cycle) out.push("noCycle");
+  if (!m.style) out.push("noStyle");
+  if (!isNum(m.low) || !isNum(m.high)) out.push("noRange");
+  if (!["pe", "pb", "eps", "bvps", "divy", "dps"].some((k) => isNum(m[k])))
+    out.push("noFundamentals");
+  if (inFeed === false) out.push("notInFeed");
+  return out;
+}
+
+/**
  * Apply one parsed OPCVM fund record `f` onto M[tk] using OPCVM_FIELDS.
  * `weekly` gates the fee/mgmt fields. Mirrors the applyBtn loop exactly:
  *  - price (vl) only when non-null;

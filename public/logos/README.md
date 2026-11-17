@@ -2,13 +2,14 @@
 
 Each ticker shows a real logo when one is present here, otherwise a
 deterministic colored monogram (the ticker's initials on a stable color). The
-logos in `CSEMA/` are **kept up to date automatically** by a monthly GitHub
+logos in `CSEMA/` are **kept up to date automatically** by a weekly GitHub
 Action; you can also drop in your own file to override.
 
-## Automated refresh (hands-off, monthly)
+## Automated refresh (hands-off, weekly)
 
-`.github/workflows/fetch-logos.yml` runs `scripts/fetch-logos.mjs` on a monthly
-cron (03:17 UTC on the 1st, and on demand from the Actions tab). It:
+`.github/workflows/fetch-logos.yml` runs `scripts/fetch-logos.mjs` on a weekly
+cron (03:17 UTC every Monday, and on demand from the Actions tab), so a new
+listing (IPO) gets its logo within a week of TradingView publishing one. It:
 
 1. POSTs to TradingView's public scanner for the Casablanca market, reading each
    ticker's `logoid` (the same no-auth request `scripts/fetch-prices.mjs` uses —
@@ -50,7 +51,7 @@ used. To add another market, add its folder name to `LOGO_DIRS` in
 
 The badge tries, per ticker: `CSEMA/<KEY>.svg` → `CSEMA/<KEY>.png` →
 flat `<KEY>.svg` → flat `<KEY>.png`, first match wins. So a `CSEMA/<KEY>.svg`
-always takes precedence. Note the monthly fetcher **owns `CSEMA/<KEY>.svg`** for
+always takes precedence. Note the weekly fetcher **owns `CSEMA/<KEY>.svg`** for
 every ticker it can resolve on TradingView: if you edit one of those by hand, the
 next run will overwrite it whenever TradingView's SVG differs. It only ever
 writes `CSEMA/<KEY>.svg`, so files it never manages are safe to hand-maintain:

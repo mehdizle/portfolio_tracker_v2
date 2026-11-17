@@ -1246,6 +1246,23 @@ function mergePositions(arr) {
 function renderMissingMaster() {
   const box = document.getElementById("missingMasterBox");
   if (!box) return;
+  // Pull any ticker you've entered (e.g. a new IPO) from the daily price feed:
+  // creates its record / fills gaps automatically, then re-renders if it
+  // changed anything (06n-data-health.js). No-op once a ticker was tried.
+  if (typeof autoOnboardMissing === "function") {
+    try {
+      autoOnboardMissing();
+    } catch (_e) {}
+  }
+  // The data check (incomplete holdings) lives in its own slot below the warning.
+  const healthSlot = '<div id="dataHealthBox"></div>';
+  const fillHealth = () => {
+    if (typeof renderDataHealth === "function") {
+      try {
+        renderDataHealth();
+      } catch (_e) {}
+    }
+  };
   const seen = {};
   (TXNS || []).forEach((t) => {
     const tk = t.ticker;
@@ -1265,7 +1282,8 @@ function renderMissingMaster() {
   } catch (e) {}
   const tks = Object.keys(seen).sort();
   if (!tks.length) {
-    box.innerHTML = "";
+    box.innerHTML = healthSlot;
+    fillHealth();
     return;
   }
   const items = tks
@@ -1279,9 +1297,10 @@ function renderMissingMaster() {
     .join(" \u00B7 ");
   box.innerHTML = `<div class="sec" style="border-color:var(--warn)">
       <h2>\u26A0\uFE0F Missing market data</h2>
-      <div class="mini" style="margin-bottom:6px">These tickers appear in your transactions but have no ${""}master price/data, so their value, fees and signals can't be computed. Import them via the <b>Data</b> tab (prices + OPCVM fees), or restore a backup that includes them.</div>
+      <div class="mini" style="margin-bottom:6px">These tickers appear in your transactions but have no market price, so their value, fees and signals can't be computed. Stocks are added automatically from the daily price feed as soon as it lists them (check the ticker spelling if one stays here). For OPCVM funds, import the fund file in the <b>Data</b> tab, or restore a backup that includes them.</div>
       <div style="font-size:13px;line-height:1.9">${items}</div>
-    </div>`;
+    </div>${healthSlot}`;
+  fillHealth();
 }
 // Emoji icon for a sector name. The keyword-matched mapping lives in the pure,
 // tested core (src/core/sector-icon.js); this thin wrapper delegates to it via

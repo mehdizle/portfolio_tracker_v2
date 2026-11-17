@@ -163,6 +163,11 @@ const FIELD_MAP = [
 // names (e.g. MSA 0.47 gross vs -0.32 net). Only computed when EBITDA > 0 - a
 // leverage multiple on negative earnings is meaningless.
 const DERIVED_COLUMNS = ["net_debt", "ebitda"];
+// Identity strings used ONLY to onboard a ticker the app has never seen (e.g.
+// a new IPO): `company` names the new master record, `tvSector` is shown as a
+// hint when the user is asked to categorize it. Never applied to existing
+// records' categories (TradingView's sector taxonomy differs from the app's).
+const IDENTITY_COLUMNS = ["description", "sector"];
 
 // `name` first (the symbol/company), then every mapped TV field (+ fallbacks)
 // and the derived-metric inputs, de-duplicated.
@@ -171,6 +176,7 @@ const COLUMNS = [
     "name",
     ...FIELD_MAP.flatMap((f) => (f.fallback ? [f.tv, f.fallback] : [f.tv])),
     ...DERIVED_COLUMNS,
+    ...IDENTITY_COLUMNS,
   ]),
 ];
 
@@ -224,6 +230,11 @@ function toRecords(payload) {
     // stale "FY" tag can't outlive the day TTM becomes available.
     if (rec.fcf != null)
       rec.fcfFy = usable(d[idx.free_cash_flow_per_share_ttm]) ? 0 : 1;
+    const desc = d[idx.description],
+      sector = d[idx.sector];
+    if (typeof desc === "string" && desc.trim()) rec.company = desc.trim();
+    if (typeof sector === "string" && sector.trim())
+      rec.tvSector = sector.trim();
     const netDebt = d[idx.net_debt],
       ebitda = d[idx.ebitda];
     if (typeof netDebt === "number" && isFinite(netDebt) && ebitda > 0)

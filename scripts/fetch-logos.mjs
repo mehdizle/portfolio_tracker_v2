@@ -1,6 +1,6 @@
 // fetch-logos.mjs - refresh the per-ticker logo SVGs from TradingView.
 //
-// Runs MONTHLY in GitHub Actions (logos change rarely). For every Casablanca
+// Runs WEEKLY in GitHub Actions (so new listings get a logo within days). For every Casablanca
 // ticker the scanner returns a `logoid`; TradingView serves the matching vector
 // logo at https://s3-symbol-logo.tradingview.com/<logoid>.svg (public, no auth).
 // We download each and write public/logos/CSEMA/<KEY>.svg, overwriting only when
