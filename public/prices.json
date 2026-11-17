@@ -1,6 +1,6 @@
 {
  "_source": "tradingview:morocco + asfim:opcvm",
- "_fetched": "2026-11-17T01:53:57.527Z",
+ "_fetched": "2026-11-17T07:20:32.720Z",
  "_count": 82,
  "records": [
   {
@@ -22,6 +22,8 @@
    "shares": 402551000,
    "epsGrowth": 0.3901155474202037,
    "fcfFy": 0,
+   "company": "Douja Promotion Groupe Addoha SA",
+   "tvSector": "Finance",
    "netdebt": 19.86152083386334
   },
   {
@@ -43,6 +45,8 @@
    "shares": 22078600,
    "epsGrowth": 0.2283274997935499,
    "fcfFy": 1,
+   "company": "Alliances Developpement Immobiliere (Ste) SA",
+   "tvSector": "Finance",
    "netdebt": 1.9776095159919598
   },
   {
@@ -63,6 +67,8 @@
    "shares": 291500,
    "epsGrowth": -0.22618020159911406,
    "fcfFy": 1,
+   "company": "Afric Industries SA",
+   "tvSector": "Process Industries",
    "netdebt": -0.09276073024421112
   },
   {
@@ -82,7 +88,9 @@
    "revenue": 333370285,
    "shares": 1000000,
    "epsGrowth": 0.02130101348469696,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "AFMA SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "AGM",
@@ -103,6 +111,8 @@
    "shares": 200000,
    "epsGrowth": 0.07203432537111425,
    "fcfFy": 1,
+   "company": "Agma SA",
+   "tvSector": "Finance",
    "netdebt": 0.0955723957531928
   },
   {
@@ -124,6 +134,8 @@
    "shares": 14159207,
    "epsGrowth": 0.13113758309992235,
    "fcfFy": 0,
+   "company": "Akdital",
+   "tvSector": "Health Services",
    "netdebt": 1.4968995110534182
   },
   {
@@ -143,6 +155,8 @@
    "revenue": 1258491400,
    "shares": 465954,
    "epsGrowth": 0.6083911432594925,
+   "company": "Aluminium du Maroc",
+   "tvSector": "Producer Manufacturing",
    "netdebt": 1.4299981709732046
   },
   {
@@ -160,6 +174,8 @@
    "revenue": 767126000,
    "shares": 12568100,
    "fcfFy": 1,
+   "company": "Aradei Capital SA",
+   "tvSector": "Commercial Services",
    "netdebt": 6.8700293842427
   },
   {
@@ -181,6 +197,8 @@
    "shares": 54140600,
    "epsGrowth": 1.602163729645327,
    "fcfFy": 0,
+   "company": "Auto Hall SA",
+   "tvSector": "Retail Trade",
    "netdebt": 3.5928332041504176
   },
   {
@@ -200,7 +218,9 @@
    "revenue": 6630605000,
    "shares": 60283600,
    "epsGrowth": 0.0005657104065572336,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "AtlantaSanad",
+   "tvSector": "Finance"
   },
   {
    "ticker": "ATW",
@@ -219,7 +239,9 @@
    "revenue": 48826774000,
    "shares": 201538985,
    "epsGrowth": 0.022649206700470485,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Attijariwafa Bank SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "BCI",
@@ -238,7 +260,9 @@
    "revenue": 4956486000,
    "shares": 13279300,
    "epsGrowth": 0.6752604536069478,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Banque Marocaine pour le Commerce et l'Industrie",
+   "tvSector": "Finance"
   },
   {
    "ticker": "BCP",
@@ -254,7 +278,9 @@
    "fcf": 9.4436852381408,
    "revenue": 31698473000,
    "shares": 203312000,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Banque Centrale Populaire SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "BOA",
@@ -273,7 +299,9 @@
    "revenue": 28967419000,
    "shares": 225405000,
    "epsGrowth": 0.08231276921777528,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Bank of Africa SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "CAP",
@@ -291,7 +319,9 @@
    "revenue": 1917444000,
    "shares": 24553090,
    "epsGrowth": -0.824972359973362,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Cash plus S.A",
+   "tvSector": "Commercial Services"
   },
   {
    "ticker": "CDM",
@@ -310,7 +340,9 @@
    "revenue": 4607736000,
    "shares": 11626500,
    "epsGrowth": 0.19600029122759297,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Credit du Maroc (Ste) SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "CFG",
@@ -329,7 +361,9 @@
    "revenue": 1887502000,
    "shares": 35007960,
    "epsGrowth": 0.167308802687523,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "CFG Bank SA Class A",
+   "tvSector": "Finance"
   },
   {
    "ticker": "CIH",
@@ -347,7 +381,9 @@
    "revenue": 8950023000,
    "shares": 38641300,
    "epsGrowth": -0.06538304323687864,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Credit Immobilier et Hotelier SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "CMA",
@@ -368,6 +404,8 @@
    "shares": 14436000,
    "epsGrowth": 0.19261501275251597,
    "fcfFy": 0,
+   "company": "Ciments du Maroc SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": 0.3804807004803486
   },
   {
@@ -379,7 +417,9 @@
    "eps": 16.3152,
    "dps": 6.5,
    "revenue": 3392145742,
-   "shares": 17000900
+   "shares": 17000900,
+   "company": "CMGP GROUP",
+   "tvSector": "Producer Manufacturing"
   },
   {
    "ticker": "CMT",
@@ -398,6 +438,8 @@
    "revenue": 944176292,
    "shares": 1681230,
    "fcfFy": 0,
+   "company": "Compagnie Miniere de Touissit SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": -0.5380950046356309
   },
   {
@@ -417,6 +459,8 @@
    "revenue": 649977954.07,
    "shares": 16117600,
    "epsGrowth": 0.30255846805838954,
+   "company": "Colorado SA",
+   "tvSector": "Process Industries",
    "netdebt": 0.21370346812775676
   },
   {
@@ -436,6 +480,8 @@
    "shares": 5265000,
    "epsGrowth": -5.469805433186491,
    "fcfFy": 0,
+   "company": "Cartier Saada SA",
+   "tvSector": "Consumer Non-Durables",
    "netdebt": 23.469224129408428
   },
   {
@@ -456,6 +502,8 @@
    "shares": 94487100,
    "epsGrowth": -0.21423588476801497,
    "fcfFy": 0,
+   "company": "COSUMAR SA",
+   "tvSector": "Process Industries",
    "netdebt": 0.9465900284164299
   },
   {
@@ -476,6 +524,8 @@
    "shares": 1225980,
    "epsGrowth": -0.3396444694517699,
    "fcfFy": 0,
+   "company": "Compagnie de Transport au Maroc SA",
+   "tvSector": "Transportation",
    "netdebt": 8.181831883558694
   },
   {
@@ -497,6 +547,8 @@
    "shares": 87600000,
    "epsGrowth": 0.10317485289953104,
    "fcfFy": 0,
+   "company": "Delta Holding SA",
+   "tvSector": "Industrial Services",
    "netdebt": -0.7204678469999818
   },
   {
@@ -518,6 +570,8 @@
    "shares": 1885760,
    "epsGrowth": 0.01461663099357882,
    "fcfFy": 1,
+   "company": "Disway SA",
+   "tvSector": "Distribution Services",
    "netdebt": 2.1140085099469985
   },
   {
@@ -539,6 +593,8 @@
    "shares": 998110,
    "epsGrowth": 0.34860198722757973,
    "fcfFy": 1,
+   "company": "Disty Technologies SA",
+   "tvSector": "Distribution Services",
    "netdebt": 3.2883303488892985
   },
   {
@@ -556,7 +612,9 @@
    "fcf": -328.412513096842,
    "revenue": 2339156000,
    "shares": 1700000,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "Societe d'Equipement Domestique et Menager SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "FBR",
@@ -573,6 +631,8 @@
    "revenue": 814612000,
    "shares": 1438980,
    "fcfFy": 1,
+   "company": "Fenie Brossette (Ste) SA",
+   "tvSector": "Distribution Services",
    "netdebt": 2.2905788348973335
   },
   {
@@ -593,6 +653,8 @@
    "shares": 3437500,
    "epsGrowth": -0.01366060870443016,
    "fcfFy": 0,
+   "company": "Afriquia Gaz",
+   "tvSector": "Distribution Services",
    "netdebt": 0.15257648755487965
   },
   {
@@ -609,7 +671,9 @@
    "fcf": 13.848083333333333,
    "revenue": 14649707000,
    "shares": 12000000,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Societe Generale des Travaux du Maroc",
+   "tvSector": "Industrial Services"
   },
   {
    "ticker": "HPS",
@@ -628,6 +692,8 @@
    "revenue": 1562762080,
    "shares": 7406190,
    "fcfFy": 0,
+   "company": "Hightech Payment Systems SA",
+   "tvSector": "Technology Services",
    "netdebt": 0.6167547528811228
   },
   {
@@ -648,6 +714,8 @@
    "shares": 879095000,
    "epsGrowth": -0.24515037266539752,
    "fcfFy": 0,
+   "company": "Maroc Telecom SA",
+   "tvSector": "Communications",
    "netdebt": 0.9402922755741128
   },
   {
@@ -656,7 +724,9 @@
    "low": 45.15,
    "high": 75,
    "divy": 0,
-   "shares": 417486
+   "shares": 417486,
+   "company": "IBMaroc.com",
+   "tvSector": "Technology Services"
   },
   {
    "ticker": "IMO",
@@ -676,6 +746,8 @@
    "shares": 9007000,
    "epsGrowth": -0.1796554410873518,
    "fcfFy": 0,
+   "company": "Immorente Invest SA",
+   "tvSector": "Finance",
    "netdebt": 4.027336280917453
   },
   {
@@ -689,7 +761,9 @@
    "dps": 0,
    "revenue": 33567537.190000005,
    "shares": 382716,
-   "epsGrowth": -4.271801093906478
+   "epsGrowth": -4.271801093906478,
+   "company": "Involys SA",
+   "tvSector": "Technology Services"
   },
   {
    "ticker": "JET",
@@ -710,6 +784,8 @@
    "shares": 3029520,
    "epsGrowth": 0.22368107554613023,
    "fcfFy": 0,
+   "company": "Jet Contractors SA",
+   "tvSector": "Industrial Services",
    "netdebt": 3.409369069741634
   },
   {
@@ -727,6 +803,8 @@
    "revenue": 19999334910.72,
    "shares": 2893960,
    "fcfFy": 1,
+   "company": "Label'Vie SA",
+   "tvSector": "Retail Trade",
    "netdebt": 2.8715838340887903
   },
   {
@@ -747,6 +825,8 @@
    "shares": 27631500,
    "epsGrowth": -0.18603007325536555,
    "fcfFy": 0,
+   "company": "Lesieur Cristal SA",
+   "tvSector": "Consumer Non-Durables",
    "netdebt": 2.5723905723905722
   },
   {
@@ -767,6 +847,8 @@
    "shares": 23319549,
    "epsGrowth": 0.05589588505936472,
    "fcfFy": 1,
+   "company": "Holcim Maroc S.A",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": 1.1816497006770117
   },
   {
@@ -788,6 +870,8 @@
    "shares": 647777,
    "epsGrowth": 0.5830888431426582,
    "fcfFy": 0,
+   "company": "M2M Group SA",
+   "tvSector": "Technology Services",
    "netdebt": -8.151629166503849
   },
   {
@@ -809,6 +893,8 @@
    "shares": 1384180,
    "epsGrowth": 0.14278958495604763,
    "fcfFy": 0,
+   "company": "Maghrebail SA",
+   "tvSector": "Finance",
    "netdebt": 2.5944221117134627
   },
   {
@@ -826,7 +912,9 @@
    "dps": 0,
    "revenue": 85003525.87,
    "shares": 4783820,
-   "epsGrowth": 0.05397400032910966
+   "epsGrowth": 0.05397400032910966,
+   "company": "Med Paper SA",
+   "tvSector": "Process Industries"
   },
   {
    "ticker": "MIC",
@@ -847,6 +935,8 @@
    "shares": 1680000,
    "epsGrowth": 0.43469797322951387,
    "fcfFy": 1,
+   "company": "Microdata SA",
+   "tvSector": "Technology Services",
    "netdebt": 1.5936926919318921
   },
   {
@@ -867,6 +957,8 @@
    "shares": 2776770,
    "epsGrowth": -0.049408110754814855,
    "fcfFy": 0,
+   "company": "Maroc Leasing SA",
+   "tvSector": "Finance",
    "netdebt": 3.1192979030439907
   },
   {
@@ -888,6 +980,8 @@
    "shares": 118647000,
    "epsGrowth": 7.628465390091344,
    "fcfFy": 1,
+   "company": "Managem SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": 0.8408788468159949
   },
   {
@@ -909,6 +1003,8 @@
    "shares": 812500,
    "epsGrowth": 0.09753842459173878,
    "fcfFy": 0,
+   "company": "Maghreb Oxygene SA",
+   "tvSector": "Process Industries",
    "netdebt": 4.750807036860939
   },
   {
@@ -930,6 +1026,8 @@
    "shares": 73395600,
    "epsGrowth": 0.1918602538479507,
    "fcfFy": 1,
+   "company": "Marsa Maroc SA",
+   "tvSector": "Transportation",
    "netdebt": -0.3222192973517657
   },
   {
@@ -950,6 +1048,8 @@
    "shares": 9246740,
    "epsGrowth": -0.5593509034411325,
    "fcfFy": 1,
+   "company": "Mutandis SCA",
+   "tvSector": "Consumer Non-Durables",
    "netdebt": 3.4158592170002113
   },
   {
@@ -970,11 +1070,14 @@
    "shares": 30000000,
    "epsGrowth": -0.03924785998182033,
    "fcfFy": 0,
+   "company": "Ennakl",
+   "tvSector": "Retail Trade",
    "netdebt": 0.21065686952282592
   },
   {
    "ticker": "NRJ",
-   "price": 171.55
+   "price": 171.55,
+   "company": "JET ENERGY"
   },
   {
    "ticker": "PRO",
@@ -994,6 +1097,8 @@
    "shares": 1000000,
    "epsGrowth": -0.2925812215667693,
    "fcfFy": 0,
+   "company": "Promopharm SA",
+   "tvSector": "Health Technology",
    "netdebt": 0.2575151619583671
   },
   {
@@ -1011,6 +1116,8 @@
    "dps": 0,
    "revenue": 524701000,
    "shares": 26208900,
+   "company": "Residences Dar Saada S.A.",
+   "tvSector": "Finance",
    "netdebt": 74.42807665666128
   },
   {
@@ -1028,7 +1135,9 @@
    "fcf": 0.2939543002221517,
    "revenue": 0,
    "shares": 176456,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "Rebab Company SA Limited",
+   "tvSector": "Non-Energy Minerals"
   },
   {
    "ticker": "RIS",
@@ -1049,6 +1158,8 @@
    "shares": 16012100,
    "epsGrowth": 0.9228149034788368,
    "fcfFy": 0,
+   "company": "Risma SA",
+   "tvSector": "Consumer Services",
    "netdebt": 1.3838766280703922
   },
   {
@@ -1068,6 +1179,8 @@
    "revenue": 399192909,
    "shares": 812070,
    "epsGrowth": 0.01268873898446828,
+   "company": "Societe Maghrebine de Monetique SA",
+   "tvSector": "Technology Services",
    "netdebt": -0.5539713431178881
   },
   {
@@ -1085,7 +1198,9 @@
    "revenue": 5920562000,
    "shares": 5341870,
    "epsGrowth": -1.3978047474864825,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "Sanlam Maroc",
+   "tvSector": "Finance"
   },
   {
    "ticker": "SBM",
@@ -1106,6 +1221,8 @@
    "shares": 2829650,
    "epsGrowth": 0.4735580414614677,
    "fcfFy": 0,
+   "company": "Societe des Boissons du Maroc SA",
+   "tvSector": "Consumer Non-Durables",
    "netdebt": 0.04007574822195479
   },
   {
@@ -1127,6 +1244,8 @@
    "shares": 3900000,
    "epsGrowth": 0.5750040452347135,
    "fcfFy": 0,
+   "company": "SONASID SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": -0.7228017449750427
   },
   {
@@ -1146,7 +1265,9 @@
    "revenue": 837104000,
    "shares": 3124120,
    "epsGrowth": 0.01326208450560778,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "Salafin SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "SMI",
@@ -1165,6 +1286,8 @@
    "revenue": 1789547349.89,
    "shares": 1645090,
    "epsGrowth": 1.9824488694500548,
+   "company": "Societe Metallurgique d'Imiter SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": 0.00905144951923461
   },
   {
@@ -1182,6 +1305,8 @@
    "revenue": 224517000,
    "shares": 17695200,
    "epsGrowth": -0.7088718220338983,
+   "company": "Stokvis Nord Afrique (Ste) SA",
+   "tvSector": "Distribution Services",
    "netdebt": 10.429995627459554
   },
   {
@@ -1201,6 +1326,8 @@
    "shares": 2400000,
    "epsGrowth": -48.59776832411835,
    "fcfFy": 1,
+   "company": "Nationale d'Electrolyse et de Petrochimie (Ste) SA",
+   "tvSector": "Process Industries",
    "netdebt": 27.706327765305733
   },
   {
@@ -1222,6 +1349,8 @@
    "shares": 38309500,
    "epsGrowth": 0.131175902437989,
    "fcfFy": 0,
+   "company": "Sothema",
+   "tvSector": "Health Technology",
    "netdebt": 0.8382827769166202
   },
   {
@@ -1240,6 +1369,8 @@
    "revenue": 364740253.91999996,
    "shares": 320000,
    "epsGrowth": -0.7932878130312152,
+   "company": "Societe de Realisations Mecaniques SA",
+   "tvSector": "Distribution Services",
    "netdebt": 4.256331770021659
   },
   {
@@ -1254,7 +1385,9 @@
    "dps": 0,
    "revenue": 69395350.94,
    "shares": 1248520,
-   "epsGrowth": -2.3209114010237455
+   "epsGrowth": -2.3209114010237455,
+   "company": "STROC Industrie SA",
+   "tvSector": "Industrial Services"
   },
   {
    "ticker": "T2S",
@@ -1267,7 +1400,9 @@
    "fcf": 12.980343967937822,
    "revenue": 1763333000,
    "shares": 22584118,
-   "fcfFy": 1
+   "fcfFy": 1,
+   "company": "T2S Group Holding",
+   "tvSector": "Distribution Services"
   },
   {
    "ticker": "TGC",
@@ -1288,6 +1423,8 @@
    "shares": 34674330,
    "epsGrowth": 0.30403620044458307,
    "fcfFy": 0,
+   "company": "Travaux Generaux de Construction de Casablanca S.A.",
+   "tvSector": "Industrial Services",
    "netdebt": 0.8292635512022015
   },
   {
@@ -1308,6 +1445,8 @@
    "shares": 8960000,
    "epsGrowth": -0.04776679436850659,
    "fcfFy": 1,
+   "company": "TotalEnergies Marketing Maroc",
+   "tvSector": "Retail Trade",
    "netdebt": 0.2056100970663697
   },
   {
@@ -1329,6 +1468,8 @@
    "shares": 23588500,
    "epsGrowth": 0.044119698916834926,
    "fcfFy": 0,
+   "company": "TAQA Morocco SA",
+   "tvSector": "Utilities",
    "netdebt": 1.7585747874597824
   },
   {
@@ -1341,7 +1482,9 @@
    "bvps": 121.28627,
    "dps": 8.44,
    "revenue": 1083655282,
-   "shares": 10258850
+   "shares": 10258850,
+   "company": "Vicenne",
+   "tvSector": "Distribution Services"
   },
   {
    "ticker": "WAA",
@@ -1360,7 +1503,9 @@
    "revenue": 12540271000,
    "shares": 3500000,
    "epsGrowth": 0.21089457983030477,
-   "fcfFy": 0
+   "fcfFy": 0,
+   "company": "Wafa Assurance SA",
+   "tvSector": "Finance"
   },
   {
    "ticker": "ZDJ",
@@ -1381,6 +1526,8 @@
    "shares": 572849,
    "epsGrowth": 1.0390827365534054,
    "fcfFy": 1,
+   "company": "Zellidja (Ste) SA",
+   "tvSector": "Non-Energy Minerals",
    "netdebt": 1.828002129750983
   },
   {
