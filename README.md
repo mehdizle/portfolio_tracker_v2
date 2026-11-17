@@ -395,7 +395,8 @@ JS + Highcharts via CDN). Dev tooling: **Vite** (build) and **Vitest** (tests).
 ### Pinned versions
 
 - Highcharts **13.0.2** (CDN, in `index.html`)
-- Vite **8.3.x**, Vitest **5.0.x** (`package.json` devDependencies)
+- Vite **8.x**, Vitest **5.x** (`package.json` devDependencies; exact versions
+  move weekly via Dependabot)
 - Node **≥ 22.12.0** (required by Vitest 5; CI runs Node 22)
 
 ### One-time repo setup
