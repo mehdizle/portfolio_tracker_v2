@@ -1262,6 +1262,13 @@ function renderMissingMaster() {
         renderDataHealth();
       } catch (_e) {}
     }
+    // Keep the Data-tab category editor in step (it skips the repaint when
+    // nothing it lists changed, and keeps unsaved dropdown choices).
+    if (typeof renderCatEditor === "function") {
+      try {
+        renderCatEditor();
+      } catch (_e) {}
+    }
   };
   const seen = {};
   (TXNS || []).forEach((t) => {

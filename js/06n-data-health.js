@@ -136,7 +136,7 @@ function autoOnboardMissing() {
                     : tk,
                 )
                 .join(", ") +
-              " from the daily price feed. Set its category in Data \u2192 Import Stock Categories.",
+              " from the daily price feed. Set its category in Data \u2192 Import Stock Categories \u2192 Set categories.",
             "ok",
           );
         if (typeof render === "function") render();
@@ -276,8 +276,8 @@ function renderDataHealth() {
     "<h2>\uD83E\uDE7A Data check \u00B7 your holdings</h2>" +
     '<div class="mini" style="margin-bottom:6px">Some data for these holdings is incomplete. ' +
     "Prices and fundamentals fill in automatically from the daily feed as TradingView publishes them " +
-    "(a new listing often has none for a while); logos refresh weekly. Categories are yours to set in " +
-    "<b>Data \u2192 Import Stock Categories</b>.</div>" +
+    "(a new listing often has none for a while); logos refresh weekly. Set missing categories with the dropdowns in " +
+    "<b>Data \u2192 Import Stock Categories \u2192 Set categories</b>.</div>" +
     '<div style="font-size:13px;line-height:1.8">' +
     items +
     "</div></div>";
