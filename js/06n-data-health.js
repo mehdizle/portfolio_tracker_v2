@@ -102,6 +102,11 @@ function onboardFromDoc(doc, tickers) {
     const m = M[tk];
     if (!m) {
       if (users[tk] === "fund") continue; // funds onboard via the OPCVM path
+      // Only a real TradingView STOCK row (it carries company/sector) may
+      // create a record. Fund NAV rows in prices.json are just {ticker, price};
+      // creating from those would turn a fund whose transactions lack the
+      // opcvm flag (e.g. a bare CSV import) into a "stock" with stock fees.
+      if (!rec.company && !rec.tvSector) continue;
       if (S.onboardTvRec(M, tk, rec)) res.created.push(tk);
     } else if (!_hasPrice(m) || m._seedPrice) {
       S.onboardTvRec(M, tk, rec); // full apply: no real market price yet

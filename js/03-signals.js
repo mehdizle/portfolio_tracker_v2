@@ -213,7 +213,8 @@ function momentumScore(m) {
 // ---------- (B) Sector-relative valuation stats ----------
 // Peer medians (P/E, P/B, Div-Y) per sector key, computed once from the whole master list M.
 // Lets us score a stock on how cheap it is RELATIVE TO ITS PEERS \u2014 robust to whole-sector
-// re-ratings that fixed absolute anchors miss. Cache is invalidated when M changes size.
+// re-ratings that fixed absolute anchors miss. Cache is invalidated whenever a
+// ticker's category or P/E / P/B / yield changes (see sectorStats signature).
 let _SECTOR_STATS = null,
   _SECTOR_STATS_SIG = null;
 function _median(arr) {
@@ -239,7 +240,16 @@ function _statsFor(list) {
   };
 }
 function sectorStats() {
-  const sig = Object.keys(M).length + "|" + Object.keys(M).join(",").length;
+  // Signature covers every input the stats depend on (each ticker's category
+  // and its P/E, P/B, yield), not just the key set: a category edit or a price
+  // refresh keeps the same tickers but must still rebuild the peer groups.
+  let sig = "";
+  for (const tk in M) {
+    const m = M[tk];
+    if (m)
+      sig +=
+        tk + ":" + (m.cat || "") + ":" + m.pe + ":" + m.pb + ":" + m.divy + "|";
+  }
   if (_SECTOR_STATS && _SECTOR_STATS_SIG === sig) return _SECTOR_STATS;
   const byProf = {},
     byCat = {};

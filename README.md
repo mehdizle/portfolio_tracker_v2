@@ -296,7 +296,8 @@ the app open or paste anything.
    `push` events, so the deploy is triggered explicitly).
 3. **The browser reads them.** The "Fetch latest" button in the Data tab imports
    `prices.json` through the **same** `applyTvRec` pipeline as a manual paste
-   (so nulls are skipped and manual categories are never overwritten); manual
+   (so nulls are skipped and categories are never touched: neither the file nor
+   a paste sets them, TradingView's sector is kept only as a hint); manual
    paste remains the fallback if the file is missing/stale. The "Portfolio Value
    Over Time" chart reads `price-history.json` and recomputes your curve locally.
 4. **New tickers onboard themselves.** The fetch covers the whole Casablanca
@@ -354,7 +355,8 @@ tv-fields.test.js            TradingView metric meaning/units on both paths: 52-
                              %->decimal scaling, paste K/M/B suffixes, TTM->FY FCF fallback,
                              FCF red flag skipped for banks/insurers/REITs
 onboarding.test.js           new-ticker (IPO) onboarding: record creation, trade-price stand-in
-                             replaced, fill-only refresh, data-completeness issue codes
+                             replaced by any real price, fill-only refresh, clearable stale
+                             net-debt, data-completeness issue codes
 ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
                              throwing, publishes data-act handlers to window, survives
                              seeded + corrupt localStorage (first automated UI-layer coverage),
@@ -506,7 +508,9 @@ diversification. In **Data → Import Stock Categories** you can:
   This doubles as the template.
 - **Import** — a row updates that ticker's category/cycle/style; tickers not in
   the file keep their existing category.
-- **Reset** — revert to the built-in default set.
+- **Clear categories** — after a confirmation, removes the category, cycle and
+  style of every ticker you imported or set (there is no built-in default set;
+  export first to keep a copy).
 
 ---
 

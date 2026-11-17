@@ -423,7 +423,7 @@ function parseCategoryCSV(text) {
   return { map, err: null };
 }
 // Apply a category map onto M. Only tickers present in the map are touched; others keep
-// their existing (TradingView / seed) category. Returns {updated, unknown[]}.
+// their current category. Returns {updated, unknown[]}.
 function applyCategories(map) {
   // Single source of truth: an uploaded category/cycle/style ALWAYS lands on M,
   // whether or not the ticker already has a master entry. Previously a ticker
@@ -476,8 +476,8 @@ function refreshCatStamp() {
   if (!el) return;
   const map = loadCategories();
   el.textContent = map
-    ? "\u00B7 using your uploaded set (" + Object.keys(map).length + " tickers)"
-    : "\u00B7 built-in default set";
+    ? "\u00B7 your saved set (" + Object.keys(map).length + " tickers)"
+    : "\u00B7 none saved yet";
 }
 
 // ---- upload handler ----
@@ -843,7 +843,9 @@ function _wireCatEditor(el) {
       const m = M[tk] || {};
       const cur = _catBlank(m[field]) ? "" : String(m[field]).trim();
       st.draft[tk] = st.draft[tk] || {};
-      if (v === cur) delete st.draft[tk][field];
+      // "— choose —" (empty) is not a value you can save: it just undoes any
+      // pending change for this field (the repaint shows the stored value).
+      if (v === cur || v === "") delete st.draft[tk][field];
       else st.draft[tk][field] = v;
       if (!Object.keys(st.draft[tk]).length) delete st.draft[tk];
       renderCatEditor(true);
@@ -958,29 +960,73 @@ function saveCatEditor() {
     rows.push(
       "# Economic Cycle: Cyclical / Sensitives / Defensive",
       "# Asset Style: Yield King / Growth / Compounder / Recovery / Value / Defensive / Cyclical",
-      "# Edit and re-import. Tickers not listed keep their existing (TradingView) category.",
+      "# Edit and re-import. Tickers not listed keep their current category.",
     );
     downloadText("stock_categories.csv", rows.join("\n"));
   };
 })();
 
-// ---- reset to built-in default ----
+// ---- clear your categories ----
+// There is no built-in default set any more (the embedded seed master was
+// removed), so "reset" means: remove the category / cycle / style of every
+// ticker in your saved set from the master list too (not just the saved copy -
+// imports and the editor also persist them into casa_master_v1, which would
+// otherwise restore them on the next load), drop category-only stubs for names
+// you don't hold, and repaint. Asks first: this can't be undone (export first).
 (function () {
   const b = document.getElementById("resetCat");
   if (!b) return;
-  b.onclick = () => {
+  b.onclick = async () => {
+    const saved = loadCategories() || {};
+    const tks = Object.keys(saved);
+    const res = document.getElementById("catResult");
+    if (!tks.length) {
+      if (res) {
+        res.style.color = "var(--muted)";
+        res.textContent =
+          "Nothing to clear: no categories have been imported or set.";
+      }
+      return;
+    }
+    const ok =
+      typeof appConfirm === "function"
+        ? await appConfirm(
+            "Clear the category, economic cycle and asset style of " +
+              tks.length +
+              " ticker(s)? Export them first if you may want them back.",
+          )
+        : true;
+    if (!ok) return;
+    tks.forEach((tk) => {
+      const m = M[tk];
+      if (!m || m.cat === "OPCVM") return;
+      if (m._catOnly && (m.price == null || !isFinite(m.price))) {
+        delete M[tk]; // category-only stub for a name you never priced
+        return;
+      }
+      m.cat = null;
+      m.cycle = null;
+      m.style = null;
+    });
     try {
       localStorage.removeItem(CAT_LS);
     } catch (e) {}
-    const res = document.getElementById("catResult");
+    try {
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    } catch (_e) {}
+    _catEdState().draft = {};
     if (res) {
       res.style.color = "var(--muted)";
       res.textContent =
-        "\u21ba Reverted to built-in default. Reload to fully reset any changed values.";
+        "\u21ba Cleared categories for " + tks.length + " ticker(s).";
     }
     const rev = document.getElementById("catReview");
     if (rev) rev.innerHTML = "";
     refreshCatStamp();
+    try {
+      render();
+    } catch (_e) {}
+    renderCatEditor(true);
   };
 })();
 

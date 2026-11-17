@@ -92,7 +92,10 @@ function parseTV(raw) {
           price: g(0),
           low: g(3),
           high: g(4),
-          category: _sector || null,
+          // TradingView's sector is a HINT (tvSector), never your category: its
+          // taxonomy doesn't match yours, and new stocks are deliberately left
+          // uncategorized for you to set (Data -> Set categories).
+          tvSector: _sector || null,
         };
         // second metrics line (category + EV/EBITDA, NetDebt, ROE%)
         let s = main + 1;
@@ -173,6 +176,7 @@ document.getElementById("applyTV").onclick = () => {
     // so a metric added to the parser is applied automatically (and the coverage
     // test enforces it). Same guard (skip null/NaN) and same cat || logic.
     __core.masterSchema.applyTvRec(M, tk, r);
+    if (r.tvSector && !M[tk].tvSector) M[tk].tvSector = r.tvSector; // hint only
     updated++;
   }
   safeSetItem("casa_master_v1", JSON.stringify(M));

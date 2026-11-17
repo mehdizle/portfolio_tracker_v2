@@ -3,6 +3,7 @@
 // the record-shaping and the "is this complete?" rules are pure and live here.
 import { describe, it, expect } from "vitest";
 import {
+  applyTvRec,
   onboardTvRec,
   fillTvGaps,
   stockDataIssues,
@@ -33,9 +34,29 @@ describe("onboardTvRec", () => {
   });
 
   it("never touches an existing record's categories or name", () => {
-    const M = { ATW: { name: "Attijariwafa", cat: "Banking", cycle: "Cyclical", style: "Value", price: 600 } };
-    expect(onboardTvRec(M, "ATW", { price: 668.3, company: "ATTIJARIWAFA BANK", tvSector: "Finance" })).toBe(false);
-    expect(M.ATW).toMatchObject({ name: "Attijariwafa", cat: "Banking", cycle: "Cyclical", style: "Value", price: 668.3 });
+    const M = {
+      ATW: {
+        name: "Attijariwafa",
+        cat: "Banking",
+        cycle: "Cyclical",
+        style: "Value",
+        price: 600,
+      },
+    };
+    expect(
+      onboardTvRec(M, "ATW", {
+        price: 668.3,
+        company: "ATTIJARIWAFA BANK",
+        tvSector: "Finance",
+      }),
+    ).toBe(false);
+    expect(M.ATW).toMatchObject({
+      name: "Attijariwafa",
+      cat: "Banking",
+      cycle: "Cyclical",
+      style: "Value",
+      price: 668.3,
+    });
   });
 
   it("replaces a trade-price stand-in from the add form with the market price", () => {
@@ -54,10 +75,38 @@ describe("onboardTvRec", () => {
   });
 });
 
+describe("applyTvRec: stand-in price + clearable fields", () => {
+  it("any real price (e.g. a manual paste) clears the trade-price stand-in", () => {
+    const M = { XYZ: { price: 100, _seedPrice: true } };
+    applyTvRec(M, "XYZ", { ticker: "XYZ", price: 104 });
+    expect(M.XYZ.price).toBe(104);
+    expect(M.XYZ._seedPrice).toBeUndefined();
+  });
+
+  it("an explicit null netdebt removes a stale stored value; an absent one keeps it", () => {
+    const M = { A: { netdebt: 8.4 }, B: { netdebt: 2.1 } };
+    applyTvRec(M, "A", { ticker: "A", price: 1, netdebt: null });
+    applyTvRec(M, "B", { ticker: "B", price: 1 });
+    expect("netdebt" in M.A).toBe(false);
+    expect(M.B.netdebt).toBe(2.1);
+  });
+
+  it("explicit nulls never clear non-clearable metrics", () => {
+    const M = { A: { pe: 12 } };
+    applyTvRec(M, "A", { ticker: "A", pe: null });
+    expect(M.A.pe).toBe(12);
+  });
+});
+
 describe("fillTvGaps (automatic, fill-only refresh)", () => {
   it("fills only missing fields and never overwrites existing values", () => {
     const M = { NRJ: { price: 160, low: null } };
-    const n = fillTvGaps(M, "NRJ", { price: 171.55, low: 150, high: 190, pe: 14 });
+    const n = fillTvGaps(M, "NRJ", {
+      price: 171.55,
+      low: 150,
+      high: 190,
+      pe: 14,
+    });
     expect(n).toBe(3);
     expect(M.NRJ).toMatchObject({ price: 160, low: 150, high: 190, pe: 14 });
   });
@@ -107,12 +156,16 @@ describe("stockDataIssues", () => {
   it("flags no record, no price, a trade-price stand-in and absence from the feed", () => {
     expect(stockDataIssues(undefined)).toEqual(["noRecord"]);
     expect(stockDataIssues({ ...complete, price: null })).toContain("noPrice");
-    expect(stockDataIssues({ ...complete, _seedPrice: true })).toContain("seedPrice");
+    expect(stockDataIssues({ ...complete, _seedPrice: true })).toContain(
+      "seedPrice",
+    );
     expect(stockDataIssues(complete, false)).toEqual(["notInFeed"]);
     expect(stockDataIssues(complete)).toEqual([]); // feed unknown -> not judged
   });
 
   it("treats the legacy 'STOCK' placeholder as uncategorized", () => {
-    expect(stockDataIssues({ ...complete, cat: "STOCK" })).toEqual(["noCategory"]);
+    expect(stockDataIssues({ ...complete, cat: "STOCK" })).toEqual([
+      "noCategory",
+    ]);
   });
 });

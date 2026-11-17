@@ -954,35 +954,8 @@ document.getElementById("addTxn").onclick = () => {
     toast("Enter a unit price, or a total (for OPCVM).", "warn");
     return;
   }
-  // If flagged OPCVM (and not already a known fund), register it in the master list
-  // so the VL/fee importer can match it \u2014 by the fund name entered here, or later by ISIN.
-  if (t.opcvm && !(M[t.ticker] && M[t.ticker].cat === "OPCVM")) {
-    registerOpcvm(t.ticker, (document.getElementById("tFundName") || {}).value);
-  } else if (t.opcvm && M[t.ticker] && M[t.ticker].cat === "OPCVM") {
-    const _fn = (document.getElementById("tFundName") || {}).value;
-    if (_fn && _fn.trim()) {
-      M[t.ticker].name = _fn.trim();
-      safeSetItem("casa_master_v1", JSON.stringify(M));
-    }
-  } else {
-    // Stock: persist the typed Name to the master list so tables show it (create entry if new).
-    const _fn = (document.getElementById("tFundName") || {}).value;
-    if (_fn && _fn.trim()) {
-      if (!M[t.ticker])
-        M[t.ticker] = {
-          name: _fn.trim(),
-          cat: null, // uncategorized until the user sets it (data check flags it)
-          cycle: null,
-          style: null,
-          price: t.price || null,
-          // The trade price is a stand-in until the daily feed's market price
-          // lands; the auto-onboarding replaces it (see 06n-data-health.js).
-          _seedPrice: true,
-        };
-      else M[t.ticker].name = _fn.trim();
-      safeSetItem("casa_master_v1", JSON.stringify(M));
-    }
-  }
+  // (Master-list registration of a new fund/stock happens AFTER validation
+  // below, so a rejected transaction never leaves a stray master record.)
   // Moroccan market lot note: stocks normally trade in whole shares (OPCVM funds are fractional).
   // The user may legitimately hold a fractional stock (e.g. a partial lot from another portfolio),
   // so we KEEP the fraction and only show a non-blocking heads-up.
@@ -1014,6 +987,37 @@ document.getElementById("addTxn").onclick = () => {
     return;
   }
   // --- end Tier 2 validation ---
+  // If flagged OPCVM (and not already a known fund), register it in the master list
+  // so the VL/fee importer can match it \u2014 by the fund name entered here, or later by ISIN.
+  if (t.opcvm && !(M[t.ticker] && M[t.ticker].cat === "OPCVM")) {
+    registerOpcvm(t.ticker, (document.getElementById("tFundName") || {}).value);
+  } else if (t.opcvm && M[t.ticker] && M[t.ticker].cat === "OPCVM") {
+    const _fn = (document.getElementById("tFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      M[t.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  } else {
+    // Stock: persist the typed Name to the master list so tables show it (create entry if new).
+    const _fn = (document.getElementById("tFundName") || {}).value;
+    if (_fn && _fn.trim()) {
+      if (!M[t.ticker]) {
+        // A BUY/SELL price is a usable stand-in until the daily feed's market
+        // price lands (auto-onboarding replaces it, 06n-data-health.js). A
+        // dividend's "price" is the amount per share, never a share price.
+        const _seed = t.action !== "DIV" && t.price ? t.price : null;
+        M[t.ticker] = {
+          name: _fn.trim(),
+          cat: null, // uncategorized until the user sets it (data check flags it)
+          cycle: null,
+          style: null,
+          price: _seed,
+        };
+        if (_seed != null) M[t.ticker]._seedPrice = true;
+      } else M[t.ticker].name = _fn.trim();
+      safeSetItem("casa_master_v1", JSON.stringify(M));
+    }
+  }
   // Carry dividend side-channel metadata (ex-date, eligible-shares basis) that
   // the form has no visible field for. Set by prefillDividend / editTxn; merged
   // here so manual add + edit no longer drop it. Cleared after use.
