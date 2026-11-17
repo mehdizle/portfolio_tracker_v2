@@ -329,8 +329,34 @@ async function fetchFundNavs() {
   return out;
 }
 
-// Load the committed issuer-name -> ticker map (public/issuer-map.json). Keys
-// are uppercased for case-insensitive matching. Returns {} if missing/unreadable.
+// Matching key for an issuer name: uppercase, accents stripped, whitespace
+// collapsed, and trailing legal-form suffixes (SA, S.A, S.A., SCA, SARL, SAS)
+// removed. The Bourse site renames issuers this way over time (e.g. "AFMA SA"
+// -> "AFMA", "CASH PLUS S.A" -> "CASH PLUS"); an exact-string match silently
+// dropped every dividend of such a name. Applied to BOTH the map keys and the
+// site's names, so either spelling matches.
+function issuerKey(name) {
+  let s = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  let prev;
+  do {
+    prev = s;
+    s = s
+      .replace(
+        /[\s,]+(S\.?\s?A\.?|S\.?C\.?A\.?|S\.?A\.?R\.?L\.?|S\.?A\.?S\.?)$/,
+        "",
+      )
+      .trim();
+  } while (s !== prev);
+  return s;
+}
+
+// Load the committed issuer-name -> ticker map (public/issuer-map.json), keyed
+// by issuerKey (case/suffix-insensitive). Returns {} if missing/unreadable.
 function loadIssuerMap() {
   if (!existsSync(ISSUER_MAP_FILE)) return {};
   try {
@@ -338,7 +364,7 @@ function loadIssuerMap() {
     const out = {};
     for (const [name, tk] of Object.entries(parsed || {})) {
       if (name && typeof tk === "string" && tk.trim())
-        out[name.trim().toUpperCase()] = tk.trim().toUpperCase();
+        out[issuerKey(name)] = tk.trim().toUpperCase();
     }
     return out;
   } catch (_e) {
@@ -418,7 +444,7 @@ async function fetchDividends() {
     for (const r of byYear[yr] || []) {
       const issuer = String((r && r.emetteur) || "").trim();
       if (!issuer) continue;
-      const ticker = map[issuer.toUpperCase()];
+      const ticker = map[issuerKey(issuer)];
       if (!ticker) {
         unmapped.add(issuer);
         continue;
@@ -663,7 +689,7 @@ async function main() {
 }
 
 // Exported for tests (test/fetch-prices.test.js) - pure, no network.
-export { FIELD_MAP, COLUMNS, toRecords };
+export { FIELD_MAP, COLUMNS, toRecords, issuerKey };
 
 // Run only when executed directly (`node scripts/fetch-prices.mjs`, as the
 // workflow does) - importing the module from a test must not hit the network.
