@@ -110,6 +110,11 @@ The Dividends tab is the most feature-rich area.
 
 - **Dividend calendar** (`casa_divcal_v1`) — per-event records:
   `ticker, issuer, amount (per share), ex_date, pay_date, div_type`.
+- **Automatic calendar feed** — the daily price job publishes
+  `public/dividends.json` (the Bourse de Casablanca calendar, all years). On
+  load the app merges it into your calendar with the same upsert as a manual
+  import, so new and updated dividends appear without pasting. Issuers that
+  don't map to a ticker are listed in the Data tab's issuer matcher.
 - **Smart-merge import (upsert)** — importing the calendar **adds** new events,
   **updates** ones whose amount/date changed, and **never deletes** prior years.
   Identity is `ticker + ex-date + type`, so an **Ordinary and an Exceptional
@@ -183,6 +188,7 @@ src/
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
 scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
 scripts/fetch-logos.mjs    CI logo fetcher (weekly): TradingView CDN -> public/logos/CSEMA/*.svg
+scripts/certs/             public intermediate CA cert the price job needs for the dividend-calendar site
 js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO/forecast math to src/core via __core.
                            Each file owns one concern; shared cross-cutting
@@ -288,10 +294,16 @@ the app open or paste anything.
    tagged and shown as "(last FY)". FCF is ignored for banks, insurers and REITs,
    where it isn't a meaningful measure.
    Yield, ROE and EPS growth are stored as decimals.
-2. **Commit two public files.** The script writes `public/prices.json` (the
+2. **Commit the public files.** The script writes `public/prices.json` (the
    latest snapshot) and appends one dated row to `public/price-history.json`
    (every ticker's close + the MASI and MASI-20 levels, one row per trading day,
-   capped at ~3 years). The workflow commits **both** and then dispatches
+   capped at ~3 years). It also refreshes `public/dividends.json` from the
+   Bourse de Casablanca dividend calendar, mapping issuer names to tickers via
+   `public/issuer-map.json`. That site omits an intermediate TLS certificate, so
+   the step passes the public intermediate in `scripts/certs/` to Node
+   (`NODE_EXTRA_CA_CERTS`). Certificate checks stay on; see
+   `scripts/certs/README.md`. If the calendar step fails, the log says why.
+   The workflow commits whichever files changed and then dispatches
    `deploy.yml` (a `GITHUB_TOKEN` commit doesn't trigger other workflows'
    `push` events, so the deploy is triggered explicitly).
 3. **The browser reads them.** The "Fetch latest" button in the Data tab imports

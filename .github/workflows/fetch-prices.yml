@@ -50,6 +50,16 @@ jobs:
           package-manager-cache: false
 
       - name: Fetch prices -> public/prices.json
+        env:
+          # www.casablanca-bourse.com (dividend calendar) serves its certificate
+          # WITHOUT the Sectigo intermediate. Browsers fetch the missing piece
+          # themselves; Node does not, so every request failed with "unable to
+          # verify the first certificate" and dividends.json was never updated
+          # by CI. Supplying the public intermediate (Sectigo Public Server
+          # Authentication CA DV R36, valid to 2036) completes the chain while
+          # keeping full certificate verification - NOT disabling TLS checks.
+          # If the site changes CA, the dividend step logs the error again.
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/scripts/certs/sectigo-dv-r36.pem
         run: node scripts/fetch-prices.mjs
 
       - name: Commit refreshed data + trigger deploy (only if changed)
