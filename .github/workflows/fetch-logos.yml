@@ -2,14 +2,15 @@ name: Refresh ticker logos (TradingView)
 
 # Downloads each Casablanca ticker's vector logo from TradingView's public CDN
 # (scripts/fetch-logos.mjs) into public/logos/CSEMA/<TICKER>.svg, overwriting
-# only when the SVG changed. Logos change rarely, so this runs MONTHLY (and can
-# be run on demand). Committing to main triggers deploy.yml to republish.
+# only when the SVG changed. Runs WEEKLY so a new listing (IPO) picks up its
+# logo within days of TradingView publishing one; an unchanged week is a no-op
+# (no commit). Can also be run on demand. Committing to main triggers deploy.yml.
 
 on:
   schedule:
-    # 03:17 UTC on the 1st of each month (off-peak minute; see fetch-prices.yml
-    # note on GitHub cron being best-effort).
-    - cron: "17 3 1 * *"
+    # 03:17 UTC every Monday (off-peak minute; see fetch-prices.yml note on
+    # GitHub cron being best-effort).
+    - cron: "17 3 * * 1"
   workflow_dispatch: {}
 
 permissions:

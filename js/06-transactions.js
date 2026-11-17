@@ -971,10 +971,13 @@ document.getElementById("addTxn").onclick = () => {
       if (!M[t.ticker])
         M[t.ticker] = {
           name: _fn.trim(),
-          cat: "STOCK",
+          cat: null, // uncategorized until the user sets it (data check flags it)
           cycle: null,
           style: null,
           price: t.price || null,
+          // The trade price is a stand-in until the daily feed's market price
+          // lands; the auto-onboarding replaces it (see 06n-data-health.js).
+          _seedPrice: true,
         };
       else M[t.ticker].name = _fn.trim();
       safeSetItem("casa_master_v1", JSON.stringify(M));

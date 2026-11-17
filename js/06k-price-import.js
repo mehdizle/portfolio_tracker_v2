@@ -270,9 +270,9 @@ document.getElementById("clearTV").onclick = () => {
     }
   };
 
-  // Load prices.json once on boot to populate the freshness indicators.
-  fetch("prices.json", { cache: "no-store" })
-    .then((r) => (r.ok ? r.json() : null))
+  // Load prices.json once on boot to populate the freshness indicators. Shared
+  // with the auto-onboarding + data check (06n-data-health.js): one fetch.
+  loadPricesDoc()
     .then((doc) => reflectStamp(doc))
     .catch(() => reflectStamp(null));
 
@@ -295,6 +295,10 @@ document.getElementById("clearTV").onclick = () => {
       report("empty");
       return false;
     }
+    setPricesDoc(doc);
+    // First create records for any ticker you've entered that the master list
+    // doesn't have yet (e.g. a new IPO), so the loop below updates it too.
+    const onboarded = onboardFromDoc(doc).created;
     let updated = 0;
     const unmatched = [];
     for (const rec of records) {
@@ -319,7 +323,7 @@ document.getElementById("clearTV").onclick = () => {
         takeSnapshot(true);
       } catch (_e) {}
     }
-    report("ok", { updated, unmatched, doc });
+    report("ok", { updated, unmatched, doc, onboarded });
     return true;
   }
 
@@ -347,6 +351,11 @@ document.getElementById("clearTV").onclick = () => {
             "\u2705 Fetched &amp; applied <b>" +
             info.updated +
             "</b> tickers." +
+            (info.onboarded.length
+              ? " Added new: <b>" +
+                escapeHtml(info.onboarded.join(", ")) +
+                "</b>."
+              : "") +
             (info.unmatched.length
               ? ' <span style="color:var(--muted)">Unmatched: ' +
                 [...new Set(info.unmatched)].slice(0, 8).join(", ") +
@@ -370,7 +379,12 @@ document.getElementById("clearTV").onclick = () => {
         if (kind === "ok") {
           if (typeof toast === "function")
             toast(
-              "Applied latest prices to " + info.updated + " tickers.",
+              "Applied latest prices to " +
+                info.updated +
+                " tickers." +
+                (info.onboarded.length
+                  ? " Added new: " + info.onboarded.join(", ") + "."
+                  : ""),
               "ok",
             );
         } else if (kind === "err") {

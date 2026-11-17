@@ -1,6 +1,6 @@
 # Logo drop-in checklist (your held tickers)
 
-**Most of these are now fetched automatically.** The monthly
+**Most of these are now fetched automatically.** The weekly
 `fetch-logos.yml` workflow downloads a vector logo for every **CSEMA-listed
 equity** into `CSEMA/<TICKER>.svg` (see `README.md`). This checklist is now
 mainly for the tickers the fetcher can't resolve — the **OPCVM funds** (ATJ/FCP/

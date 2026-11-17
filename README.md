@@ -94,7 +94,7 @@ Live site: https://mehdizle.github.io/portfolio_tracker_v2/
   what's next, in Africa/Casablanca time regardless of the viewer's timezone.
 - **Ticker logos (auto-fetched, SVG + PNG, offline)** — every ticker shows a
   deterministic colored monogram, upgraded to a real logo when one is present. A
-  **monthly** GitHub Action (`fetch-logos.yml` → `scripts/fetch-logos.mjs`)
+  **weekly** GitHub Action (`fetch-logos.yml` → `scripts/fetch-logos.mjs`)
   auto-downloads each Casablanca equity's vector logo from TradingView's public
   CDN into `public/logos/CSEMA/` (overwrite-if-changed, server-side in CI); you
   can still drop your own file in to override. The **browser** makes no external
@@ -153,7 +153,7 @@ index.html                 HTML shell. Loads Highcharts (CDN) + the Vite entry.
 styles.css                 All styles (imported by the entry, fingerprinted by Vite).
 public/                    Static files copied verbatim to the site root by Vite.
   logos/                   Per-ticker logos (SVG/PNG), by exchange or flat.
-    CSEMA/                 Casablanca logos (auto-fetched monthly), e.g. CSEMA/ATW.svg.
+    CSEMA/                 Casablanca logos (auto-fetched weekly), e.g. CSEMA/ATW.svg.
   prices.json              Latest TradingView snapshot (public; committed by CI).
   price-history.json       Daily closes + MASI/MSI20 levels, one row/date (public; CI).
 src/
@@ -182,7 +182,7 @@ src/
   app-core.generated.js    UI bundle (git-ignored; produced by scripts/concat.mjs)
 scripts/concat.mjs         Concatenates the js/ UI files into the UI bundle.
 scripts/fetch-prices.mjs   CI price fetcher: TradingView -> prices.json + price-history.json
-scripts/fetch-logos.mjs    CI logo fetcher (monthly): TradingView CDN -> public/logos/CSEMA/*.svg
+scripts/fetch-logos.mjs    CI logo fetcher (weekly): TradingView CDN -> public/logos/CSEMA/*.svg
 js/                        UI layer (rendering, forms, tabs). Delegates all
                            fee/tax/FIFO/forecast math to src/core via __core.
                            Each file owns one concern; shared cross-cutting
@@ -228,6 +228,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   06k-price-import.js      TradingView paste + "Fetch latest" prices.json import (extracted from 06b-import)
   06l-csv-import.js        transaction CSV import/export (schema-driven; extracted from 06b-import)
   06m-divcal-import.js     dividend-calendar smart-merge import + issuer matcher/resolver (extracted from 06b-import)
+  06n-data-health.js       auto-onboarding of new tickers (IPOs) from prices.json + the holdings data check
   07-expenses.js           monthly expenses + savings pots (car/other planners)
   08-salary.js             salary calc, stock categories (import/export), cash ledger
   09b-market-session.js    Casablanca Stock Exchange live session-phase widget
@@ -241,7 +242,7 @@ test/                      Vitest suite (see "Tests" below)
   workflows/lint.yml                  PR: ESLint (all rules error-level, fail on any) + Prettier check (report-only)
   workflows/dependabot-auto-merge.yml auto-merges green patch/minor + GitHub-Actions-major Dependabot PRs
   workflows/fetch-prices.yml          weekday cron: fetch prices -> commit public JSON -> trigger deploy
-  workflows/fetch-logos.yml           monthly cron: fetch ticker logos -> commit SVGs -> trigger deploy
+  workflows/fetch-logos.yml           weekly cron: fetch ticker logos -> commit SVGs -> trigger deploy
   dependabot.yml                      grouped weekly dependency PRs (npm + GitHub Actions)
 eslint.config.js             ESLint flat config (scope-aware: core strict, UI shared-scope)
 .prettierrc.json             Prettier formatting rules
@@ -259,8 +260,8 @@ rewriting the UI's hundreds of call sites.
 
 The `js/` files are concatenated into `src/app-core.generated.js` (git-ignored)
 by `scripts/concat.mjs`, in the fixed order declared by its `files` array
-(currently 27 files: the numbered `01`–`09` modules plus their lettered splits -
-`01b`/`01c`, `02b`, `03b`, `06b`–`06m`, `09b`/`09c` - each one a single, cohesive
+(currently 28 files: the numbered `01`–`09` modules plus their lettered splits -
+`01b`/`01c`, `02b`, `03b`, `06b`–`06n`, `09b`/`09c` - each one a single, cohesive
 concern). **Edit the numbered source files, never the generated bundle**, and
 if you add/rename/remove a `js/*.js` file, update `concat.mjs`'s `files` array
 and `test/connections.test.js`'s file lists to match.
@@ -298,6 +299,20 @@ the app open or paste anything.
    (so nulls are skipped and manual categories are never overwritten); manual
    paste remains the fallback if the file is missing/stale. The "Portfolio Value
    Over Time" chart reads `price-history.json` and recomputes your curve locally.
+4. **New tickers onboard themselves.** The fetch covers the whole Casablanca
+   market, so a new listing (IPO) is in `prices.json` from its first trading
+   day. On every page load, and whenever you add a transaction or pending order,
+   `js/06n-data-health.js` matches your stock tickers against it with no click
+   needed. A ticker with no record gets one, using the TradingView company name
+   and **no category** (TradingView's sectors don't map cleanly onto yours).
+   A ticker with no market price, or still valued at the trade price the add
+   form used as a stand-in, gets the full record. Complete tickers are only
+   **gap-filled**, so missing fields are added and nothing is overwritten. A
+   **Data check** box under the dashboard warning lists held stocks that are
+   still incomplete: trade-price valuation, category/cycle/style not set, no
+   52-week range or fundamentals yet, missing from today's feed, or no logo
+   file yet. The diagnostics export includes the same check
+   (`held_stocks_data_complete`).
 
 Because the curve is recomputed from the public daily history × your local
 ledger, it is complete and gap-free no matter when you open the app, and it
@@ -338,6 +353,8 @@ tv-fields.test.js            TradingView metric meaning/units on both paths: 52-
                              range, NET debt/EBITDA (derived), latest-quarter P/B, TTM revenue,
                              %->decimal scaling, paste K/M/B suffixes, TTM->FY FCF fallback,
                              FCF red flag skipped for banks/insurers/REITs
+onboarding.test.js           new-ticker (IPO) onboarding: record creation, trade-price stand-in
+                             replaced, fill-only refresh, data-completeness issue codes
 ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
                              throwing, publishes data-act handlers to window, survives
                              seeded + corrupt localStorage (first automated UI-layer coverage)
@@ -440,8 +457,9 @@ monogram (initials on a stable per-ticker color) — always available, offline,
 private. Real logos are **kept up to date automatically**, and you can also drop
 your own in. See `public/logos/README.md` for the full details.
 
-- **Auto-fetched monthly.** `.github/workflows/fetch-logos.yml` runs
-  `scripts/fetch-logos.mjs` on a monthly cron: it reads each Casablanca ticker's
+- **Auto-fetched weekly.** `.github/workflows/fetch-logos.yml` runs
+  `scripts/fetch-logos.mjs` on a weekly cron (so a new listing gets its logo
+  within a week of TradingView publishing one): it reads each Casablanca ticker's
   `logoid` from TradingView's public scanner and downloads the matching vector
   logo from `s3-symbol-logo.tradingview.com/<logoid>.svg` into
   `public/logos/CSEMA/<KEY>.svg`. It **overwrites only when the SVG changed** (so

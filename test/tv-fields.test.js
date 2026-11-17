@@ -89,6 +89,17 @@ describe("fetch-prices: field mapping", () => {
     expect(none.fcfFy).toBeUndefined();
   });
 
+  it("carries the company name and TradingView sector for onboarding new tickers", () => {
+    expect(COLUMNS).toContain("description");
+    expect(COLUMNS).toContain("sector");
+    const r = one({ description: "  JET ENERGY ", sector: "Utilities" });
+    expect(r.company).toBe("JET ENERGY");
+    expect(r.tvSector).toBe("Utilities");
+    const bare = one({ description: "", sector: null });
+    expect(bare.company).toBeUndefined();
+    expect(bare.tvSector).toBeUndefined();
+  });
+
   it("maps the SOT listing to the SSOT master ticker and drops price-less rows", () => {
     expect(one({}, "SOT").ticker).toBe("SSOT");
     expect(

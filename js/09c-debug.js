@@ -446,6 +446,26 @@
           heldUncat.length ? heldUncat : "none",
         );
 
+        // 5f2. held stocks with incomplete market data (same rules as the
+        // in-app data check, src/core/master-schema.js stockDataIssues)
+        const heldGaps = [];
+        const _seenGap = {};
+        Object.keys(pos).forEach((k) => {
+          const p = pos[k];
+          if (!p || p.held <= 1e-9 || _seenGap[p.ticker]) return;
+          _seenGap[p.ticker] = true;
+          const m = M_[p.ticker];
+          if (m && m.cat === "OPCVM") return;
+          const issues = __core.masterSchema.stockDataIssues(m);
+          if (issues.length) heldGaps.push({ ticker: p.ticker, issues });
+        });
+        add(
+          "held_stocks_data_complete",
+          heldGaps.length === 0,
+          "warn",
+          heldGaps.length ? heldGaps : "none",
+        );
+
         // 5g. duplicate transaction ids / order sequence sanity (if ids exist)
         const ids = TX.map((t) => t && t.id).filter((x) => x != null);
         const dupIds = ids.filter((v, i) => ids.indexOf(v) !== i);

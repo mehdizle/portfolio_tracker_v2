@@ -28,6 +28,7 @@ const files = [
   "06-transactions.js",
   "06b-import.js",
   "06m-divcal-import.js",
+  "06n-data-health.js",
   "06g-opcvm-import.js",
   "06h-fund-match.js",
   "06i-fee-panel.js",
