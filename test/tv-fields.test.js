@@ -9,7 +9,7 @@
 //   - the paste parser read "47.70 B" as 47.7
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { COLUMNS, toRecords } from "../scripts/fetch-prices.mjs";
+import { COLUMNS, toRecords, issuerKey } from "../scripts/fetch-prices.mjs";
 
 // Build a scanner payload row from {tvField: value}; missing fields -> null.
 const row = (sym, fields) => ({
@@ -189,5 +189,26 @@ describe("FCF earnings-quality flag is sector-gated", () => {
 
   it("does not flag healthy conversion", () => {
     expect(fcfFlag({ fcf: 9, eps: 10, cat: "Building Materials" })).toBe(false);
+  });
+});
+
+describe("dividend calendar: issuer matching survives renames", () => {
+  it("ignores legal-form suffixes, case, accents and repeated spaces", () => {
+    // Real renames on the Bourse site that silently dropped 42 dividend rows.
+    expect(issuerKey("AFMA SA")).toBe(issuerKey("AFMA"));
+    expect(issuerKey("CASH PLUS S.A")).toBe(issuerKey("CASH PLUS"));
+    expect(
+      issuerKey("SOCIETE DE PROMOTION PHARMACEUTIQUE DU MAGHREB S.A"),
+    ).toBe(issuerKey("SOCIETE DE PROMOTION PHARMACEUTIQUE DU MAGHREB"));
+    expect(issuerKey("Zellidja S.A.")).toBe("ZELLIDJA");
+    expect(issuerKey("MUTANDIS SCA")).toBe("MUTANDIS");
+    expect(issuerKey("NEXANS  MAROC")).toBe("NEXANS MAROC");
+    expect(issuerKey("Société Générale")).toBe("SOCIETE GENERALE");
+  });
+
+  it("does not strip letters that are part of the name", () => {
+    expect(issuerKey("SANLAM MAROC")).toBe("SANLAM MAROC");
+    expect(issuerKey("SALAFIN")).toBe("SALAFIN");
+    expect(issuerKey("SAMIR")).toBe("SAMIR");
   });
 });
