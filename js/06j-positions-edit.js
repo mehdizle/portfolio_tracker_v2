@@ -209,6 +209,7 @@ window.editPrice = async function (tk) {
     return;
   }
   M[tk].price = num;
+  delete M[tk]._seedPrice; // a price you set is real, not the trade-price stand-in
   safeSetItem("casa_master_v1", JSON.stringify(M));
   render();
 };

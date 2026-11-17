@@ -33,7 +33,7 @@ export const TV_METRICS = [
   { key: "peg" },
   { key: "divy", scaledInParser: true }, // % -> decimal
   { key: "ev" },
-  { key: "netdebt" },
+  { key: "netdebt", clearable: true }, // explicit null from the fetch removes a stale value
   { key: "roe", scaledInParser: true }, // % -> decimal
   { key: "eps" },
   { key: "bvps" },
@@ -104,6 +104,21 @@ export function applyTvRec(M, tk, rec) {
     }
   }
   if (rec.category) target.cat = target.cat || rec.category;
+  // Clearable fields: an explicit `null` in the record (not just "absent")
+  // means the source says there's no valid value any more, so a stale stored
+  // one is removed rather than kept forever (e.g. an old GROSS debt ratio for
+  // a company whose EBITDA is now <= 0).
+  for (const f of TV_METRICS) {
+    if (
+      f.clearable &&
+      Object.prototype.hasOwnProperty.call(rec, f.key) &&
+      rec[f.key] === null
+    )
+      delete target[f.store || f.key];
+  }
+  // A trade/order price the add forms used as a stand-in (_seedPrice) is
+  // superseded by ANY real price - feed, paste or this record.
+  if (isNum(rec.price)) delete target._seedPrice;
   return written;
 }
 
@@ -131,10 +146,7 @@ export function onboardTvRec(M, tk, rec) {
   }
   if (typeof rec.tvSector === "string" && rec.tvSector && !M[tk].tvSector)
     M[tk].tvSector = rec.tvSector;
-  applyTvRec(M, tk, rec);
-  // A trade/order price used as a stand-in (set by the add forms) has now been
-  // replaced by the feed's market price - it's a normal record from here on.
-  if (isNum(rec.price)) delete M[tk]._seedPrice;
+  applyTvRec(M, tk, rec); // also clears a _seedPrice stand-in when rec has a price
   return created;
 }
 

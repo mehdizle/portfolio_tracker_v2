@@ -39,11 +39,12 @@ describe("fetch-prices: field mapping", () => {
     expect(one({ net_debt: -50, ebitda: 100 }).netdebt).toBeCloseTo(-0.5, 10);
   });
 
-  it("omits netdebt when EBITDA is zero/negative or an input is missing", () => {
-    expect(one({ net_debt: 300, ebitda: 0 }).netdebt).toBeUndefined();
-    expect(one({ net_debt: 300, ebitda: -10 }).netdebt).toBeUndefined();
-    expect(one({ net_debt: 300 }).netdebt).toBeUndefined();
-    expect(one({ ebitda: 100 }).netdebt).toBeUndefined();
+  it("sets netdebt to an explicit null when EBITDA is zero/negative or an input is missing", () => {
+    // null (not absent) so applyTvRec clears a stale stored value.
+    expect(one({ net_debt: 300, ebitda: 0 }).netdebt).toBeNull();
+    expect(one({ net_debt: 300, ebitda: -10 }).netdebt).toBeNull();
+    expect(one({ net_debt: 300 }).netdebt).toBeNull();
+    expect(one({ ebitda: 100 }).netdebt).toBeNull();
   });
 
   it("takes P/B on latest-quarter book (consistent with bvps), falling back to FY", () => {

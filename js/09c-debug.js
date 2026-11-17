@@ -372,7 +372,8 @@
         Object.keys(M_).forEach((tk) => {
           const m = M_[tk] || {};
           if (m.cat === "OPCVM" || m._catOnly) return;
-          if (!m.cat) noCat.push(tk);
+          // legacy "STOCK" placeholder = not categorized (same rule as the editor)
+          if (!m.cat || String(m.cat).toUpperCase() === "STOCK") noCat.push(tk);
           if (!m.cycle) noCycle.push(tk);
           if (!m.style) noStyle.push(tk);
         });

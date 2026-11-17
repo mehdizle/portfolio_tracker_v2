@@ -231,7 +231,7 @@ function convTipHTML(r) {
 function fairValueTipHTML(m, ticker) {
   const fv = fairValue(m);
   const parts = fairValueParts(m);
-  let h = _tipHead("Fair value \u00B7 " + (ticker || ""));
+  let h = _tipHead("Fair value \u00B7 " + escapeHtml(ticker || ""));
   if (!parts.length) {
     h += '<div class="mini">Not enough data \u2014 using last price.</div>';
     return h;
@@ -259,7 +259,7 @@ function upsideTipHTML(r) {
     fv != null && r.price != null && r.price > 0
       ? ((fv - r.price) / r.price) * 100
       : null;
-  let h = _tipHead("Upside to fair value \u00B7 " + r.ticker);
+  let h = _tipHead("Upside to fair value \u00B7 " + escapeHtml(r.ticker));
   h += _tipRow(
     "Current price",
     (r.price != null ? money(r.price) : "\u2014") + " MAD",
@@ -287,7 +287,7 @@ function upsideTipHTML(r) {
 }
 function pirTipHTML(r) {
   const m = r.m;
-  let h = _tipHead("Position in 52-wk range \u00B7 " + r.ticker);
+  let h = _tipHead("Position in 52-wk range \u00B7 " + escapeHtml(r.ticker));
   h += _tipRow("52-wk low", (num(m.low) ? money(m.low) : "\u2014") + " MAD");
   h += _tipRow(
     "Current price",
@@ -307,7 +307,7 @@ function peTipHTML(r) {
   const m = r.m;
   const epsAbs = num(m.eps) && m.eps > 0;
   const eps = epsAbs ? m.eps : num(m.pe) && m.pe > 0 ? m.price / m.pe : null;
-  let h = _tipHead("Price / Earnings \u00B7 " + r.ticker);
+  let h = _tipHead("Price / Earnings \u00B7 " + escapeHtml(r.ticker));
   h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
   if (eps != null)
     h += _tipRow(
@@ -336,7 +336,7 @@ function divyTipHTML(r) {
     : num(m.divy) && m.divy > 0
       ? m.price * m.divy
       : null;
-  let h = _tipHead("Dividend yield \u00B7 " + r.ticker);
+  let h = _tipHead("Dividend yield \u00B7 " + escapeHtml(r.ticker));
   h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
   // Only call it "price x yield" when it was actually derived that way; a
   // reported DPS (last fiscal year) is shown as such.
@@ -361,7 +361,7 @@ function divyTipHTML(r) {
 }
 function priceTipHTML(r) {
   const m = r.m;
-  let h = _tipHead("Last price \u00B7 " + r.ticker);
+  let h = _tipHead("Last price \u00B7 " + escapeHtml(r.ticker));
   h += _tipRow("Price", (r.price != null ? money(r.price) : "\u2014") + " MAD");
   if (num(m.low) && num(m.high)) {
     h += _tipRow("52-wk low", money(m.low));

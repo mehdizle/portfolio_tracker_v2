@@ -103,7 +103,7 @@ function loadFundIsins() {
 }
 
 // TradingView symbol -> app master ticker, when they differ. Mirrors
-// TV_TICKER_ALIAS in js/06b-import.js. On TradingView, SSOT is listed as SOT.
+// TV_TICKER_ALIAS in js/06k-price-import.js. On TradingView, SSOT is listed as SOT.
 const TV_TICKER_ALIAS = { SOT: "SSOT" };
 
 // app record key -> TradingView scanner field (validated against the Morocco
@@ -237,8 +237,13 @@ function toRecords(payload) {
       rec.tvSector = sector.trim();
     const netDebt = d[idx.net_debt],
       ebitda = d[idx.ebitda];
-    if (typeof netDebt === "number" && isFinite(netDebt) && ebitda > 0)
-      rec.netdebt = netDebt / ebitda;
+    // Explicit null (not "absent") when it can't be computed: netdebt is a
+    // `clearable` metric, so applyTvRec then REMOVES a stale stored value (e.g.
+    // a gross ratio from before the net-debt fix) instead of keeping it forever.
+    rec.netdebt =
+      typeof netDebt === "number" && isFinite(netDebt) && ebitda > 0
+        ? netDebt / ebitda
+        : null;
     // Only keep a record if it has at least a price (nothing else is useful
     // without it, and it keeps the file tight).
     if (rec.price != null) out.push(rec);
@@ -362,8 +367,14 @@ function parseAmount(s) {
 // Best-effort: returns { rows: [], unmapped: [] } on any failure.
 async function fetchDividends() {
   const empty = { rows: [], unmapped: [] };
+  // Every early exit says WHY, so a silent "no mapped dividends" in the CI log
+  // can be diagnosed (blocked request, page layout change, ...).
+  const skip = (why) => {
+    console.warn("fetch-prices: dividend calendar skipped - " + why);
+    return empty;
+  };
   const map = loadIssuerMap();
-  if (!Object.keys(map).length) return empty;
+  if (!Object.keys(map).length) return skip("issuer-map.json empty/missing");
   let html;
   try {
     const res = await fetch(CAL_URL, {
@@ -373,24 +384,33 @@ async function fetchDividends() {
           "portfolio-tracker-v2 (github actions dividend calendar refresh)",
       },
     });
-    if (!res.ok) return empty;
+    if (!res.ok) return skip("HTTP " + res.status + " " + res.statusText);
     html = await res.text();
-  } catch (_e) {
-    return empty;
+  } catch (e) {
+    return skip("request failed: " + (e && (e.cause || e.message || e)));
   }
   // The calendar lives in the Drupal settings JSON island.
   const m = html.match(
     /data-drupal-selector="drupal-settings-json"[^>]*>([\s\S]*?)<\/script>/,
   );
-  if (!m) return empty;
+  if (!m)
+    return skip(
+      "settings JSON not found in page (" +
+        html.length +
+        " bytes, starts: " +
+        JSON.stringify(html.slice(0, 120)) +
+        ")",
+    );
   let data;
   try {
     data = JSON.parse(m[1]);
-  } catch (_e) {
-    return empty;
+  } catch (e) {
+    return skip("settings JSON unparseable: " + (e && e.message));
   }
   const byYear =
     (data && data.boursenova && data.boursenova.dividendesData) || {};
+  if (!Object.keys(byYear).length)
+    return skip("no boursenova.dividendesData in settings JSON");
   const rows = [];
   const unmapped = new Set();
   const iso = (s) => String(s == null ? "" : s).slice(0, 10); // "...T00:00:00" -> date

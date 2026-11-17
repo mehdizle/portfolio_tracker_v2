@@ -145,18 +145,18 @@ document.getElementById("addPending").onclick = () => {
   } else {
     const _fn = (document.getElementById("pFundName") || {}).value;
     if (_fn && _fn.trim()) {
-      if (!M[o.ticker])
+      if (!M[o.ticker]) {
         M[o.ticker] = {
           name: _fn.trim(),
           cat: null, // uncategorized until the user sets it (data check flags it)
           cycle: null,
           style: null,
           price: o.price || null,
-          // Order price is a stand-in until the daily feed's market price
-          // lands; the auto-onboarding replaces it (see 06n-data-health.js).
-          _seedPrice: true,
         };
-      else M[o.ticker].name = _fn.trim();
+        // Order price is a stand-in until the daily feed's market price
+        // lands; the auto-onboarding replaces it (see 06n-data-health.js).
+        if (o.price) M[o.ticker]._seedPrice = true;
+      } else M[o.ticker].name = _fn.trim();
       safeSetItem("casa_master_v1", JSON.stringify(M));
     }
   }

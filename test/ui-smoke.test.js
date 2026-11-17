@@ -190,6 +190,14 @@ describe("UI smoke: boot resilience", () => {
     expect(catOpts).toContain("Energy");
     expect(catOpts).toContain("Banking");
     expect(catOpts).toContain("__other__");
+    // Picking a value and then "— choose —" leaves nothing pending (no
+    // phantom "Save (1)" that would silently do nothing).
+    for (const value of ["Energy", ""]) {
+      const s = sel("cat");
+      s.value = value;
+      s.dispatchEvent(new Event("change"));
+    }
+    expect(ed.querySelector("#catEdSave").disabled).toBe(true);
     // Pick values (each change repaints, so re-query the select every time).
     for (const [field, value] of [
       ["cat", "Energy"],

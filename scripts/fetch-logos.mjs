@@ -26,7 +26,7 @@ const LOGO_CDN = "https://s3-symbol-logo.tradingview.com";
 const UA = "portfolio-tracker-v2 (github actions logo refresh)";
 
 // TradingView symbol -> app ticker, when they differ (mirrors TV_TICKER_ALIAS
-// in js/06b-import.js: on TradingView, SSOT is listed as SOT).
+// in js/06k-price-import.js: on TradingView, SSOT is listed as SOT).
 const TV_TICKER_ALIAS = { SOT: "SSOT" };
 
 // Filesystem-safe logo key - identical rule to js/01-core.js _tickerLogoKey.

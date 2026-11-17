@@ -1495,11 +1495,13 @@ function _cdKeyMetrics(m, pir, trow) {
     const _fcfCl =
       m.fcf != null && _fcfUsed
         ? m.fcf > 0
-          ? m.eps != null && m.eps > 0 && m.fcf / m.eps > 0.7
-            ? "pos"
-            : m.fcf / m.eps < 0.4
-              ? "neg"
-              : ""
+          ? m.eps != null && m.eps > 0
+            ? m.fcf / m.eps > 0.7
+              ? "pos"
+              : m.fcf / m.eps < 0.4
+                ? "neg"
+                : ""
+            : "" // EPS <= 0: the FCF/EPS ratio means nothing, so no colour
           : "neg"
         : "";
     m1 += trow(
