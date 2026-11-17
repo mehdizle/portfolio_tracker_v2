@@ -247,7 +247,7 @@ test/                      Vitest suite (see "Tests" below)
   workflows/ci.yml                    PR verification: test + build (no deploy)
   workflows/lint.yml                  PR: ESLint (all rules error-level, fail on any) + Prettier check (report-only)
   workflows/dependabot-auto-merge.yml auto-merges green patch/minor + GitHub-Actions-major Dependabot PRs
-  workflows/fetch-prices.yml          weekday cron: fetch prices -> commit public JSON -> trigger deploy
+  workflows/fetch-prices.yml          weekday cron: fetch prices + dividend calendar -> commit public JSON -> trigger deploy
   workflows/fetch-logos.yml           weekly cron: fetch ticker logos -> commit SVGs -> trigger deploy
   dependabot.yml                      grouped weekly dependency PRs (npm + GitHub Actions)
 eslint.config.js             ESLint flat config (scope-aware: core strict, UI shared-scope)
@@ -280,14 +280,16 @@ Prices and the value-over-time curve are **hands-off** — you don't need to kee
 the app open or paste anything.
 
 1. **Fetch (server-side, weekdays).** `.github/workflows/fetch-prices.yml` runs
-   on a cron (18:00 UTC, Mon–Fri, after the CSE close) and on demand from the
+   on a cron (18:17 UTC Mon–Fri after the CSE close, plus a 20:17 UTC backup
+   run in case GitHub delays the first) and on demand from the
    Actions tab. It runs `scripts/fetch-prices.mjs`, which POSTs to TradingView's
    public scanner — the same request the `tradingview-screener` library makes,
    no auth, no scraping, and no browser CORS wall because it runs in CI.
    Field choices are deliberate (and locked by `test/tv-fields.test.js`): the
    **52-week** low/high (`price_52_week_*`, not the all-time `Low.All`/`High.All`),
    **net** debt/EBITDA derived as `net_debt / ebitda` (the scanner's
-   `total_debt_to_ebitda_fq` is gross debt; omitted when EBITDA ≤ 0),
+   `total_debt_to_ebitda_fq` is gross debt; when EBITDA ≤ 0 it's sent as an
+   explicit null that clears any stale stored value),
    P/B on **latest-quarter** book so it agrees with BVPS, and **TTM** revenue.
    FCF per share is **TTM when published, else the last fiscal year** (many
    Casablanca names report semi-annually and get no TTM figure); FY values are
@@ -365,7 +367,8 @@ backup-crypto.test.js        encrypted-backup round-trip, wrong-password, tamper
 tv-fields.test.js            TradingView metric meaning/units on both paths: 52-wk (not all-time)
                              range, NET debt/EBITDA (derived), latest-quarter P/B, TTM revenue,
                              %->decimal scaling, paste K/M/B suffixes, TTM->FY FCF fallback,
-                             FCF red flag skipped for banks/insurers/REITs
+                             FCF red flag skipped for banks/insurers/REITs, dividend-calendar
+                             issuer matching that ignores legal suffixes (SA, S.A., SCA...)
 onboarding.test.js           new-ticker (IPO) onboarding: record creation, trade-price stand-in
                              replaced by any real price, fill-only refresh, clearable stale
                              net-debt, data-completeness issue codes
