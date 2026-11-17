@@ -230,7 +230,7 @@ js/                        UI layer (rendering, forms, tabs). Delegates all
   06m-divcal-import.js     dividend-calendar smart-merge import + issuer matcher/resolver (extracted from 06b-import)
   06n-data-health.js       auto-onboarding of new tickers (IPOs) from prices.json + the holdings data check
   07-expenses.js           monthly expenses + savings pots (car/other planners)
-  08-salary.js             salary calc, stock categories (import/export), cash ledger
+  08-salary.js             salary calc, stock categories (import/export + in-app dropdown editor), cash ledger
   09b-market-session.js    Casablanca Stock Exchange live session-phase widget
   09c-debug.js             diagnostics export (#debugExport): read-only state snapshot + self-audit health checks
   09-boot.js               a11y tab-list nav + the data-act delegated dispatcher
@@ -357,7 +357,8 @@ onboarding.test.js           new-ticker (IPO) onboarding: record creation, trade
                              replaced, fill-only refresh, data-completeness issue codes
 ui-smoke.test.js             loads the real concatenated UI bundle in jsdom: boots without
                              throwing, publishes data-act handlers to window, survives
-                             seeded + corrupt localStorage (first automated UI-layer coverage)
+                             seeded + corrupt localStorage (first automated UI-layer coverage),
+                             and drives the Data-tab category dropdown editor end to end
 ```
 
 ---
@@ -492,6 +493,14 @@ Categories (sector / economic cycle / asset style) are entered manually, not fro
 TradingView, and feed the signal engine's peer sets and the rebalance
 diversification. In **Data → Import Stock Categories** you can:
 
+- **Set categories (in-app)** — below the import buttons, every stock with a
+  missing category, economic cycle or asset style is listed automatically
+  (held names first, with the TradingView sector as a hint), each with three
+  dropdowns. The options are the standard values plus every value you already
+  use; _Other…_ adds a new one. **Show all stocks** lets you change any stock.
+  **Save** goes through the same path as an import, so edits persist across
+  reloads and are included in backups. A newly onboarded ticker (e.g. an IPO)
+  appears here on its own.
 - **Export categories** — download your current categories as a CSV
   (`Ticker,Company Name,Category,Economic Cycle,Asset Style`), edit, and re-import.
   This doubles as the template.

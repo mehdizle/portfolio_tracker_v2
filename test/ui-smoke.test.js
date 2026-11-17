@@ -132,6 +132,99 @@ describe("UI smoke: boot resilience", () => {
     expect(typeof globalThis.__core.fifo.runFIFO).toBe("function");
   });
 
+  it("Data tab category editor lists a stock with missing categories and saves dropdown picks", () => {
+    localStorage.setItem(
+      "casa_portfolio_txns_v1",
+      JSON.stringify([
+        {
+          date: "2026-11-16",
+          ticker: "NRJ",
+          action: "BUY",
+          qty: 5,
+          price: 171.55,
+          pea: false,
+          broker: "saham",
+        },
+        {
+          date: "2026-01-05",
+          ticker: "ATW",
+          action: "BUY",
+          qty: 10,
+          price: 500,
+          pea: false,
+          broker: "saham",
+        },
+      ]),
+    );
+    localStorage.setItem(
+      "casa_master_v1",
+      JSON.stringify({
+        NRJ: {
+          name: "JET ENERGY",
+          cat: null,
+          cycle: null,
+          style: null,
+          price: 171.55,
+          tvSector: "Utilities",
+        },
+        ATW: {
+          name: "Attijariwafa Bank",
+          cat: "Banking",
+          cycle: "Cyclical",
+          style: "Compounder",
+          price: 520,
+        },
+      }),
+    );
+    loadApp();
+    const ed = document.getElementById("catEditor");
+    const sel = (field) =>
+      ed.querySelector(
+        'select.cat-ed[data-tk="NRJ"][data-field="' + field + '"]',
+      );
+    // Only the incomplete stock is listed (ATW is fully categorized).
+    expect(sel("cat")).toBeTruthy();
+    expect(ed.querySelector('select.cat-ed[data-tk="ATW"]')).toBeNull();
+    // Options include the standard vocabulary and values already in use.
+    const catOpts = [...sel("cat").options].map((o) => o.value);
+    expect(catOpts).toContain("Energy");
+    expect(catOpts).toContain("Banking");
+    expect(catOpts).toContain("__other__");
+    // Pick values (each change repaints, so re-query the select every time).
+    for (const [field, value] of [
+      ["cat", "Energy"],
+      ["cycle", "Cyclical"],
+      ["style", "Growth"],
+    ]) {
+      const s = sel(field);
+      s.value = value;
+      s.dispatchEvent(new Event("change"));
+    }
+    const save = ed.querySelector("#catEdSave");
+    expect(save.disabled).toBe(false);
+    save.click();
+    // Persisted to the master list AND the saved set replayed on boot.
+    const M = JSON.parse(localStorage.getItem("casa_master_v1"));
+    expect(M.NRJ).toMatchObject({
+      cat: "Energy",
+      cycle: "Cyclical",
+      style: "Growth",
+    });
+    const saved = JSON.parse(localStorage.getItem("casa_categories_v1"));
+    expect(saved.NRJ).toMatchObject({
+      cat: "Energy",
+      cycle: "Cyclical",
+      style: "Growth",
+    });
+    // Nothing missing anymore -> the editor shows the all-set message.
+    expect(
+      document.querySelector('#catEditor select.cat-ed[data-tk="NRJ"]'),
+    ).toBeNull();
+    expect(document.getElementById("catEditor").textContent).toMatch(
+      /Every stock has a category/,
+    );
+  });
+
   it("survives corrupt localStorage without throwing (resilience)", () => {
     // The app's loaders are corruption-safe (safeParseLS quarantines bad data),
     // so boot should NOT throw even on garbage. (It logs a corruption warning;

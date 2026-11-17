@@ -3744,10 +3744,11 @@
               ></span>
             </h2>
             <div class="mini" style="margin-bottom: 10px">
-              Categories are <b>entered manually</b> (not from TradingView). A
-              default set is built in &#x2014; <b>Export</b> your current
-              categories to a <code>.csv</code>, edit it, and re-import.
-              Columns:
+              Categories are <b>entered manually</b> (not from TradingView). Set
+              them right here with the dropdowns in <b>Set categories</b> below
+              (stocks with anything missing are listed automatically), or
+              <b>Export</b> your current categories to a <code>.csv</code>, edit
+              it, and re-import. Columns:
               <code
                 >Ticker,Company Name,Category,Economic Cycle,Asset Style</code
               >. Each row updates that ticker's <b>sector</b>,
@@ -3788,6 +3789,9 @@
               ></span>
             </div>
             <div id="catReview" style="margin-top: 10px"></div>
+            <!-- Set categories in-app: lists stocks with a missing category /
+                 cycle / style (rendered by js/08-salary.js renderCatEditor). -->
+            <div id="catEditor" style="margin-top: 14px"></div>
           </div>
         </div>
       </div>

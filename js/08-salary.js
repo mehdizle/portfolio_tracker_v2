@@ -538,6 +538,9 @@ function refreshCatStamp() {
       try {
         render();
       } catch (_) {}
+      try {
+        renderCatEditor(true);
+      } catch (_) {}
       // render() repaints every tab EXCEPT Rebalance (that tab only recomputes
       // on its "Compute plan" button or when you switch into it). Imported
       // categories feed the Rebalance sector/cycle/style readout, so refresh it
@@ -556,6 +559,360 @@ function refreshCatStamp() {
     rd.readAsText(f);
   };
 })();
+
+// ---- set categories in-app (dropdown editor) ----
+// Lists every stock whose category / economic cycle / asset style is missing
+// (or still the legacy "STOCK" placeholder), held names first, with three
+// dropdowns each. Saving goes through the SAME path as a CSV upload
+// (applyCategories -> M, merged into the saved set in casa_categories_v1 that
+// is replayed on boot, master persisted), so in-app edits survive reloads and
+// are part of backups. "Show all stocks" lets you edit any stock.
+//
+// render() calls this on every repaint (via renderMissingMaster) so a ticker
+// that appears later (e.g. a new IPO onboarded from the price feed) shows up
+// on its own. Unsaved dropdown choices are kept in a draft and re-applied, so
+// a repaint never wipes what you were selecting. State is `var` with no
+// initializer: render() can run before this file's text is evaluated.
+var _CAT_ED; // { draft: {tk:{cat,cycle,style}}, showAll: bool, extra: {field:[]}, sig: "" }
+const CAT_FIELDS = [
+  { key: "cat", label: "Category" },
+  { key: "cycle", label: "Economic cycle" },
+  { key: "style", label: "Asset style" },
+];
+// Standard values offered even before any stock uses them (same vocabulary as
+// the export template's hints). Values already in your data are added on top.
+const CAT_DEFAULT_OPTIONS = {
+  cat: [
+    "Agri-Services / Industrial",
+    "Automotive",
+    "Banking",
+    "Beverages",
+    "Building Materials",
+    "Chemicals",
+    "Construction",
+    "Consumer Goods",
+    "Energy",
+    "Financial Services",
+    "Food Producers",
+    "Forestry & Paper",
+    "Healthcare",
+    "Holding",
+    "Industrial Goods",
+    "Insurance",
+    "Mining",
+    "Real Estate",
+    "Real Estate (REIT)",
+    "Retail",
+    "Technology",
+    "Telecommunications",
+    "Tourism",
+    "Transport",
+    "Transport & Logistics",
+    "Utilities",
+  ],
+  cycle: ["Cyclical", "Sensitives", "Defensive"],
+  style: [
+    "Yield King",
+    "Growth",
+    "Compounder",
+    "Recovery",
+    "Value",
+    "Defensive",
+    "Cyclical",
+  ],
+};
+function _catBlank(v) {
+  return !v || String(v).trim().toUpperCase() === "STOCK";
+}
+
+function _catEdState() {
+  _CAT_ED = _CAT_ED || { draft: {}, showAll: false, extra: {}, sig: "" };
+  return _CAT_ED;
+}
+// Dropdown options for one field: standard list + every value in M + any
+// "Other..." value typed this session, de-duplicated and sorted.
+function _catOptions(field) {
+  const set = new Set(CAT_DEFAULT_OPTIONS[field] || []);
+  Object.keys(M).forEach((tk) => {
+    const m = M[tk];
+    const v = m && m[field];
+    if (m && m.cat !== "OPCVM" && !_catBlank(v)) set.add(String(v).trim());
+  });
+  (_catEdState().extra[field] || []).forEach((v) => set.add(v));
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+// Stocks to list: every non-fund master ticker plus every stock ticker in your
+// transactions / pending orders. Category-only stubs for names you don't own
+// (rows from an uploaded CSV) are listed only in "Show all".
+function _catCandidates(showAll) {
+  const held = {};
+  try {
+    Object.values(runFIFO().pos).forEach((p) => {
+      if (p && p.ticker && p.held > 1e-9) held[p.ticker] = true;
+    });
+  } catch (_e) {}
+  const mine = {};
+  const addMine = (t) => {
+    if (t && t.ticker && !isOpcvmTxn(t)) mine[String(t.ticker).trim()] = true;
+  };
+  try {
+    (TXNS || []).forEach(addMine);
+  } catch (_e) {}
+  try {
+    if (Array.isArray(PENDING)) PENDING.forEach(addMine);
+  } catch (_e) {}
+  const all = new Set([...Object.keys(M), ...Object.keys(mine)]);
+  const rows = [];
+  all.forEach((tk) => {
+    const m = M[tk] || {};
+    if (m.cat === "OPCVM") return;
+    const relevant = mine[tk] || held[tk] || !m._catOnly;
+    if (!relevant && !showAll) return;
+    const missing = CAT_FIELDS.some((f) => _catBlank(m[f.key]));
+    if (!showAll && !missing) return;
+    rows.push({ tk, m, held: !!held[tk], missing });
+  });
+  // held first, then anything missing, then alphabetical
+  rows.sort(
+    (a, b) =>
+      b.held - a.held || b.missing - a.missing || a.tk.localeCompare(b.tk),
+  );
+  return rows;
+}
+
+function renderCatEditor(force) {
+  const el = document.getElementById("catEditor");
+  if (!el) return;
+  const st = _catEdState();
+  const rows = _catCandidates(st.showAll);
+  // Skip the repaint when nothing it shows has changed (keeps focus/scroll).
+  const sig =
+    (st.showAll ? "A|" : "M|") +
+    rows
+      .map(
+        (r) =>
+          r.tk +
+          ":" +
+          (r.m.cat || "") +
+          "/" +
+          (r.m.cycle || "") +
+          "/" +
+          (r.m.style || "") +
+          (r.held ? "*" : ""),
+      )
+      .join(",");
+  if (!force && sig === st.sig && el.firstChild) return;
+  st.sig = sig;
+
+  const missingCount = rows.filter((r) => r.missing).length;
+  let h =
+    '<div style="border-top:1px solid var(--border);padding-top:12px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+    "<b>\u270F\uFE0F Set categories</b>" +
+    '<label class="mini" style="cursor:pointer"><input type="checkbox" id="catEdAll"' +
+    (st.showAll ? " checked" : "") +
+    "> Show all stocks</label></div>";
+  if (!rows.length) {
+    h +=
+      '<div class="mini" style="color:var(--success)">\u2705 Every stock has a category, economic cycle and asset style.' +
+      (st.showAll ? "" : " Tick <b>Show all stocks</b> to change one.") +
+      "</div></div>";
+    el.innerHTML = h;
+    _wireCatEditor(el);
+    return;
+  }
+  h +=
+    '<div class="mini" style="margin-bottom:8px;color:var(--text2)">' +
+    (st.showAll
+      ? "All stocks. Change any dropdown, then <b>Save</b>."
+      : missingCount +
+        " stock" +
+        (missingCount === 1 ? "" : "s") +
+        " with a missing category, cycle or style. Pick the values, then <b>Save</b>. Choose <i>Other\u2026</i> to add a new value.") +
+    "</div>";
+  h +=
+    '<div style="overflow-x:auto"><table class="tbl" style="width:100%"><thead><tr>' +
+    '<th scope="col" class="l">Ticker</th>' +
+    CAT_FIELDS.map(
+      (f) => '<th scope="col" class="l">' + f.label + "</th>",
+    ).join("") +
+    "</tr></thead><tbody>";
+  const opts = {};
+  CAT_FIELDS.forEach((f) => (opts[f.key] = _catOptions(f.key)));
+  rows.forEach((r) => {
+    const d = st.draft[r.tk] || {};
+    const nm =
+      r.m.name && r.m.name !== r.tk
+        ? '<div class="mini" style="color:var(--text2)">' +
+          escapeHtml(r.m.name) +
+          "</div>"
+        : "";
+    const hint = r.m.tvSector
+      ? '<div class="mini" style="color:var(--muted)">TradingView: ' +
+        escapeHtml(r.m.tvSector) +
+        "</div>"
+      : "";
+    h +=
+      '<tr><td class="l">' +
+      (typeof tickerBadge === "function" ? tickerBadge(r.tk) : "") +
+      "<b>" +
+      escapeHtml(r.tk) +
+      "</b>" +
+      (r.held ? ' <span class="tag-in">held</span>' : "") +
+      nm +
+      hint +
+      "</td>";
+    CAT_FIELDS.forEach((f) => {
+      const cur = _catBlank(r.m[f.key]) ? "" : String(r.m[f.key]).trim();
+      const val = d[f.key] != null ? d[f.key] : cur;
+      const list = opts[f.key].slice();
+      if (val && list.indexOf(val) < 0) list.push(val);
+      const changed = d[f.key] != null && d[f.key] !== cur;
+      h +=
+        '<td class="l"><select class="cat-ed" data-tk="' +
+        escapeHtml(r.tk) +
+        '" data-field="' +
+        f.key +
+        '" aria-label="' +
+        escapeHtml(f.label + " for " + r.tk) +
+        '" style="max-width:190px' +
+        (val ? "" : ";border-color:var(--warn)") +
+        (changed ? ";outline:1px solid var(--primary2)" : "") +
+        '"><option value="">\u2014 choose \u2014</option>' +
+        list
+          .map(
+            (o) =>
+              '<option value="' +
+              escapeHtml(o) +
+              '"' +
+              (o === val ? " selected" : "") +
+              ">" +
+              escapeHtml(o) +
+              "</option>",
+          )
+          .join("") +
+        '<option value="__other__">Other\u2026</option></select></td>';
+    });
+    h += "</tr>";
+  });
+  const pending = Object.keys(st.draft).length;
+  h +=
+    "</tbody></table></div>" +
+    '<div class="form-row" style="gap:8px;margin-top:8px;align-items:center">' +
+    '<button class="btn" id="catEdSave"' +
+    (pending ? "" : " disabled") +
+    ">\uD83D\uDCBE Save" +
+    (pending ? " (" + pending + ")" : "") +
+    "</button>" +
+    (pending
+      ? '<button class="btn sec2" id="catEdDiscard">Discard changes</button>'
+      : "") +
+    '<span class="mini" id="catEdResult" style="color:var(--muted)"></span></div></div>';
+  el.innerHTML = h;
+  _wireCatEditor(el);
+}
+
+function _wireCatEditor(el) {
+  const st = _catEdState();
+  const all = el.querySelector("#catEdAll");
+  if (all)
+    all.onchange = () => {
+      st.showAll = all.checked;
+      renderCatEditor(true);
+    };
+  el.querySelectorAll("select.cat-ed").forEach((sel) => {
+    sel.onchange = async () => {
+      const tk = sel.getAttribute("data-tk");
+      const field = sel.getAttribute("data-field");
+      let v = sel.value;
+      if (v === "__other__") {
+        const label =
+          (CAT_FIELDS.find((f) => f.key === field) || {}).label || field;
+        const typed =
+          typeof appPrompt === "function"
+            ? await appPrompt("New " + label.toLowerCase() + " for " + tk, "")
+            : null;
+        v = typed ? String(typed).trim() : "";
+        if (!v) {
+          renderCatEditor(true); // cancelled -> restore the previous choice
+          return;
+        }
+        st.extra[field] = st.extra[field] || [];
+        if (st.extra[field].indexOf(v) < 0) st.extra[field].push(v);
+      }
+      const m = M[tk] || {};
+      const cur = _catBlank(m[field]) ? "" : String(m[field]).trim();
+      st.draft[tk] = st.draft[tk] || {};
+      if (v === cur) delete st.draft[tk][field];
+      else st.draft[tk][field] = v;
+      if (!Object.keys(st.draft[tk]).length) delete st.draft[tk];
+      renderCatEditor(true);
+    };
+  });
+  const disc = el.querySelector("#catEdDiscard");
+  if (disc)
+    disc.onclick = () => {
+      st.draft = {};
+      renderCatEditor(true);
+    };
+  const save = el.querySelector("#catEdSave");
+  if (save) save.onclick = () => saveCatEditor();
+}
+
+// Persist the draft exactly like a CSV upload of those rows would.
+function saveCatEditor() {
+  const st = _catEdState();
+  const map = {};
+  Object.keys(st.draft).forEach((tk) => {
+    const d = st.draft[tk];
+    const rec = {};
+    CAT_FIELDS.forEach((f) => {
+      if (d[f.key]) rec[f.key] = d[f.key];
+    });
+    if (Object.keys(rec).length) map[tk] = rec;
+  });
+  const tks = Object.keys(map);
+  if (!tks.length) return;
+  applyCategories(map);
+  // Merge into the saved set (replayed on every boot) so the edit sticks.
+  const saved = loadCategories() || {};
+  tks.forEach((tk) => {
+    saved[tk] = Object.assign({}, saved[tk], map[tk]);
+    if (M[tk] && M[tk].name && !saved[tk].name) saved[tk].name = M[tk].name;
+  });
+  saveCategories(saved);
+  try {
+    safeSetItem("casa_master_v1", JSON.stringify(M));
+  } catch (_e) {}
+  st.draft = {};
+  refreshCatStamp();
+  try {
+    render();
+  } catch (_e) {}
+  // Same reason as the upload handler: Rebalance only recomputes on demand.
+  try {
+    if (
+      typeof renderRebalance === "function" &&
+      document.getElementById("rbResult")
+    )
+      renderRebalance();
+  } catch (_e) {}
+  renderCatEditor(true);
+  const res = document.getElementById("catEdResult");
+  if (res) {
+    res.style.color = "var(--success)";
+    res.textContent =
+      "\u2705 Saved " +
+      tks.length +
+      " stock" +
+      (tks.length === 1 ? "" : "s") +
+      ": " +
+      tks.join(", ") +
+      ".";
+  }
+  if (typeof toast === "function")
+    toast("Categories saved for " + tks.join(", ") + ".", "ok");
+}
 
 // ---- export current categories (doubles as the template) ----
 // Dumps every master ticker's CURRENT category / economic cycle / asset style
@@ -628,6 +985,7 @@ function refreshCatStamp() {
 })();
 
 applySavedCategories();
+renderCatEditor(true);
 
 showBackupAge();
 renderDivTax();
