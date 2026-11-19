@@ -1,6 +1,6 @@
 {
  "_source": "tradingview:morocco + asfim:opcvm",
- "_fetched": "2026-11-19T00:28:47.071Z",
+ "_fetched": "2026-11-19T01:51:37.988Z",
  "_count": 83,
  "records": [
   {
@@ -1096,7 +1096,7 @@
    "low": 171.55,
    "high": 190,
    "company": "Jet Energy",
-   "tvSector": "Electronic Technology",
+   "tvSector": "Industrial Services",
    "netdebt": null
   },
   {
